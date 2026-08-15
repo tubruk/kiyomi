@@ -23,3 +23,10 @@ pkg/webui/dist
 # E2E artifacts
 e2e/test-results/
 e2e/reports/
+
+# Plugins & Dev Plugin Outputs
+dev-plugins/
+plugins-dev/
+*-plugin
+*-plugin.exe
+

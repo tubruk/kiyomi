@@ -19,8 +19,9 @@ import (
 )
 
 type mockProvider struct {
-	id   string
-	name string
+	id      string
+	name    string
+	baseURL string
 }
 
 func (m *mockProvider) ID() string                    { return m.id }
@@ -32,10 +33,14 @@ func (m *mockProvider) RequiresAuth() bool           { return false }
 func (m *mockProvider) State() sdk.ProviderState      { return sdk.StateActive }
 
 func (m *mockProvider) GetConfig() sdk.ProviderConfig {
+	bURL := m.baseURL
+	if bURL == "" {
+		bURL = "https://example.com"
+	}
 	return sdk.ProviderConfig{
 		ID:       m.id,
 		Name:     m.name,
-		BaseURL:  "https://example.com",
+		BaseURL:  bURL,
 		Language: "en",
 	}
 }
@@ -123,9 +128,9 @@ func TestListContentProviders(t *testing.T) {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	// Should contain mangadex, mangafox, and mockprov (sorted by id)
-	if len(list) < 3 {
-		t.Errorf("expected at least 3 content providers, got %d", len(list))
+	// Should contain registered mockprov
+	if len(list) < 1 {
+		t.Errorf("expected at least 1 content provider, got %d", len(list))
 	}
 
 	foundMock := false

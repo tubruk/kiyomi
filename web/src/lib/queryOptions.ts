@@ -44,3 +44,29 @@ export const exploreCatalogQueryOptions = (
     enabled: Boolean(providerId),
   });
 };
+
+export const pluginsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.plugins.all,
+    queryFn: api.getPlugins,
+  });
+
+export const pluginLogsQueryOptions = (pluginId: string) =>
+  queryOptions({
+    queryKey: queryKeys.plugins.logs(pluginId),
+    queryFn: () => api.getPluginLogs(pluginId),
+    enabled: Boolean(pluginId),
+  });
+
+export const collisionsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.collisions.all,
+    queryFn: api.getCollisions,
+  });
+
+export const infoQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.info,
+    queryFn: () => api.getInfo(),
+    staleTime: Infinity, // build info never changes at runtime
+  });

@@ -6,15 +6,20 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tubruk/kiyomi/pkg/provider"
 	"github.com/tubruk/kiyomi/pkg/provider/sdk"
 )
 
 // mockBaseProvider implements sdk.Provider.
 type mockBaseProvider struct {
-	id   string
-	name string
-	caps []string
+	id        string
+	name      string
+	caps      []string
+	pluginID  string
+	version   string
+	isBuiltIn bool
 }
 
 func (m *mockBaseProvider) ID() string                    { return m.id }
@@ -24,6 +29,9 @@ func (m *mockBaseProvider) Capabilities() []string        { return m.caps }
 func (m *mockBaseProvider) ConfigKeys() []sdk.ConfigKeySpec { return nil }
 func (m *mockBaseProvider) RequiresAuth() bool           { return false }
 func (m *mockBaseProvider) State() sdk.ProviderState      { return sdk.StateActive }
+func (m *mockBaseProvider) PluginID() string              { return m.pluginID }
+func (m *mockBaseProvider) Version() string               { return m.version }
+func (m *mockBaseProvider) IsBuiltIn() bool               { return m.isBuiltIn }
 
 // mockMetadataProvider implements sdk.Metadata.
 type mockMetadataProvider struct {
@@ -118,10 +126,10 @@ func (f *mockFullProvider) IsAuthenticated() bool { return true }
 func TestRegistry_RegisterAndGet(t *testing.T) {
 	reg := provider.NewRegistry()
 
-	metaProv := &mockMetadataProvider{mockBaseProvider: mockBaseProvider{id: "meta1", name: "Meta One", caps: []string{"metadata"}}}
-	contentProv := &mockContentProvider{mockBaseProvider: mockBaseProvider{id: "content1", name: "Content One", caps: []string{"content"}}}
-	trackProv := &mockTrackingProvider{mockBaseProvider: mockBaseProvider{id: "track1", name: "Track One", caps: []string{"tracking"}}}
-	fullProv := &mockFullProvider{mockBaseProvider: mockBaseProvider{id: "full1", name: "Full One", caps: []string{"metadata", "content", "tracking"}}}
+	metaProv := &mockMetadataProvider{mockBaseProvider: mockBaseProvider{id: "meta1", name: "Meta One", caps: []string{"metadata"}, isBuiltIn: true}}
+	contentProv := &mockContentProvider{mockBaseProvider: mockBaseProvider{id: "content1", name: "Content One", caps: []string{"content"}, isBuiltIn: true}}
+	trackProv := &mockTrackingProvider{mockBaseProvider: mockBaseProvider{id: "track1", name: "Track One", caps: []string{"tracking"}, isBuiltIn: true}}
+	fullProv := &mockFullProvider{mockBaseProvider: mockBaseProvider{id: "full1", name: "Full One", caps: []string{"metadata", "content", "tracking"}, isBuiltIn: true}}
 
 	reg.Register(metaProv)
 	reg.Register(contentProv)
@@ -176,9 +184,9 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 func TestRegistry_Listing(t *testing.T) {
 	reg := provider.NewRegistry()
 
-	metaProv := &mockMetadataProvider{mockBaseProvider: mockBaseProvider{id: "meta1", name: "Meta One", caps: []string{"metadata"}}}
-	contentProv := &mockContentProvider{mockBaseProvider: mockBaseProvider{id: "content1", name: "Content One", caps: []string{"content"}}}
-	fullProv := &mockFullProvider{mockBaseProvider: mockBaseProvider{id: "full1", name: "Full One", caps: []string{"metadata", "content", "tracking"}}}
+	metaProv := &mockMetadataProvider{mockBaseProvider: mockBaseProvider{id: "meta1", name: "Meta One", caps: []string{"metadata"}, isBuiltIn: true}}
+	contentProv := &mockContentProvider{mockBaseProvider: mockBaseProvider{id: "content1", name: "Content One", caps: []string{"content"}, isBuiltIn: true}}
+	fullProv := &mockFullProvider{mockBaseProvider: mockBaseProvider{id: "full1", name: "Full One", caps: []string{"metadata", "content", "tracking"}, isBuiltIn: true}}
 
 	reg.Register(metaProv)
 	reg.Register(contentProv)
@@ -209,6 +217,129 @@ func TestRegistry_Listing(t *testing.T) {
 	}
 }
 
+func TestRegistry_CollisionHandling(t *testing.T) {
+	reg := provider.NewRegistry()
+
+	builtinMd := &mockMetadataProvider{
+		mockBaseProvider: mockBaseProvider{
+			id:        "mangadex",
+			name:      "MangaDex Built-in",
+			caps:      []string{"metadata"},
+			isBuiltIn: true,
+		},
+	}
+
+	pluginA := &mockMetadataProvider{
+		mockBaseProvider: mockBaseProvider{
+			id:        "mangadex",
+			name:      "MangaDex Plugin A",
+			caps:      []string{"metadata"},
+			pluginID:  "plugin-a",
+			version:   "1.0.0",
+			isBuiltIn: false,
+		},
+	}
+
+	pluginB := &mockMetadataProvider{
+		mockBaseProvider: mockBaseProvider{
+			id:        "mangadex",
+			name:      "MangaDex Plugin B",
+			caps:      []string{"metadata"},
+			pluginID:  "plugin-b",
+			version:   "1.2.0",
+			isBuiltIn: false,
+		},
+	}
+
+	// 1. Register Built-in and Plugin A -> Built-in takes precedence
+	reg.Register(builtinMd)
+	reg.Register(pluginA)
+
+	p, ok := reg.Get("mangadex")
+	require.True(t, ok)
+	assert.Equal(t, "MangaDex Built-in", p.Name(), "In-process built-in should take default precedence")
+
+	// Namespaced handle for Plugin A must also be reachable
+	pA, ok := reg.Get("mangadex@plugin-a")
+	require.True(t, ok)
+	assert.Equal(t, "MangaDex Plugin A", pA.Name())
+
+	// 2. User Explicit Preference override -> choose Plugin A
+	reg.SetUserPreference("mangadex", "plugin-a")
+	p, ok = reg.Get("mangadex")
+	require.True(t, ok)
+	assert.Equal(t, "MangaDex Plugin A", p.Name(), "User preference should override built-in")
+
+	// 3. User Explicit Preference back to builtin
+	reg.SetUserPreference("mangadex", "builtin")
+	p, ok = reg.Get("mangadex")
+	require.True(t, ok)
+	assert.Equal(t, "MangaDex Built-in", p.Name())
+
+	// 4. SemVer Resolution: Unregister Built-in, register Plugin A (v1.0.0) & Plugin B (v1.2.0)
+	reg.SetUserPreference("mangadex", "") // clear preference
+	reg.Unregister("mangadex@builtin")
+
+	reg.Register(pluginA)
+	reg.Register(pluginB)
+
+	p, ok = reg.Get("mangadex")
+	require.True(t, ok)
+	assert.Equal(t, "MangaDex Plugin B", p.Name(), "Highest SemVer (v1.2.0 > v1.0.0) should win")
+
+	pA, ok = reg.Get("mangadex@plugin-a")
+	require.True(t, ok)
+	assert.Equal(t, "MangaDex Plugin A", pA.Name())
+
+	pB, ok := reg.Get("mangadex@plugin-b")
+	require.True(t, ok)
+	assert.Equal(t, "MangaDex Plugin B", pB.Name())
+}
+
+func TestRegistry_SwapAndUnregister(t *testing.T) {
+	reg := provider.NewRegistry()
+
+	oldProv := &mockMetadataProvider{
+		mockBaseProvider: mockBaseProvider{
+			id:        "mangafox",
+			name:      "MangaFox v1.0",
+			caps:      []string{"metadata"},
+			pluginID:  "fox-pack",
+			version:   "1.0.0",
+			isBuiltIn: false,
+		},
+	}
+
+	newProv := &mockMetadataProvider{
+		mockBaseProvider: mockBaseProvider{
+			id:        "mangafox",
+			name:      "MangaFox v1.1",
+			caps:      []string{"metadata"},
+			pluginID:  "fox-pack",
+			version:   "1.1.0",
+			isBuiltIn: false,
+		},
+	}
+
+	reg.Register(oldProv)
+	p, ok := reg.Get("mangafox")
+	require.True(t, ok)
+	assert.Equal(t, "MangaFox v1.0", p.Name())
+
+	// Atomic hot-swap
+	swapped := reg.SwapProvider("mangafox", oldProv, newProv)
+	assert.True(t, swapped)
+
+	p, ok = reg.Get("mangafox")
+	require.True(t, ok)
+	assert.Equal(t, "MangaFox v1.1", p.Name())
+
+	// Unregister by Plugin ID
+	reg.UnregisterPlugin("fox-pack")
+	_, ok = reg.Get("mangafox")
+	assert.False(t, ok, "mangafox should be removed after UnregisterPlugin")
+}
+
 func TestRegistry_ThreadSafety(t *testing.T) {
 	reg := provider.NewRegistry()
 	var wg sync.WaitGroup
@@ -219,7 +350,7 @@ func TestRegistry_ThreadSafety(t *testing.T) {
 		// Concurrent Register
 		go func(idx int) {
 			defer wg.Done()
-			p := &mockMetadataProvider{mockBaseProvider: mockBaseProvider{id: "meta_concurrent", name: "Meta Concurrent"}}
+			p := &mockMetadataProvider{mockBaseProvider: mockBaseProvider{id: "meta_concurrent", name: "Meta Concurrent", isBuiltIn: true}}
 			reg.Register(p)
 		}(i)
 

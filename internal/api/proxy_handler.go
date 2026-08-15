@@ -15,8 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/tubruk/kiyomi/internal/cache"
 	"github.com/tubruk/kiyomi/internal/library"
-	"github.com/tubruk/kiyomi/pkg/provider/mangadex"
-	"github.com/tubruk/kiyomi/pkg/provider/mangafox"
+	"github.com/tubruk/kiyomi/pkg/provider/sdk"
 )
 
 func (h *Handler) getChapterPages(c echo.Context) error {
@@ -108,7 +107,8 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 	}
 
 	if providerID == "" {
-		providerID = mangadex.ProviderID
+		c.Set("handler_error", "provider ID could not be determined for chapter")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "provider ID could not be determined for chapter"})
 	}
 
 	refresh := c.QueryParam("refresh") == "true"
@@ -130,10 +130,7 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 	}
 
 	_, contentProvider, err := h.getProvider(providerID)
-	if err != nil {
-		contentProvider, _ = h.registry.GetContent(mangadex.ProviderID)
-	}
-	if contentProvider == nil {
+	if err != nil || contentProvider == nil {
 		return handleProviderError(c, providerID, fmt.Errorf("provider not available: %s", providerID))
 	}
 
@@ -270,11 +267,16 @@ func (h *Handler) buildProxyRequest(ctx context.Context, urlStr string, refererP
 
 	referer := refererParam
 	if referer == "" && content != nil && content.ProviderID != "" {
-		switch content.ProviderID {
-		case mangafox.ProviderID:
-			referer = "https://fanfox.net/"
-		case mangadex.ProviderID:
-			referer = "https://mangadex.org/"
+		if cp, ok := h.registry.GetContent(content.ProviderID); ok {
+			if hsGetter, ok := cp.(interface{ GetConfig() sdk.ProviderConfig }); ok {
+				cfg := hsGetter.GetConfig()
+				if cfg.BaseURL != "" {
+					referer = cfg.BaseURL
+					if !strings.HasSuffix(referer, "/") {
+						referer += "/"
+					}
+				}
+			}
 		}
 	}
 	if referer == "" {

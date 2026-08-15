@@ -4,9 +4,10 @@
   "private": true,
   "description": "Lightweight API-first manga reader and source aggregator platform powered by Go and React",
   "scripts": {
-    "dev:api": "command -v air >/dev/null 2>&1 && air || go run ./cmd/kiyomi",
+    "dev:plugins": "KIYOMI_PLUGIN_DIR=dev-plugins go run ./scripts/watch-plugins.go",
+    "dev:api": "KIYOMI_PLUGIN_DIR=dev-plugins go run ./cmd/kiyomi",
     "dev:ui": "bun --cwd web dev",
-    "dev": "concurrently -n \"API,UI\" -c \"magenta.bold,cyan.bold\" \"bun dev:api\" \"bun dev:ui\"",
+    "dev": "concurrently -n \"PLUGINS,API,UI\" -c \"yellow.bold,magenta.bold,cyan.bold\" \"bun dev:plugins\" \"bun dev:api\" \"bun dev:ui\"",
     "build:ui": "bun --cwd web build",
     "build:api": "go build -o bin/kiyomi ./cmd/kiyomi",
     "build": "bun run build:ui && bun run build:api",

@@ -36,13 +36,19 @@ func (h *Handler) listContentProviders(c echo.Context) error {
 				lang = cfg.Language
 			}
 		}
+		caps := []string{"content"}
+		if prov, ok := h.registry.Get(cp.ID()); ok {
+			caps = prov.Capabilities()
+		}
+
 		providers = append(providers, echo.Map{
-			"id":        cp.ID(),
-			"name":      cp.Name(),
-			"icon":      cp.Icon(),
-			"baseUrl":   baseURL,
-			"lang":      lang,
-			"hasLatest": true,
+			"id":           cp.ID(),
+			"name":         cp.Name(),
+			"icon":         cp.Icon(),
+			"baseUrl":      baseURL,
+			"lang":         lang,
+			"hasLatest":    true,
+			"capabilities": caps,
 		})
 	}
 	sort.Slice(providers, func(i, j int) bool {

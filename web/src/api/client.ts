@@ -5,6 +5,11 @@ import {
   ExploreResponse,
   ChapterListResponse,
   PageListResponse,
+  PluginItem,
+  PluginLogEntry,
+  ProviderCollision,
+  ReloadPluginsResponse,
+  AppInfo,
 } from '../types/api';
 
 const API_BASE = '/api/v1';
@@ -27,6 +32,11 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 export const api = {
+  // System Info
+  getInfo: (): Promise<AppInfo> => {
+    return fetchAPI<AppInfo>('/info');
+  },
+
   // Content Providers
   getSources: (): Promise<Source[]> => {
     return fetchAPI<Source[]>('/providers');
@@ -181,6 +191,52 @@ export const api = {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(progress),
+      }
+    );
+  },
+  // Plugins Management & Diagnostics
+  getPlugins: (): Promise<PluginItem[]> => {
+    return fetchAPI<PluginItem[]>('/plugins');
+  },
+
+  reloadPlugins: (): Promise<ReloadPluginsResponse> => {
+    return fetchAPI<ReloadPluginsResponse>('/plugins/reload', {
+      method: 'POST',
+    });
+  },
+
+  getPluginLogs: (pluginId: string): Promise<PluginLogEntry[]> => {
+    return fetchAPI<PluginLogEntry[]>(`/plugins/${encodeURIComponent(pluginId)}/logs`);
+  },
+
+  updatePluginConfig: (
+    pluginId: string,
+    config: { globalConfig?: Record<string, string>; providerConfigs?: Record<string, Record<string, string>> }
+  ): Promise<{ status: string; message: string; pluginId: string }> => {
+    return fetchAPI<{ status: string; message: string; pluginId: string }>(
+      `/plugins/${encodeURIComponent(pluginId)}/config`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      }
+    );
+  },
+
+  getCollisions: (): Promise<ProviderCollision[]> => {
+    return fetchAPI<ProviderCollision[]>('/plugins/collisions');
+  },
+
+  setPluginPreference: (
+    providerId: string,
+    preference: string
+  ): Promise<{ status: string; message: string; providerId: string; preference: string }> => {
+    return fetchAPI<{ status: string; message: string; providerId: string; preference: string }>(
+      '/plugins/preference',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId, preference }),
       }
     );
   },
