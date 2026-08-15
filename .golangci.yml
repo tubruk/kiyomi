@@ -1,0 +1,109 @@
+# https://golangci-lint.run/usage/configuration/
+# https://golangci-lint.run/usage/linters/
+
+version: "2"
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - errcheck       # Check for unchecked errors.
+    - govet          # Reports suspicious constructs.
+    - ineffassign    # Detects unused variable assignments.
+    - staticcheck    # Static analysis checks.
+    - unused         # Checks for unused code constants and variables.
+    - copyloopvar    # Detects places where loop variables are copied.
+    - errorlint      # Find issues with error wrapping.
+    - fatcontext     # Detect making non-pointer in/conversion to context in non-driver core files.
+    - revive         # Fast, configurable, extensible linter.
+    - noctx          # Detects sending http request without context.Context and without timeout.
+    - makezero       # Detects slices declared with make([]T, 0) that should be declared with make([]T, length).
+    - unconvert      # Detects unnecessary type conversions.
+    - unparam        # Reports unused function parameters.
+    - asasalint      # Check for pass of unaddressable values to functions expecting addresses.
+    - prealloc       # Detects allocations that could be reduced to a single make.
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      # Deferred cleanup: close errors are und actionable — caller can't recover
+      - (*database/sql.Rows).Close
+      - (*database/sql.Tx).Rollback
+      - (*net/http.Response).Body.Close
+      - (*os.File).Close
+      - (io.Closer).Close
+  govet:
+    enable-all: true
+  staticcheck:
+    checks:
+      - "all"
+      - "ST1000"
+      - "ST1003"
+      - "ST1005"
+  revive:
+    rules:
+      - name: var-naming
+        severity: info
+      - name: package-comments
+        severity: info
+      - name: exported
+        severity: info
+      - name: blank-imports
+        severity: error
+      - name: context-as-argument
+        severity: error
+      - name: context-keys-as-methods
+        severity: error
+      - name: dot-imports
+        severity: error
+      - name: error-return
+        severity: error
+      - name: error-strings
+        severity: error
+      - name: increment-decrement
+        severity: error
+      - name: indent-error-flow
+        severity: error
+      - name: range
+        severity: error
+      - name: receiver-naming
+        severity: error
+      - name: redundant-sprint
+        severity: error
+      - name: time-naming
+        severity: error
+      - name: unexported-return
+        severity: error
+      - name: val-errors
+        severity: error
+  unused:
+    checks:
+      - field
+      - getter
+      - method
+      - var
+      - type
+  noctx:
+    http-statuses:
+      - 0
+
+issues:
+  exclude-rules:
+    # Exclude lll issues (line-length) for generated pb.go files.
+    - path: "_pb[.]go$"
+      linters:
+        - lll
+    # Exclude unused linter in test files.
+    - path: "_test[.]go$"
+      linters:
+        - unparam
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
