@@ -16,7 +16,7 @@ Kiyomi puts data ownership first: your manga library lives in plain files and di
 - **Filesystem-First Library**: Stores manga details, chapter listings, and reading history as plain files on local disk (`$KIYOMI_HOME/library/`), avoiding proprietary database lock-in.
 - **Built-in Manga Sources**: Search, browse catalogs, and import titles directly from **MangaDex** and **MangaFox**.
 - **TLS Fingerprint Impersonation**: Mimics Chrome and Firefox TLS fingerprints and request headers to reliably bypass anti-bot image CDN protections.
-- **Automatic Image & Page Caching**: Proxied cover art, chapter pages, and page lists are saved locally on demand for fast loading and offline re-reading.
+- **Fast & Snappy Page Loading**: Automatically saves cover art, chapter page lists, and images locally as you read for instant re-reading and smooth browsing.
 - **Web Reader**: Single-page and vertical long-strip (Webtoon) reading modes with touch/drag navigation, keyboard shortcuts, and theme presets.
 - **Progress Tracking & Statuses**: Automatic reading progress updates (last read page, completed chapters) and library shelf filters (*Reading*, *Completed*, *Plan to Read*, *On Hold*, *Dropped*).
 - **In-App Diagnostic Inspection**: Clean error detail modals with copyable tracebacks to easily inspect network or provider failures.
@@ -39,17 +39,17 @@ Kiyomi puts data ownership first: your manga library lives in plain files and di
 
 ### Quick Start
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/tubruk/kiyomi.git
-   cd kiyomi
-   ```
+Clone the repository and start the server:
 
-2. **Run the server**:
-   ```bash
-   go run ./cmd/kiyomi
-   ```
-   The web interface will be available at `http://localhost:8080`.
+```bash
+git clone https://github.com/tubruk/kiyomi.git
+cd kiyomi
+go run ./cmd/kiyomi
+```
+
+The web interface will be available at `http://localhost:8080`.
+
+---
 
 ### Configuration Environment Variables
 
