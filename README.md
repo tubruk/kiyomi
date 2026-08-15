@@ -7,19 +7,19 @@
 
 **Kiyomi** is a self-hosted, filesystem-first manga reader and manager server with an embedded web interface.
 
-Kiyomi puts data ownership first: your manga library lives in plain files and directories on disk (`$KIYOMI_HOME/library/`) with human-readable JSON manifests (`meta.json` and `pages.json`). If the server or database dies, your library structure and reading data remain 100% intact and recoverable.
+Kiyomi puts data ownership first: your manga library lives in plain files and directories on local disk with human-readable JSON manifests (`meta.json` and `pages.json`). If the server or database dies, your library structure and reading data remain 100% intact and recoverable.
 
 ---
 
 ## Features
 
-- **Filesystem-First Library**: Stores manga details, chapter listings, and reading history as plain files on local disk (`$KIYOMI_HOME/library/`), avoiding proprietary database lock-in.
+- **Filesystem-First Library**: Stores manga details, chapter listings, and reading history as plain files on local disk, avoiding proprietary database lock-in.
 - **Built-in Manga Sources**: Search, browse catalogs, and import titles directly from **MangaDex** and **MangaFox**.
-- **TLS Fingerprint Impersonation**: Mimics Chrome and Firefox TLS fingerprints and request headers to reliably bypass anti-bot image CDN protections.
+- **Browser TLS Profiles**: Uses standard browser TLS signatures and request headers to ensure reliable image delivery from upstream provider servers.
 - **Fast & Snappy Page Loading**: Automatically saves cover art, chapter page lists, and images locally as you read for instant re-reading and smooth browsing.
 - **Web Reader**: Single-page and vertical long-strip (Webtoon) reading modes with touch/drag navigation, keyboard shortcuts, and theme presets.
 - **Progress Tracking & Statuses**: Automatic reading progress updates (last read page, completed chapters) and library shelf filters (*Reading*, *Completed*, *Plan to Read*, *On Hold*, *Dropped*).
-- **In-App Diagnostic Inspection**: Clean error detail modals with copyable tracebacks to easily inspect network or provider failures.
+- **Single-File Binary**: Embedded web interface served directly from a lightweight Go binary with zero external runtime dependencies.
 
 ---
 
