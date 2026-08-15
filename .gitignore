@@ -1,0 +1,25 @@
+# Dependencies & build outputs
+node_modules
+web/node_modules
+web/dist
+tmp
+bin
+pkg/webui/dist
+*.tsbuildinfo
+
+# Environment & IDE
+.claude
+.env
+.DS_Store
+
+# Data
+/downloads/
+/cache/
+/library/
+*.db
+*.db-shm
+*.db-wal
+
+# E2E artifacts
+e2e/test-results/
+e2e/reports/

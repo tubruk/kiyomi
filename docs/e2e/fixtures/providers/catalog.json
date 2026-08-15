@@ -1,0 +1,26 @@
+[
+  {
+    "remoteId": "alpha",
+    "title": "Alpha Manga",
+    "coverUrl": "",
+    "availability": "available"
+  },
+  {
+    "remoteId": "beta",
+    "title": "Beta Manga",
+    "coverUrl": "",
+    "availability": "available"
+  },
+  {
+    "remoteId": "empty",
+    "title": "Empty Manga",
+    "coverUrl": "",
+    "availability": "available"
+  },
+  {
+    "remoteId": "unavailable-manga",
+    "title": "Unavailable Manga",
+    "coverUrl": "",
+    "availability": "unavailable"
+  }
+]

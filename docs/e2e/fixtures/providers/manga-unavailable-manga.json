@@ -1,0 +1,10 @@
+{
+  "remoteId": "unavailable-manga",
+  "title": "Unavailable Manga",
+  "synopsis": "Synopsis for unavailable manga",
+  "author": "Mock Author",
+  "artist": "Mock Artist",
+  "totalChapters": 0,
+  "availability": "unavailable",
+  "chapters": []
+}

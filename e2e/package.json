@@ -1,0 +1,15 @@
+{
+  "name": "@kiyomi/e2e",
+  "private": true,
+  "devDependencies": {
+    "@cucumber/cucumber": "^11",
+    "@cucumber/html-formatter": "^21",
+    "@playwright/test": "^1.49",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
+    "axios": "^1.19.0",
+    "better-sqlite3": "^13.0.3",
+    "tsx": "^4.23.11",
+    "typescript": "^5"
+  }
+}

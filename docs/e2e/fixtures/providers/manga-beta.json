@@ -1,0 +1,9 @@
+{
+  "remoteId": "beta",
+  "title": "Beta Manga",
+  "totalChapters": 1,
+  "availability": "available",
+  "chapters": [
+    { "id": "c1", "title": "Chapter 1" }
+  ]
+}
