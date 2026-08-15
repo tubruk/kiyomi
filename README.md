@@ -13,14 +13,13 @@ Kiyomi puts data ownership first: your manga library lives in plain files and di
 
 ## Features
 
-- **Filesystem-First Library**: Stores manga details, chapter listings, and reading history as human-readable JSON manifests directly on disk.
-- **Built-in Provider Extensions**: Search, browse popular/latest catalogs, and import titles directly from **MangaDex** and **MangaFox**.
-- **Transparent Server-Side Image Caching**: Proxied cover art and chapter pages are automatically cached to disk (`$KIYOMI_HOME/cache/`) with SHA-256 URL sharding, singleflight request deduplication, and background LRU cleanup.
-- **Permanent Lazy-Loaded Chapter Pages**: Page metadata lists are fetched on-demand when a chapter is opened, saved atomically as `pages.json`, and served instantly (<1ms) on subsequent reads.
-- **TLS Fingerprint Impersonation**: Built-in transport mimicking Chrome and Firefox TLS fingerprints and headers to bypass anti-bot CDN protections.
-- **Web Reader Experience**: Single-page and vertical long-strip (Webtoon) reading modes with drag navigation, keyboard shortcuts, and theme presets (Dark, Light, Sepia).
-- **Progress Tracking & Statuses**: Automatic reading progress updates (last read page, chapter completion) and status categorization (*Reading*, *Completed*, *Plan to Read*, *On Hold*, *Dropped*).
-- **In-App Diagnostic Inspection**: Error detail modals and structured backend logging to diagnose provider or network failures without dumping raw HTML tracebacks.
+- **Filesystem-First Library**: Stores manga details, chapter listings, and reading history as plain files on local disk (`$KIYOMI_HOME/library/`), avoiding proprietary database lock-in.
+- **Built-in Manga Sources**: Search, browse catalogs, and import titles directly from **MangaDex** and **MangaFox**.
+- **TLS Fingerprint Impersonation**: Mimics Chrome and Firefox TLS fingerprints and request headers to reliably bypass anti-bot image CDN protections.
+- **Automatic Image & Page Caching**: Proxied cover art, chapter pages, and page lists are saved locally on demand for fast loading and offline re-reading.
+- **Web Reader**: Single-page and vertical long-strip (Webtoon) reading modes with touch/drag navigation, keyboard shortcuts, and theme presets.
+- **Progress Tracking & Statuses**: Automatic reading progress updates (last read page, completed chapters) and library shelf filters (*Reading*, *Completed*, *Plan to Read*, *On Hold*, *Dropped*).
+- **In-App Diagnostic Inspection**: Clean error detail modals with copyable tracebacks to easily inspect network or provider failures.
 
 ---
 
@@ -67,4 +66,4 @@ Kiyomi puts data ownership first: your manga library lives in plain files and di
 
 ## Documentation
 
-Comprehensive architecture design documents, provider authoring guides, and E2E testing guides are available in [`docs/`](./docs).
+System architecture design documents, provider authoring guides, and E2E testing guides are available in [`docs/`](./docs).
