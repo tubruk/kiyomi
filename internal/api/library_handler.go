@@ -10,7 +10,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/tubruk/kiyomi/internal/library"
-	"github.com/tubruk/kiyomi/pkg/provider/mangadex"
 	"github.com/tubruk/kiyomi/pkg/provider/sdk"
 )
 
@@ -533,14 +532,12 @@ func (h *Handler) refreshChapterPages(c echo.Context) error {
 	}
 
 	if providerID == "" {
-		providerID = mangadex.ProviderID
+		c.Set("handler_error", "provider ID could not be determined for chapter")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "provider ID could not be determined for chapter"})
 	}
 
 	_, contentProvider, err := h.getProvider(providerID)
-	if err != nil {
-		contentProvider, _ = h.registry.GetContent(mangadex.ProviderID)
-	}
-	if contentProvider == nil {
+	if err != nil || contentProvider == nil {
 		return handleProviderError(c, providerID, fmt.Errorf("provider not available: %s", providerID))
 	}
 

@@ -26,7 +26,14 @@ export const queryKeys = {
     pages: (chapterId: string, mangaId?: string, providerId?: string) =>
       [...queryKeys.chapters.all, 'pages', chapterId, mangaId ?? '', providerId ?? ''] as const,
   },
+  plugins: {
+    all: ['plugins'] as const,
+    logs: (id: string) => ['plugins', 'logs', id] as const,
+  },
+  collisions: {
+    all: ['collisions'] as const,
+  },
+  info: ['info'] as const,
 };
 
 export const chapterKeys = queryKeys.chapters;
-

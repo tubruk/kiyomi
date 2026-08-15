@@ -154,3 +154,80 @@ export interface ChapterListResponse {
 export interface PageListResponse {
   pages: Page[];
 }
+
+
+export interface PluginSettingSpec {
+  key: string;
+  label: string;
+  description?: string;
+  type: 'string' | 'number' | 'boolean' | 'secret' | 'select' | string;
+  defaultValue?: string;
+  options?: string[];
+}
+
+export interface PluginRateLimitSpec {
+  requestsPerSecond?: number;
+  maxConcurrentRequests?: number;
+}
+
+export interface PluginProviderDescriptor {
+  id: string;
+  name: string;
+  description?: string;
+  capabilities: string[];
+  settingsSchema?: PluginSettingSpec[];
+  defaultRateLimit?: PluginRateLimitSpec;
+}
+
+export interface PluginItem {
+  pluginId: string;
+  pluginName: string;
+  pluginVersion: string;
+  sdkVersion: string;
+  sdkCompatible: boolean;
+  executablePath: string;
+  pid: number;
+  state: 'stopped' | 'starting' | 'running' | 'error' | 'reloading' | string;
+  errorMessage?: string;
+  loadedAt: string;
+  providers: PluginProviderDescriptor[];
+  pluginSettingsSchema?: PluginSettingSpec[];
+  globalConfig?: Record<string, string>;
+  providerConfigs?: Record<string, Record<string, string>>;
+}
+
+export interface PluginLogEntry {
+  timestamp: string;
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | string;
+  message: string;
+  fields?: Record<string, any>;
+  raw?: string;
+}
+
+export interface ProviderCandidate {
+  pluginId: string;
+  version: string;
+  isBuiltIn: boolean;
+  selected: boolean;
+}
+
+export interface ProviderCollision {
+  providerId: string;
+  selected: string;
+  candidates: ProviderCandidate[];
+}
+
+export interface ReloadPluginsResponse {
+  status: string;
+  message: string;
+  reloadedPlugins: string[];
+  activeProviders: number;
+}
+
+export interface AppInfo {
+  app: string;
+  version: string;
+  go_version: string;
+  build_time: string;
+  commit: string;
+}

@@ -11,21 +11,22 @@ import (
 	"github.com/tubruk/kiyomi/internal/cache"
 	"github.com/tubruk/kiyomi/internal/config"
 	"github.com/tubruk/kiyomi/internal/library"
+	"github.com/tubruk/kiyomi/internal/plugin/host"
 	"github.com/tubruk/kiyomi/pkg/fingerprint"
 	"github.com/tubruk/kiyomi/pkg/provider"
-	"github.com/tubruk/kiyomi/pkg/provider/mangadex"
-	"github.com/tubruk/kiyomi/pkg/provider/mangafox"
 	"github.com/tubruk/kiyomi/pkg/provider/sdk"
 )
 
 // Handler handles API requests.
 type Handler struct {
-	cfg        *config.Config
-	lib        *library.Library
-	httpClient *http.Client
-	registry   *provider.Registry
-	fpStore    fingerprint.Store
-	imageCache *cache.DiskCache
+	cfg           *config.Config
+	lib           *library.Library
+	httpClient    *http.Client
+	registry      *provider.Registry
+	pluginManager *host.PluginManager
+	fpStore       fingerprint.Store
+	imageCache    *cache.DiskCache
+	buildInfo     BuildInfo
 }
 
 // NewHandler creates a new Handler instance with library and config.
@@ -46,10 +47,6 @@ func NewHandler(cfg *config.Config, lib *library.Library) *Handler {
 	}
 
 	reg := provider.NewRegistry()
-	mf, _ := mangafox.NewProvider(nil, fpStore)
-	md := mangadex.NewProvider(nil, fpStore)
-	reg.Register(mf)
-	reg.Register(md)
 	registerE2EProviders(reg)
 
 	var ic *cache.DiskCache
@@ -63,13 +60,22 @@ func NewHandler(cfg *config.Config, lib *library.Library) *Handler {
 		}
 	}
 
+	var pm *host.PluginManager
+	if cfg != nil && cfg.PluginDir != "" {
+		pm = host.NewPluginManager(host.ManagerOptions{
+			PluginDir: cfg.PluginDir,
+			Registry:  reg,
+		})
+	}
+
 	return &Handler{
-		cfg:        cfg,
-		lib:        lib,
-		httpClient: client,
-		registry:   reg,
-		fpStore:    fpStore,
-		imageCache: ic,
+		cfg:           cfg,
+		lib:           lib,
+		httpClient:    client,
+		registry:      reg,
+		pluginManager: pm,
+		fpStore:       fpStore,
+		imageCache:    ic,
 	}
 }
 
@@ -78,10 +84,33 @@ func (h *Handler) ImageCache() *cache.DiskCache {
 	return h.imageCache
 }
 
+// SetPluginManager sets the plugin manager instance.
+func (h *Handler) SetPluginManager(pm *host.PluginManager) {
+	h.pluginManager = pm
+}
+
+// PluginManager returns the current plugin manager instance.
+func (h *Handler) PluginManager() *host.PluginManager {
+	return h.pluginManager
+}
+
+// Registry returns the provider registry instance.
+func (h *Handler) Registry() *provider.Registry {
+	return h.registry
+}
+
+// SetBuildInfo sets the build metadata on the handler.
+func (h *Handler) SetBuildInfo(info BuildInfo) {
+	h.buildInfo = info
+}
+
 // RegisterRoutes registers all RESTful HTTP routes.
 func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	registerE2ERoutes(e)
 	v1 := e.Group("/api/v1")
+
+	// System Info
+	v1.GET("/info", h.getInfo)
 
 	// Content Providers
 	v1.GET("/providers", h.listContentProviders)
@@ -97,6 +126,14 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	v1.GET("/providers/:providerId/fingerprint", h.handleGetFingerprint)
 	v1.PUT("/providers/:providerId/fingerprint", h.handlePutFingerprint)
 	v1.DELETE("/providers/:providerId/fingerprint", h.handleDeleteFingerprint)
+
+	// Plugin Management
+	v1.GET("/plugins", h.listPlugins)
+	v1.POST("/plugins/reload", h.reloadPlugins)
+	v1.GET("/plugins/:id/logs", h.getPluginLogs)
+	v1.POST("/plugins/:id/config", h.updatePluginConfig)
+	v1.GET("/plugins/collisions", h.listCollisions)
+	v1.POST("/plugins/preference", h.setPluginPreference)
 
 	// Central Local Library Manga
 	v1.GET("/library/manga", h.listLibraryManga)

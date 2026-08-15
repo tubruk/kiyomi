@@ -13,6 +13,7 @@ import {
   mangaDetailsQueryOptions,
   providerMangaDetailsQueryOptions,
   exploreCatalogQueryOptions,
+  pluginsQueryOptions,
 } from './lib/queryOptions';
 
 export interface RouterContext {
@@ -47,6 +48,7 @@ const LibraryPage = React.lazy(() => import('./routes/LibraryPage').then(m => ({
 const ExplorePage = React.lazy(() => import('./routes/ExplorePage').then(m => ({ default: m.ExplorePage })));
 const DetailsPage = React.lazy(() => import('./routes/DetailsPage').then(m => ({ default: m.DetailsPage })));
 const ReaderPage = React.lazy(() => import('./routes/ReaderPage').then(m => ({ default: m.ReaderPage })));
+const SettingsPage = React.lazy(() => import('./routes/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
 export interface ExploreSearch {
   mode?: 'popular' | 'latest';
@@ -154,6 +156,37 @@ export const readerRoute = createRoute({
   component: () => <Suspense fallback={<Loading />}><ReaderPage /></Suspense>,
 });
 
+export const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  loader: () => {
+    throw redirect({
+      to: '/settings/plugins',
+      replace: true,
+    });
+  },
+});
+
+export const settingsPluginsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/plugins',
+  loader: ({ context }) =>
+    context.queryClient.ensureQueryData(pluginsQueryOptions()).catch(() => undefined),
+  component: () => <Suspense fallback={<Loading />}><SettingsPage /></Suspense>,
+});
+
+export const pluginsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/plugins',
+  loader: () => {
+    throw redirect({
+      to: '/settings/plugins',
+      replace: true,
+    });
+  },
+});
+
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   exploreLandingRoute,
@@ -165,6 +198,9 @@ const routeTree = rootRoute.addChildren([
   exploreProviderRoute,
   exploreRemoteDetailsRoute,
   readerRoute,
+  settingsRoute,
+  settingsPluginsRoute,
+  pluginsRoute,
 ]);
 
 export const router = createRouter({

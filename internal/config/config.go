@@ -28,6 +28,7 @@ const (
 	EnvWebDir = "KIYOMI_WEB_DIR"
 
 	EnvProviderConfig   = "KIYOMI_PROVIDER_CONFIG"
+	EnvPluginDir        = "KIYOMI_PLUGIN_DIR"
 	EnvOfflineMode      = "KIYOMI_OFFLINE_MODE"
 	EnvCachePageTTL     = "KIYOMI_CACHE_PAGE_TTL"
 	EnvCacheMetadataTTL = "KIYOMI_CACHE_METADATA_TTL"
@@ -87,6 +88,10 @@ type Config struct {
 	// Defaults to "<home>/providers.json". Relative values are joined to Home;
 	// absolute values are used verbatim.
 	ProviderConfigPath string
+
+	// PluginDir is the filesystem path to the directory containing executable plugin binaries.
+	// Defaults to "<home>/plugins". Relative values are joined to Home; absolute values are used verbatim.
+	PluginDir string
 
 	// OfflineMode determines whether network calls to providers are disabled.
 	OfflineMode bool
@@ -216,6 +221,21 @@ func Load() *Config {
 		)
 	}
 
+	pluginDir, pluginDirSrc := resolvePluginDir(cfg.Home)
+	cfg.PluginDir = pluginDir
+	switch pluginDirSrc {
+	case sourceEnvOverride:
+		slog.Info("config: plugin dir overridden by env",
+			slog.String("env", EnvPluginDir),
+			slog.String("path", cfg.PluginDir),
+		)
+	case sourceRelativeDefault:
+		slog.Debug("config: using default plugin dir relative to home",
+			slog.String("home", cfg.Home),
+			slog.String("path", cfg.PluginDir),
+		)
+	}
+
 	cfg.OfflineMode = parseBool(EnvOfflineMode, false)
 	cfg.CachePageTTL = parseDuration(EnvCachePageTTL, 168*time.Hour)
 	cfg.CacheMetadataTTL = parseDuration(EnvCacheMetadataTTL, 12*time.Hour)
@@ -320,6 +340,16 @@ func resolveProviderConfigPath(home string) (string, configSource) {
 	return filepath.Join(home, "providers.json"), sourceRelativeDefault
 }
 
+// resolvePluginDir returns the plugins directory path.
+// KIYOMI_PLUGIN_DIR is consulted when set; relative values are joined
+// to Home, absolute values are used verbatim. Default is "<home>/plugins".
+func resolvePluginDir(home string) (string, configSource) {
+	if v := strings.TrimSpace(os.Getenv(EnvPluginDir)); v != "" {
+		return resolveAgainstHome(home, v), sourceEnvOverride
+	}
+	return filepath.Join(home, "plugins"), sourceRelativeDefault
+}
+
 // resolveAgainstHome is the single chokepoint that turns a user-supplied
 // path into an absolute path. Absolute inputs (including the home itself)
 // pass through; relative inputs are joined to home. Empty inputs return
@@ -371,8 +401,8 @@ func (c *Config) String() string {
 		return "<nil config>"
 	}
 	return fmt.Sprintf(
-		"home=%s download_dir=%s cache_dir=%s db_path=%s library_dir=%s web_dist=%s port=%s global_concurrency=%d provider_concurrency=%d provider_config=%s cache_max_bytes=%d",
-		c.Home, c.DownloadDir, c.CacheDir, c.DBPath, c.LibraryDir, c.WebDist, c.Port, c.GlobalConcurrency, c.ProviderConcurrency, c.ProviderConfigPath, c.CacheMaxBytes,
+		"home=%s download_dir=%s cache_dir=%s db_path=%s library_dir=%s web_dist=%s port=%s global_concurrency=%d provider_concurrency=%d provider_config=%s plugin_dir=%s cache_max_bytes=%d",
+		c.Home, c.DownloadDir, c.CacheDir, c.DBPath, c.LibraryDir, c.WebDist, c.Port, c.GlobalConcurrency, c.ProviderConcurrency, c.ProviderConfigPath, c.PluginDir, c.CacheMaxBytes,
 	)
 }
 

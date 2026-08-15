@@ -21,6 +21,7 @@ export const Header: React.FC = () => {
   }
 
   const isExploreActive = location.pathname.startsWith('/explore') || location.pathname.startsWith('/providers');
+  const isPluginsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/plugins');
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/80 backdrop-blur-md">
@@ -61,6 +62,16 @@ export const Header: React.FC = () => {
               }`}
             >
               Explore
+            </Link>
+            <Link
+              to="/settings/plugins"
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                isPluginsActive
+                  ? 'bg-secondary text-primary font-semibold'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              Settings
             </Link>
           </nav>
         </div>

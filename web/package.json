@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "watch:plugins": "go run ../scripts/watch-plugins.go",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

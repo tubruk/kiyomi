@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -10,6 +11,14 @@ import (
 	"github.com/tubruk/kiyomi/internal/library"
 	"github.com/tubruk/kiyomi/pkg/logger"
 	"github.com/tubruk/kiyomi/pkg/webui"
+)
+
+// Build metadata — set via ldflags at build time:
+//   go build -ldflags "-X main.version=1.0.0 -X main.commit=abc1234 -X main.buildTime=2026-01-01T00:00:00Z"
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildTime = "unknown"
 )
 
 func main() {
@@ -39,7 +48,20 @@ func main() {
 
 	// Register API routes
 	apiHandler := api.NewHandler(cfg, lib)
+	// Attach build metadata
+	apiHandler.SetBuildInfo(api.BuildInfo{
+		Version:   version,
+		Commit:    commit,
+		BuildTime: buildTime,
+	})
 	apiHandler.RegisterRoutes(e)
+
+	// Discover and start plugins in plugin directory
+	if pm := apiHandler.PluginManager(); pm != nil {
+		if err := pm.ReloadAll(context.Background()); err != nil {
+			slog.Warn("initial plugin discovery encountered warnings", slog.String("error", err.Error()))
+		}
+	}
 
 	// Embed Web UI routes (if build directory exists, otherwise serves dummy)
 	webui.Register(e)

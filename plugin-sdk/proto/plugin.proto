@@ -1,0 +1,295 @@
+syntax = "proto3";
+
+package kiyomi.plugin.v1;
+
+option go_package = "github.com/tubruk/kiyomi/plugin-sdk/proto/v1;v1";
+
+// PluginService handles plugin metadata discovery and lifecycle initialization.
+service PluginService {
+  rpc Describe (DescribeRequest) returns (DescribeResponse);
+  rpc Init (InitRequest) returns (InitResponse);
+}
+
+// MetadataProviderService handles manga metadata search, details, covers, and aliases.
+service MetadataProviderService {
+  rpc Search (SearchRequest) returns (SearchResponse);
+  rpc Details (DetailsRequest) returns (DetailsResponse);
+  rpc Cover (CoverRequest) returns (CoverResponse);
+  rpc Aliases (AliasesRequest) returns (AliasesResponse);
+}
+
+// ContentProviderService handles chapter discovery, page lists, and page image streaming.
+service ContentProviderService {
+  rpc HasStableChapterID (HasStableChapterIDRequest) returns (HasStableChapterIDResponse);
+  rpc FetchChapters (FetchChaptersRequest) returns (FetchChaptersResponse);
+  rpc FetchPages (FetchPagesRequest) returns (FetchPagesResponse);
+  rpc FetchPageStream (FetchPageStreamRequest) returns (stream FetchPageStreamResponse);
+  rpc RateLimit (RateLimitRequest) returns (RateLimitResponse);
+}
+
+// TrackerService handles external reading progress synchronization and authentication.
+service TrackerService {
+  rpc Authenticate (AuthenticateRequest) returns (AuthenticateResponse);
+  rpc PushProgress (PushProgressRequest) returns (PushProgressResponse);
+  rpc FetchProgress (FetchProgressRequest) returns (FetchProgressResponse);
+  rpc IsAuthenticated (IsAuthenticatedRequest) returns (IsAuthenticatedResponse);
+}
+
+// --- Plugin Management Messages ---
+
+message DescribeRequest {}
+
+message DescribeResponse {
+  string sdk_version = 1;                         // Automatically set by SDK const Version
+  string plugin_id = 2;                           // e.g. "community-manga-pack"
+  string plugin_name = 3;                         // e.g. "Community Manga Pack"
+  string plugin_version = 4;                      // e.g. "1.2.0"
+  repeated SettingSpec plugin_settings_schema = 5;// Global plugin settings
+  repeated ProviderDescriptor providers = 6;      // Contained providers
+}
+
+message ProviderDescriptor {
+  string id = 1;                                  // e.g. "mangadex"
+  string name = 2;                                // e.g. "MangaDex"
+  string description = 3;
+  repeated string capabilities = 4;               // ["metadata", "content", "tracking"]
+  repeated SettingSpec settings_schema = 5;       // Scoped to this specific provider ID
+  RateLimitSpec default_rate_limit = 6;
+}
+
+message RateLimitSpec {
+  int32 requests_per_second = 1;
+  int32 max_concurrent_requests = 2;
+}
+
+message SettingSpec {
+  string key = 1;
+  string label = 2;
+  string description = 3;
+  string type = 4;                                // "string", "number", "boolean", "secret", "select"
+  string default_value = 5;
+  repeated string options = 6;
+}
+
+message InitRequest {
+  map<string, string> global_config = 1;                 // Shared plugin-wide settings
+  map<string, ProviderConfigMap> provider_configs = 2;   // Map of provider_id -> { key -> value }
+  GlobalHttpConfig http_config = 3;                      // System-wide proxy & User-Agent
+}
+
+message ProviderConfigMap {
+  map<string, string> settings = 1;                      // Key-value settings for this provider ID
+}
+
+message GlobalHttpConfig {
+  string proxy_url = 1;
+  string user_agent = 2;
+  int32 timeout_seconds = 3;
+}
+
+message InitResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// --- Common & Domain Data Messages ---
+
+message SearchResult {
+  string remote_id = 1;
+  string title = 2;
+  repeated string aliases = 3;
+  string cover_url = 4;
+  string url = 5;
+  string availability = 6;
+}
+
+message MangaMetadata {
+  string remote_id = 1;
+  string title = 2;
+  repeated string aliases = 3;
+  string cover_url = 4;
+  string synopsis = 5;
+  string status = 6;
+  string author = 7;
+  string artist = 8;
+  repeated string genres = 9;
+  int32 total_chapters = 10;
+  string reading_mode = 11;
+  float score = 12;
+  string url = 13;
+  string availability = 14;
+}
+
+message ImageRef {
+  string url = 1;
+  int32 width = 2;
+  int32 height = 3;
+  string mime_type = 4;
+  map<string, string> headers = 5;
+}
+
+message Chapter {
+  string id = 1;
+  string name = 2;
+  string url = 3;
+  float number = 4;
+  int64 upload_date_unix = 5;
+  int32 source_order = 6;
+}
+
+message Page {
+  int32 index = 1;
+  string url = 2;
+  map<string, string> headers = 3;
+}
+
+message RateLimitHint {
+  double requests_per_second = 1;
+  double requests_per_minute = 2;
+}
+
+message UserCredentials {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_at_unix = 3;
+}
+
+message Session {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_at_unix = 3;
+  string user_id = 4;
+}
+
+message Progress {
+  string status = 1;
+  int32 score = 2;
+  int32 progress = 3;
+  int64 updated_at_unix = 4;
+}
+
+// --- Metadata RPC Messages ---
+
+message SearchRequest {
+  string provider_id = 1;
+  string query = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+  string mode = 5;
+}
+
+message SearchResponse {
+  repeated SearchResult results = 1;
+}
+
+message DetailsRequest {
+  string provider_id = 1;
+  string remote_id = 2;
+}
+
+message DetailsResponse {
+  MangaMetadata metadata = 1;
+}
+
+message CoverRequest {
+  string provider_id = 1;
+  string remote_id = 2;
+  string size = 3;
+}
+
+message CoverResponse {
+  ImageRef cover = 1;
+}
+
+message AliasesRequest {
+  string provider_id = 1;
+  string remote_id = 2;
+}
+
+message AliasesResponse {
+  repeated string aliases = 1;
+}
+
+// --- Content RPC Messages ---
+
+message HasStableChapterIDRequest {
+  string provider_id = 1;
+}
+
+message HasStableChapterIDResponse {
+  bool has_stable_chapter_id = 1;
+}
+
+message FetchChaptersRequest {
+  string provider_id = 1;
+  string manga_ref = 2;
+}
+
+message FetchChaptersResponse {
+  repeated Chapter chapters = 1;
+}
+
+message FetchPagesRequest {
+  string provider_id = 1;
+  string manga_ref = 2;
+  string chapter_ref = 3;
+}
+
+message FetchPagesResponse {
+  repeated Page pages = 1;
+}
+
+message FetchPageStreamRequest {
+  string provider_id = 1;
+  Page page = 2;
+}
+
+message FetchPageStreamResponse {
+  bytes chunk = 1;
+}
+
+message RateLimitRequest {
+  string provider_id = 1;
+}
+
+message RateLimitResponse {
+  RateLimitHint rate_limit = 1;
+}
+
+// --- Tracker RPC Messages ---
+
+message AuthenticateRequest {
+  string provider_id = 1;
+  UserCredentials credentials = 2;
+}
+
+message AuthenticateResponse {
+  Session session = 1;
+}
+
+message PushProgressRequest {
+  string provider_id = 1;
+  string remote_id = 2;
+  int32 progress = 3;
+}
+
+message PushProgressResponse {
+  bool success = 1;
+}
+
+message FetchProgressRequest {
+  string provider_id = 1;
+  string remote_id = 2;
+}
+
+message FetchProgressResponse {
+  Progress progress = 1;
+}
+
+message IsAuthenticatedRequest {
+  string provider_id = 1;
+}
+
+message IsAuthenticatedResponse {
+  bool is_authenticated = 1;
+}

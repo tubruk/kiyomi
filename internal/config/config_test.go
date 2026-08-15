@@ -29,6 +29,16 @@ func TestConfigLoadAndValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("plugin dir override", func(t *testing.T) {
+		os.Setenv(EnvPluginDir, "/tmp/custom-plugins")
+		defer os.Unsetenv(EnvPluginDir)
+
+		cfg := Load()
+		if cfg.PluginDir != "/tmp/custom-plugins" {
+			t.Fatalf("expected PluginDir=/tmp/custom-plugins, got %s", cfg.PluginDir)
+		}
+	})
+
 	t.Run("validate cache max bytes", func(t *testing.T) {
 		cfg := Load()
 		cfg.CacheMaxBytes = 0

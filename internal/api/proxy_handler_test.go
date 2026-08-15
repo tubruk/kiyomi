@@ -13,8 +13,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/tubruk/kiyomi/internal/config"
 	"github.com/tubruk/kiyomi/internal/library"
-	"github.com/tubruk/kiyomi/pkg/provider/mangadex"
-	"github.com/tubruk/kiyomi/pkg/provider/mangafox"
 	"github.com/tubruk/kiyomi/pkg/provider/sdk"
 )
 
@@ -27,39 +25,11 @@ func TestProviderClientIsolation(t *testing.T) {
 	lib := library.NewLibrary(tmpDir)
 
 	h := NewHandler(cfg, lib)
-
-	mfProv, okMf := h.registry.Get("mangafox")
-	mdProv, okMd := h.registry.Get("mangadex")
-	if !okMf || mfProv == nil {
-		t.Fatal("expected mangafox provider in registry")
-	}
-	if !okMd || mdProv == nil {
-		t.Fatal("expected mangadex provider in registry")
-	}
-
-	mangafoxProv, ok1 := mfProv.(*mangafox.Provider)
-	mangadexProv, ok2 := mdProv.(*mangadex.Provider)
-	if !ok1 || mangafoxProv.Client == nil {
-		t.Fatal("expected mangafox client to be non-nil")
-	}
-	if !ok2 || mangadexProv.Client == nil {
-		t.Fatal("expected mangadex client to be non-nil")
-	}
 	if h.httpClient == nil {
 		t.Fatal("expected handler httpClient to be non-nil")
 	}
-
-	if mangafoxProv.Client == mangadexProv.Client {
-		t.Error("expected mangafox and mangadex to have isolated http.Client instances, got shared pointer")
-	}
-	if mangafoxProv.Client == h.httpClient {
-		t.Error("expected mangafox client to be isolated from handler httpClient")
-	}
-	if mangadexProv.Client == h.httpClient {
-		t.Error("expected mangadex client to be isolated from handler httpClient")
-	}
-	if mangafoxProv.Client.Transport == mangadexProv.Client.Transport {
-		t.Error("expected mangafox and mangadex to have isolated Transport instances, got shared Transport")
+	if h.httpClient.Transport == nil {
+		t.Fatal("expected handler httpClient Transport to be non-nil")
 	}
 }
 
@@ -75,6 +45,10 @@ func TestProxyRefererHeaderSetting(t *testing.T) {
 	defer ts.Close()
 
 	h, _ := setupTestHandler(t)
+	mockFox := &mockProvider{id: "mangafox", name: "MangaFox", baseURL: "https://fanfox.net"}
+	mockDex := &mockProvider{id: "mangadex", name: "MangaDex", baseURL: "https://mangadex.org"}
+	h.registry.Register(mockFox)
+	h.registry.Register(mockDex)
 	e := echo.New()
 
 	tests := []struct {
