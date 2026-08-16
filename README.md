@@ -5,41 +5,35 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
-**Kiyomi** is a self-hosted, filesystem-first manga reader and manager server with an embedded web interface.
+**Kiyomi** is a self-hosted, plugin-extensible manga reader and manager with an embedded web interface.
 
-Kiyomi puts data ownership first: your manga library lives in plain files and directories on local disk with human-readable JSON manifests (`meta.json` and `pages.json`). If the server or database dies, your library structure and reading data remain 100% intact and recoverable.
+Kiyomi puts data ownership first: your manga library lives in plain files and directories on local disk with human-readable JSON manifests (`meta.json` and `pages.json`). If the server dies, your reading history, metadata, and cached images remain fully intact and recoverable.
 
 ---
 
 ## Features
 
-- **Filesystem-First Library**: Stores manga details, chapter listings, and reading history as plain files on local disk, avoiding proprietary database lock-in.
-- **Built-in Manga Sources**: Search, browse catalogs, and import titles directly from **MangaDex** and **MangaFox**.
-- **Browser TLS Profiles**: Uses standard browser TLS signatures and request headers to ensure reliable image delivery from upstream provider servers.
-- **Fast & Snappy Page Loading**: Automatically saves cover art, chapter page lists, and images locally as you read for instant re-reading and smooth browsing.
-- **Web Reader**: Single-page and vertical long-strip (Webtoon) reading modes with touch/drag navigation, keyboard shortcuts, and theme presets.
-- **Progress Tracking & Statuses**: Automatic reading progress updates (last read page, completed chapters) and library shelf filters (*Reading*, *Completed*, *Plan to Read*, *On Hold*, *Dropped*).
-- **Single-File Binary**: Embedded web interface served directly from a lightweight Go binary with zero external runtime dependencies.
-
----
-
-## Architecture
-
-- **Backend**: Go REST API (`internal/api`), filesystem storage engine (`internal/library`), LRU image cache (`internal/cache`), and provider SDK (`pkg/provider`).
-- **Frontend**: Vite SPA in `web/` (React 18, TanStack Router & Query, Tailwind CSS, shadcn/ui) embedded directly into the Go binary for single-executable deployments.
+- **Self-hosted**: Runs on your own machine. No accounts, no cloud sync, no external services required.
+- **Multi-source via plugins**: Comes with a set of built-in sources. Additional sources can be added by dropping a plugin binary into the plugins directory.
+- **Local caching**: Cover art, chapter pages, and metadata are cached on disk after the first fetch. Subsequent reads are served locally.
+- **Single binary**: The web UI is embedded in the Go binary. No separate frontend server, runtime, or database daemon to run.
 
 ---
 
 ## Getting Started
 
-### Prerequisites
+```bash
+docker run -p 8080:8080 \
+  -v ./data:/data \
+  -e KIYOMI_HOME=/data \
+  ghcr.io/tubruk/kiyomi:latest
+```
 
-- **Go** 1.23+
-- **Bun** 1.1+ (for Web UI development)
+Open `http://localhost:8080`. Data is stored under `./data` on the host.
 
-### Quick Start
+For a persistent setup with plugins, see the [Docker Compose example](./docs/user/configuration.md#docker-compose-example).
 
-Clone the repository and start the server:
+To build from source:
 
 ```bash
 git clone https://github.com/tubruk/kiyomi.git
@@ -47,23 +41,32 @@ cd kiyomi
 go run ./cmd/kiyomi
 ```
 
-The web interface will be available at `http://localhost:8080`.
+---
+
+## Configuration
+
+Kiyomi is configured through environment variables. See [docs/user/configuration.md](./docs/user/configuration.md) for the full reference.
 
 ---
 
-### Configuration Environment Variables
+## Building a Provider Plugin
 
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `KIYOMI_HOME` | Current working directory | Root home directory for relative storage paths |
-| `KIYOMI_PORT` | `8080` | HTTP server port |
-| `KIYOMI_LIBRARY_DIR` | `<home>/library` | Path to manga library storage directory |
-| `KIYOMI_CACHE_DIR` | `<home>/cache` | Path to image & metadata disk cache |
-| `KIYOMI_CACHE_MAX_BYTES` | `2147483648` (2 GB) | Maximum size limit for image cache before LRU purging |
-| `KIYOMI_CACHE_IMAGE_TTL` | `720h` (30 days) | Retention TTL for cached image files |
+Any Go developer can extend Kiyomi by building a plugin binary that imports the Plugin SDK:
+
+```go
+import sdk "github.com/tubruk/kiyomi/plugin-sdk"
+```
+
+Implement one or more provider interfaces (`MetadataProvider`, `ContentProvider`, `Tracker`), then call `sdk.ServePlugin(...)` as your `main` entry point. Kiyomi loads compiled binaries from the plugins directory at startup.
+
+See [docs/design/provider_plugin_architecture.md](./docs/design/provider_plugin_architecture.md) for the full spec and [`plugins/`](./plugins) for first-party examples.
 
 ---
 
 ## Documentation
 
-System architecture design documents, provider authoring guides, and E2E testing guides are available in [`docs/`](./docs).
+- [User docs](./docs/user/) — configuration reference
+- [Design docs](./docs/design/) — architecture and system design specs
+- [Plugin Developer docs](./docs/plugin_developer/) — guide to building custom provider plugins
+- [E2E testing](./docs/e2e/) — end-to-end test guides
+

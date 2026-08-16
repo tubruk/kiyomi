@@ -1,5 +1,8 @@
 # Filesystem-First Library Architecture
 
+> [!NOTE]
+> Currently, the repository implements a **purely filesystem-based metadata library** (Phase 1). There is **no active SQLite database index** (`kiyomi.db`) compiled or running. All library metadata, chapter records, page lists, and reading progress details are written directly to and read directly from local `meta.json` and `pages.json` files on the filesystem. The SQLite schema described below remains an approved design specification for future implementation.
+
 ## Overview
 
 Kiyomi is shifting from a provider-centric model (Tachiyomi/Mihon-style, where external sources are authoritative) to a **filesystem-first, library-centric model**. The local manga library is the product; providers become optional enrichment services.
@@ -167,10 +170,13 @@ The chapter-level `meta.json` does NOT include any number mapping field by defau
 
 ## Database Schema (Disposable Index)
 
-### What Stays
+> [!NOTE]
+> As mentioned, the database index is not yet implemented. In the current filesystem-only model, all user reading progress, ratings, status, notes, and metadata are persisted directly in `meta.json` files on disk.
+
+### Planned Schema (For Future DB Caching Phases)
 
 - `manga` — list, search, filters
-- `chapter_progress` — user reading state (deliberately NOT on filesystem)
+- `chapter_progress` — user reading state (cached from filesystem)
 - `reading_progress` — derived aggregate, cache only
 
 ### What Gets Added
@@ -362,55 +368,7 @@ All provider-based discoveries and library additions happen via the **Explore Vi
 
 ---
 
-## Implementation Plan
 
-### Phase 1: Pure Filesystem & Metadata-Only (Active Initial Scope)
-
-**Goal:** Establish clean filesystem storage for metadata, defer SQLite DB indexing and page downloads.
-
-- [x] Define `meta.json` schemas (`MangaMeta` & `ChapterMeta`) with `content` provider binding
-- [x] Storage path: `$KIYOMI_HOME/library/<manga_id>/meta.json` and `$KIYOMI_HOME/library/<manga_id>/<chapter_id>/meta.json`
-- [x] Direct filesystem operations: list, get, save, and delete manga & chapters directly from/to disk (no DB index)
-- [x] Metadata-only library: page files are not saved to disk in this phase
-- [x] Remote Page Image Proxy: UI loads pages through backend proxy using TLS fingerprinting (`pkg/fingerprint`) to prevent anti-bot blocking
-
-### Phase 2: Chapter/Page Metadata Cache
-
-**Goal:** Cache provider chapter/page metadata in `meta.json` files.
-
-- [ ] On chapter list refresh: write `meta.json` per chapter
-- [ ] On page list fetch: not cached separately (regenerated on demand)
-- [ ] UI reads chapter list from filesystem (via DB index) instead of provider
-- [ ] Add refresh button in chapter list view, per card #484
-
-### Phase 3: Refresh & Merge Logic
-
-**Goal:** Replace provider-only chapter list with filesystem-cached + refresh sync.
-
-- [ ] Implement merge algorithm per spec above
-- [ ] Add `has_stable_chapter_id` to provider SDK
-- [ ] Three-state visual indicator for chapter list
-- [ ] Zero-chapter error handling
-- [ ] Orphan detection + manual remove actions
-- [ ] Bulk "Remove all missing chapters" with confirmation
-
-### Phase 4: Discovery & Import (Lower Priority)
-
-**Goal:** Discover existing libraries.
-
-- [ ] Scan external directory, import found manga
-- [ ] Match by `meta.json` content vs DB
-- [ ] Manual confirmation for ambiguous matches
-- [ ] Cover/banner asset import
-
-### Phase 5: Number Normalization Extension (Future, Open)
-
-**Goal:** Optional service for chapter number normalization in low-confidence correlation scenarios. Schema decision deferred until concrete use case emerges.
-
-- [ ] Define contract for number normalization service (provider of confidence-scored mappings)
-- [ ] Integration point: triggered when `has_stable_chapter_id=false` AND heuristic correlation produces low confidence
-- [ ] UI: review screen for proposed mappings, manual override
-- [ ] Persistence: depends on chosen service, may add field to `meta.json` later
 
 ---
 
@@ -425,14 +383,12 @@ All provider-based discoveries and library additions happen via the **Explore Vi
 5. `shelves` field renamed to `collections` in meta.json (key name change)
 5. Downloads moved from flat `downloads/<manga>/<chapter>/` to new structure
 
-### Code Changes Required
+### Code Changes Made / Required
 
-- `internal/library/sqlite.go` — schema changes, new scanner, `collections` field
-- `internal/storage/storage.go` — new filesystem layout
-- `internal/api/handler.go` — read endpoints serve from filesystem-cached state
-- `pkg/provider/sdk/` — add `has_stable_chapter_id` flag
-- `pkg/provider/{kitsu,anilist}/` — implement `HasStableChapterID()`
-- `internal/worker/` — page writer targets new paths
+- `internal/library/library.go` — filesystem operations, manifest scanning, `collections` field, page list caching, and chapter progress updates
+- `internal/api/library_handler.go` — API endpoints serving from filesystem-cached state and managing refresh/progress operations
+- `plugin-sdk/provider.go` — defines `ContentProvider` interface including `HasStableChapterID()` flag and `FetchPages()` parameters
+- `plugins/mangadex/` and `plugins/mangafox/` — built-in standalone plugins implementing the provider interfaces and handlers
 
 ### Backward Compatibility
 

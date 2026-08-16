@@ -65,7 +65,7 @@ MetadataProvider:
 ContentProvider:
   has_stable_chapter_id()       → bool
   fetch_chapters(manga_ref)     → [Chapter]
-  fetch_pages(chapter_ref)      → [Page]
+  fetch_pages(manga_ref, chapter_ref)      → [Page]
   fetch_page_stream(page_ref)   → Stream
   rate_limit()                  → RateLimitHint
 ```
@@ -282,7 +282,8 @@ Tracking providers are independent of content. A library entry may bind to multi
 
 ## References
 
-- `docs/design/library.md` — library binding, refresh correlation, `has_stable_chapter_id`
+- [Library Storage Design](./library.md) — library binding, refresh correlation, `has_stable_chapter_id`
+- [Plugin Developer Guide](../plugin_developer/README.md) — instructions for building custom provider plugins
 - `docs/design/workers.md` — workers run provider calls with retry/rate-limit
 - `docs/developer/architecture.md` — WASM plugin runtime
 - `docs/developer/sources_sdk.md` — current SDK (will be superseded by this doc once stable)
