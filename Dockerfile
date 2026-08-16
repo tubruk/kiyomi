@@ -8,7 +8,7 @@ COPY package.json bun.lock ./
 COPY web/package.json web/bun.lock ./web/
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile && cd web && bun install --frozen-lockfile
 
 # Copy web source code
 COPY web/ ./web/
@@ -24,6 +24,7 @@ WORKDIR /app
 # Copy Go dependency manifests
 COPY go.mod go.sum go.work go.work.sum ./
 COPY plugin-sdk/ ./plugin-sdk/
+COPY plugins/ ./plugins/
 
 # Download Go dependencies
 RUN go mod download
@@ -44,9 +45,11 @@ RUN go generate ./pkg/webui/...
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
+ARG BUILD_TAGS=""
 
 # Build Go binary with ldflags
 RUN CGO_ENABLED=0 go build \
+    -tags "${BUILD_TAGS}" \
     -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildTime=${BUILD_TIME}" \
     -o /app/kiyomi \
     ./cmd/kiyomi

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Go dependencies
+        run: go mod download
+
+      - name: Create Web UI placeholder for go:embed
+        run: |
+          mkdir -p pkg/webui/dist
+          echo "placeholder" > pkg/webui/dist/index.html
+
+      - name: Run Backend Unit Tests with Coverage
+        run: go test -v -coverprofile=coverage-backend-unit.out -coverpkg=./cmd/...,./internal/...,./pkg/... ./...
+
+      - name: Build production binary and check for leaks
+        run: |
+          go build -o ./bin/kiyomi ./cmd/kiyomi
+          if go tool nm ./bin/kiyomi 2>/dev/null | grep -q 'mock'; then
+            echo "ERROR: mock provider leaked into prod binary" >&2
+            exit 1
+          fi
+          echo "Production binary clean (mock absent)"
+
+      - name: Upload Backend Unit Coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-backend-unit.out
+          flags: backend
+          name: backend-unit-coverage
+          fail_ci_if_error: false

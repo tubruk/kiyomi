@@ -1,0 +1,67 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          go mod download
+          bun install --frozen-lockfile
+          (cd web && bun install --frozen-lockfile)
+          (cd e2e && bun install --frozen-lockfile)
+
+      - name: Cache Playwright Browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright Browser (if not cached)
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run E2E Tests with Coverage
+        run: |
+          export SKIP_VERIFY=true
+          export SKIP_BROWSER_INSTALL=true
+          bash e2e/run.sh
+
+      - name: Upload Backend E2E Coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-backend-e2e.out
+          flags: backend
+          name: backend-e2e-coverage
+          fail_ci_if_error: false
+
+      - name: Upload Frontend E2E Coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./web/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: false

@@ -1,0 +1,29 @@
+# Version control
+.git
+.gitignore
+
+# Cache and temporary directories
+.claude
+.gemini
+cache/
+tmp/
+*.db
+*.db-shm
+*.db-wal
+
+# Node/Bun dependencies and build outputs
+node_modules
+**/node_modules
+web/dist
+pkg/webui/dist
+*.tsbuildinfo
+
+# Go build outputs
+bin/
+kiyomi
+coverage-*.out
+
+# E2E test files
+e2e/test-results
+e2e/reports
+docs/

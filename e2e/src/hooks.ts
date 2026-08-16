@@ -26,6 +26,11 @@ BeforeAll(async function () {
   const headless = process.env.E2E_HEADLESS !== '0' && !process.argv.includes('--headed');
   _world.browser = await chromium.launch({ headless });
   _world.context = await _world.browser.newContext({ hasTouch: true });
+
+  // Initialize GOCOVERDIR for backend coverage
+  const coverDir = path.resolve(__dirname, '../test-results/coverage-go');
+  fs.mkdirSync(coverDir, { recursive: true });
+  process.env.GOCOVERDIR = coverDir;
 });
 
 Before(async function () {
@@ -40,16 +45,42 @@ Before(async function () {
 
   if (_world.context) {
     _world.page = await _world.context.newPage();
+    // Start frontend V8 JS coverage
+    await _world.page.coverage.startJSCoverage();
   }
 });
 
-After(async function () {
+After(async function (scenario) {
   if (_world?.page) {
+    try {
+      const coverage = await _world.page.coverage.stopJSCoverage();
+      // Filter for compiled web assets (c8 will map them back to /src/ via sourcemaps)
+      const appCoverage = coverage.filter(entry => entry.url.includes('/assets/'));
+      
+      const distDir = path.resolve(__dirname, '../../web/dist');
+      const mappedCoverage = appCoverage.map(entry => {
+        // Map http://localhost:PORT/assets/... to file:///<absolute-path-to-web-dist>/assets/...
+        const mappedUrl = entry.url.replace(/^https?:\/\/localhost:\d+/, 'file://' + distDir);
+        return {
+          ...entry,
+          url: mappedUrl,
+        };
+      });
+      
+      const targetDir = path.resolve(__dirname, '../test-results/coverage-frontend-v8');
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(targetDir, `${scenario?.pickle?.id || Date.now()}.json`),
+        JSON.stringify({ result: mappedCoverage })
+      );
+    } catch (e) {
+      // Ignore errors if browser is closed or coverage failed
+    }
     await _world.page.close();
     _world.page = null;
   }
-  if (_world?.server && typeof _world.server.pid === 'number') {
-    killServer(_world.server.pid);
+  if (_world?.server) {
+    killServer(_world.server, _world.port);
     _world.server = null;
   }
   if (_world?.home) {
