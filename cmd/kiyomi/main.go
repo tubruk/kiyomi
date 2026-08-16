@@ -4,6 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/tubruk/kiyomi/internal/api"
@@ -66,10 +71,26 @@ func main() {
 	// Embed Web UI routes (if build directory exists, otherwise serves dummy)
 	webui.Register(e)
 
-	// Start server
-	slog.Info("Starting HTTP server", slog.String("port", cfg.Port))
-	if err := e.Start(fmt.Sprintf(":%s", cfg.Port)); err != nil {
-		slog.Error("server shut down unexpectedly", slog.String("error", err.Error()))
+	// Start server in a goroutine
+	go func() {
+		slog.Info("Starting HTTP server", slog.String("port", cfg.Port))
+		if err := e.Start(fmt.Sprintf(":%s", cfg.Port)); err != nil && err != http.ErrServerClosed {
+			slog.Error("server shut down unexpectedly", slog.String("error", err.Error()))
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shut down the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("Shutting down HTTP server gracefully...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		slog.Error("server shutdown failed", slog.String("error", err.Error()))
+	} else {
+		slog.Info("Server exited gracefully")
 	}
 }
 

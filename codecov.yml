@@ -1,0 +1,22 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+      backend:
+        flags: [backend]
+      frontend:
+        flags: [frontend]
+
+flags:
+  backend:
+    paths:
+      - internal/
+      - pkg/
+      - cmd/
+    carryforward: true
+
+  frontend:
+    paths:
+      - web/src/
+    carryforward: true

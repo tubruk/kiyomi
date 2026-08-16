@@ -23,6 +23,8 @@ pkg/webui/dist
 # E2E artifacts
 e2e/test-results/
 e2e/reports/
+coverage-*.out
+web/coverage/
 
 # Plugins & Dev Plugin Outputs
 dev-plugins/

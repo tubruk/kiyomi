@@ -4,6 +4,10 @@
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
+[![Combined Coverage](https://codecov.io/gh/tubruk/kiyomi/branch/main/graph/badge.svg)](https://codecov.io/gh/tubruk/kiyomi)
+[![Backend Coverage](https://codecov.io/gh/tubruk/kiyomi/branch/main/graph/badge.svg?flag=backend)](https://codecov.io/gh/tubruk/kiyomi/flags/backend)
+[![Frontend Coverage](https://codecov.io/gh/tubruk/kiyomi/branch/main/graph/badge.svg?flag=frontend)](https://codecov.io/gh/tubruk/kiyomi/flags/frontend)
+
 
 **Kiyomi** is a self-hosted, plugin-extensible manga reader and manager with an embedded web interface.
 
