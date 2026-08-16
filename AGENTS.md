@@ -11,6 +11,11 @@ This document contains operational conventions, repository layout maps, and veri
 - `pkg/provider/sdk/`: Extension SDK interfaces (`MetadataProvider`, `ContentProvider`, `Tracker`) and HTTP utilities.
 - `web/`: Kiyomi Web UI Vite SPA (React 18 + Tailwind CSS v4 + shadcn/ui + TanStack Router/Query). Served by the Go server at `/`. API routes live under `/api/v1/`.
 - `docs/`: System documentation and developer guides.
+  - `docs/user/`: Operator guides, user manuals, environment configurations, and setup specs.
+  - `docs/design/`: Core architectural designs, specifications, schemas, protocols, and conceptual specs (must never mention implementation phases).
+  - `docs/plugin_developer/`: Guides, quickstarts, and reference manuals for building external provider plugins.
+  - `docs/backlogs/`: Features, specifications, or improvements that are planned/proposed but not yet implemented.
+  - `docs/e2e/`: Guides, conventions, and setups for running Playwright-based end-to-end tests.
 
 ---
 

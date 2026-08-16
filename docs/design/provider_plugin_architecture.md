@@ -127,7 +127,7 @@ kiyomi/
 │   └── kiyomi/                 # Main server binary entry point
 ├── internal/
 │   ├── api/                    # REST API handlers
-│   ├── library/                # SQLite storage & domain logic
+│   ├── library/                # Filesystem storage & domain logic
 │   └── provider/               # Built-in in-process providers
 ├── plugin-sdk/                 # Dedicated Go module (plugin-sdk/go.mod)
 │   ├── go.mod                  # module github.com/tubruk/kiyomi/plugin-sdk
@@ -235,7 +235,7 @@ message GlobalHttpConfig {
 
 1. **Provider Defaults (Declared by Plugin/SDK)**: Each provider declares safe upstream defaults via `RateLimitSpec` in `Describe()`.
 2. **SDK Transport Enforcement**: The Plugin SDK's HTTP engine enforces rate limiters and semaphores automatically.
-3. **Host & User Overrides**: Users override rate limits per provider in the Web UI settings modal (stored in SQLite and passed via `Init()`).
+3. **Host & User Overrides**: Users override rate limits per provider in the Web UI settings modal (managed by the host and passed via `Init()`).
 
 ---
 
