@@ -1,8 +1,8 @@
-# Backlog: Plugin Marketplace / Repository & Auto-Updater System
+# Backlog: Plugin Marketplace / Repository & Updater System
 
 > **Status**: Proposed / Backlog  
 > **Target Components**: `internal/plugin/marketplace`, `internal/api`, `internal/config`, `web/src`  
-> **Related Design Documents**: [`docs/design/provider_plugin_architecture.md`](./docs/design/provider_plugin_architecture.md)
+> **Related Design Documents**: [`docs/design/provider_plugin_architecture.md`](../design/provider_plugin_architecture.md)
 
 ---
 
@@ -10,7 +10,7 @@
 
 Kiyomi's modular provider architecture enables out-of-process gRPC plugins that can be compiled, versioned, and executed independently of the main server process. However, manual plugin discovery, downloading, executable permissions setting, and updating require terminal access or direct filesystem interaction.
 
-This specification outlines the architecture for an end-to-end **Plugin Marketplace, Multi-Repository Distribution, and Auto-Updater System**. The system allows users to browse, install, configure, update, and remove plugin binaries directly from the Kiyomi Web UI with 1-click workflows, backed by strict cryptographic integrity verification and zero-downtime hot-reloading.
+This specification outlines the architecture for an end-to-end **Plugin Marketplace, Multi-Repository Distribution, and Manual Updater System**. The system allows users to browse, install, configure, update, and remove plugin binaries directly from the Kiyomi Web UI with 1-click workflows, backed by strict cryptographic integrity verification and zero-downtime hot-reloading. All update checks are user-triggered to avoid unnecessary background network traffic.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -34,11 +34,11 @@ This specification outlines the architecture for an end-to-end **Plugin Marketpl
 │          ┌─────────────────────────────┴─────────────────────────────┐          │
 │          ▼                                                           ▼          │
 │  ┌───────────────────────────────┐                   ┌───────────────────────┐  │
-│  │       Installer Engine        │                   │  Auto-Update Engine   │  │
-│  │ - OS/Arch target resolution   │                   │ - Background cron     │  │
+│  │       Installer Engine        │                   │ Manual Update Checker │  │
+│  │ - OS/Arch target resolution   │                   │ - Explicit trigger    │  │
 │  │ - Staged stream download      │                   │ - SemVer comparison   │  │
-│  │ - Permissions (chmod 0755)    │                   │ - Update policies:    │  │
-│  │ - Atomic file swap (Rename)   │                   │   (Off/Notify/Auto)   │  │
+│  │ - Permissions (chmod 0755)    │                   │ - SDK compatibility   │  │
+│  │ - Atomic file swap (Rename)   │                   │   check               │  │
 │  └───────────────┬───────────────┘                   └───────────┬───────────┘  │
 │                  │                                               │              │
 │                  ▼                                               │              │
@@ -61,7 +61,38 @@ This specification outlines the architecture for an end-to-end **Plugin Marketpl
 2. **Atomic Installation & Safe Rollback**: Downloads write to temporary staging files (`<plugin_id>.tmp.<uuid>`). If verification fails or download is interrupted, the staging file is purged and the running plugin remains untouched. Upon successful verification, the file is atomically renamed (`os.Rename`) into the plugin directory.
 3. **Decentralized Multi-Repository Support**: Users can subscribe to the Official Kiyomi repository as well as arbitrary community repository index URLs.
 4. **Zero-Downtime Hot-Swapping**: Updates trigger `PluginManager.ReloadPlugin(ctx, pluginID)` without requiring a full server restart.
-5. **Configurable Background Auto-Updates**: Supports three distinct user policies: `disabled`, `notify` (badge/toast), and `auto-apply`.
+5. **Explicit Manual Update Checks**: Updates are only checked and applied when manually triggered by the user via the Web UI (e.g., clicking a "Check for Updates" button), avoiding unnecessary background network polling.
+
+---
+
+## 1.2 Repository Topology & Hosting Architecture
+
+To balance developer ergonomics with clean release histories, Kiyomi separates source development from marketplace distribution:
+
+### 1.2.1 Development Environments & Workspaces
+* **1st-Party Plugins (MangaDex, MangaFox)**: Maintained in the `plugins/` directory of the main Kiyomi monorepo to ensure tight integration and rapid iteration.
+* **3rd-Party Plugins**: Maintained in separate, independent git repositories created from the Kiyomi plugin template.
+* **Go Workspaces (`go.work`)**: Local development environments are wired up using a git-ignored `go.work` file at the root of the main `kiyomi` folder. This allows the compiler and IDE to link local changes in `plugin-sdk` to adjacent cloned plugin folders instantly:
+  ```go
+  go 1.22.0
+  use (
+      .
+      ./plugin-sdk
+      ../kiyomi-plugin-mangadex
+  )
+  ```
+
+### 1.2.2 Clean Binary Distribution via Cloudflare R2
+To prevent the distribution repository from getting cluttered with hundreds of git tags representing individual plugin updates, and to bypass GitHub storage limits:
+
+* **Hosting Strategy**:
+  * The lightweight index metadata (`index.json`) and asset files (such as icons/preview images) are hosted statically on GitHub Pages.
+  * All compiled plugin binaries (`.bin` / `.exe`) are uploaded directly to a **Cloudflare R2 Object Storage** bucket.
+  * The `index.json` references the direct Cloudflare R2 download URLs (e.g. `https://extensions.kiyomi.app/binaries/mangadex/1.2.0/mangadex-darwin-arm64`).
+* **Advantages**:
+  * **Zero Git Tag Pollution**: No Git tags or Releases are ever created in the git repository for individual plugin builds/updates.
+  * **Zero Egress Fees**: Cloudflare R2 does not charge for download bandwidth, keeping the system free even with high user download volume.
+  * **Independent Versioning**: Plugins are versioned freely without any shared repo-level tag constraints.
 
 ---
 
@@ -69,7 +100,10 @@ This specification outlines the architecture for an end-to-end **Plugin Marketpl
 
 ### 2.1 Repository Index Schema (`index.json`)
 
-A plugin repository serves a statically hosted `index.json` file over HTTPS (e.g., via GitHub Pages, Cloudflare R2, or AWS S3):
+A plugin repository serves a statically hosted `index.json` file over HTTPS (typically via GitHub Pages).
+
+> [!NOTE]
+> Statically hosted index and icon files live in the GitHub Pages publishing directory, while all compiled plugin binaries MUST be uploaded to and served from the configured Cloudflare R2 bucket.
 
 ```json
 {
@@ -93,31 +127,31 @@ A plugin repository serves a statically hosted `index.json` file over HTTPS (e.g
       "icon_url": "https://plugins.kiyomi.app/icons/mangadex.svg",
       "binaries": {
         "darwin-arm64": {
-          "url": "https://github.com/tubruk/kiyomi-plugin-mangadex/releases/download/v1.2.0/mangadex-plugin-darwin-arm64",
+          "url": "https://pub-84d9a5b3a4e94b26.r2.dev/plugins/mangadex-plugin/1.2.0/mangadex-plugin-darwin-arm64",
           "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "signature": "R1hVd21hZ...base64-ed25519-signature...",
           "size_bytes": 14680064
         },
         "darwin-amd64": {
-          "url": "https://github.com/tubruk/kiyomi-plugin-mangadex/releases/download/v1.2.0/mangadex-plugin-darwin-amd64",
+          "url": "https://pub-84d9a5b3a4e94b26.r2.dev/plugins/mangadex-plugin/1.2.0/mangadex-plugin-darwin-amd64",
           "sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
           "signature": "V2hsYW...base64-ed25519-signature...",
           "size_bytes": 15204352
         },
         "linux-amd64": {
-          "url": "https://github.com/tubruk/kiyomi-plugin-mangadex/releases/download/v1.2.0/mangadex-plugin-linux-amd64",
+          "url": "https://pub-84d9a5b3a4e94b26.r2.dev/plugins/mangadex-plugin/1.2.0/mangadex-plugin-linux-amd64",
           "sha256": "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
           "signature": "SGVsbG8...base64-ed25519-signature...",
           "size_bytes": 14942208
         },
         "linux-arm64": {
-          "url": "https://github.com/tubruk/kiyomi-plugin-mangadex/releases/download/v1.2.0/mangadex-plugin-linux-arm64",
+          "url": "https://pub-84d9a5b3a4e94b26.r2.dev/plugins/mangadex-plugin/1.2.0/mangadex-plugin-linux-arm64",
           "sha256": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
           "signature": "Qnl0ZXM...base64-ed25519-signature...",
           "size_bytes": 14417920
         },
         "windows-amd64": {
-          "url": "https://github.com/tubruk/kiyomi-plugin-mangadex/releases/download/v1.2.0/mangadex-plugin-windows-amd64.exe",
+          "url": "https://pub-84d9a5b3a4e94b26.r2.dev/plugins/mangadex-plugin/1.2.0/mangadex-plugin-windows-amd64.exe",
           "sha256": "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4",
           "signature": "V2luZG9...base64-ed25519-signature...",
           "size_bytes": 15728640
@@ -331,47 +365,33 @@ type Installer struct {
 
 ---
 
-### 3.4 Auto-Updater Engine (`internal/plugin/marketplace/updater.go`)
+### 3.4 Updater Engine (`internal/plugin/marketplace/updater.go`)
 
-The `Updater` runs background checks for new plugin versions, checks compatibility, and applies updates based on configured user policy.
+The `Updater` checks for new plugin versions, validates compatibility, and returns available updates on-demand when requested by the user.
 
 ```go
 package marketplace
 
 import (
 	"context"
-	"log/slog"
-	"time"
 )
 
-type UpdatePolicy string
-
-const (
-	UpdatePolicyDisabled UpdatePolicy = "disabled"
-	UpdatePolicyNotify   UpdatePolicy = "notify"
-	UpdatePolicyAuto     UpdatePolicy = "auto_apply"
-)
-
-type UpdaterConfig struct {
-	Policy        UpdatePolicy  `json:"policy"`         // "disabled" | "notify" | "auto_apply"
-	CheckInterval time.Duration `json:"check_interval"` // e.g. 6h, 12h, 24h
+type Updater struct {
+	repoManager RepositoryManager
+	installer   *Installer
 }
 
-type AutoUpdater struct {
-	config        UpdaterConfig
-	repoManager   RepositoryManager
-	installer     *Installer
-	notifications chan UpdateNotification
-}
+// CheckPluginUpdate compares the currently installed plugin version with the latest version in the repository index.
+func (u *Updater) CheckPluginUpdate(ctx context.Context, pluginID string) (*UpdateCheckResult, error)
 ```
 
 #### SemVer & SDK Compatibility Rules:
 - **Version Check**: Evaluates if `manifest.Version > installed.Version` using standard Semantic Versioning 2.0.0 rules.
-- **SDK Compatibility Gate**: Before auto-applying an update, checks `host.CheckSDKCompatibility(sdk.Version, manifest.SDKVersion)`. If the update targets an incompatible SDK, auto-update is skipped and a warning notification is surfaced.
+- **SDK Compatibility Gate**: Before suggesting or applying an update, checks `host.CheckSDKCompatibility(sdk.Version, manifest.SDKVersion)`. If the update targets an incompatible SDK, the update is flagged as incompatible with a descriptive message.
 - **Update Workflow**:
-  - `UpdatePolicyDisabled`: Periodic timer is idle.
-  - `UpdatePolicyNotify`: Emits an `UpdateAvailable` event surfaced in the UI navbar badge and plugins page.
-  - `UpdatePolicyAuto`: Automatically initiates download, verification, atomic swap, and triggers `PluginManager.Reload()`. Logs success via `slog.Info`.
+  - The Web UI triggers an on-demand update check.
+  - If a compatible newer version is found, the UI displays an **[Update]** action.
+  - The user manually confirms and initiates the installation of the update.
 
 ---
 
@@ -389,9 +409,7 @@ All marketplace REST APIs live under `/api/v1/marketplace/` and follow Kiyomi's 
 | `GET` | `/api/v1/marketplace/repositories` | List configured repository sources |
 | `POST` | `/api/v1/marketplace/repositories` | Add or update a repository source |
 | `DELETE` | `/api/v1/marketplace/repositories/:id` | Remove a custom repository source |
-| `GET` | `/api/v1/marketplace/updates/check` | Force an immediate update check |
-| `GET` | `/api/v1/marketplace/settings` | Get auto-updater configuration & policy |
-| `POST` | `/api/v1/marketplace/settings` | Update auto-updater configuration & policy |
+| `POST` | `/api/v1/marketplace/updates/check` | Trigger manual check for updates across repos |
 
 ---
 
@@ -512,7 +530,7 @@ The Plugins Settings page (`/settings/plugins`) is updated to feature a cohesive
 │ 🧩 Plugins & Marketplace                                                        │
 │ Manage installed provider binaries, browse marketplace extensions, and updates  │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│ [ Installed Plugins (3) ]  [ Marketplace Catalog (12) ]  [ Repositories & Auto-Update ]│
+│ [ Installed Plugins (3) ]  [ Marketplace Catalog (12) ]  [ Repositories & Updates ]│
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │  🔍 Search plugins, authors, or tags...           [ Category: All ▼ ] [ ↻ Refresh ] │
@@ -540,11 +558,9 @@ The Plugins Settings page (`/settings/plugins`) is updated to feature a cohesive
      - **[Install]**: If not yet installed.
      - **[Update to vX.Y.Z]**: If installed version < latest version.
      - **[Installed ✓]**: If up-to-date (with dropdown for [Reinstall] or [Uninstall]).
-3. **Repositories & Auto-Update Tab**:
-   - **Repository Manager**: List of index URLs, status, trust toggles, and **[ + Add Repository ]** modal.
-   - **Auto-Update Policy Selector**: Radio buttons for `Disabled`, `Notify Only`, and `Auto-Apply`.
-   - **Check Interval**: Dropdown for `Every 6 Hours`, `Every 12 Hours`, `Every 24 Hours`.
-   - **Immediate Check Action**: `[ Check for Updates Now ]` button.
+3. **Repositories & Updates Tab**:
+   - **Repository Manager**: List of index URLs, status, trust toggles, and **[ + Add Repository ]** modal. When adding a community repository, a confirmation modal displays the repository's metadata and Ed25519 public key, requiring the user to explicitly click "Trust & Add".
+   - **Update Checker**: Action button to **[ Check for Updates Now ]** which triggers a query to scan for new versions of all installed plugins.
 
 ### 5.2 Interactive States & Toast Feedback
 - **Installation Progress**: Displays inline spinner and button state (`"Downloading (45%)..." -> "Verifying Signature..." -> "Reloading..." -> "Installed"`).
@@ -563,9 +579,9 @@ The Plugins Settings page (`/settings/plugins`) is updated to feature a cohesive
 │  ├─ Ed25519 & SHA256 Verifier                                               │
 │  └─ Multi-Repository Index Fetcher & Cache                                  │
 │                                                                             │
-│  Phase 2: Installer Engine, Auto-Updater & REST Handlers                    │
+│  Phase 2: Installer Engine, Manual Updater & REST Handlers                 │
 │  ├─ Platform-aware HTTP downloader & atomic swap                            │
-│  ├─ SemVer updater cron & policy runner                                     │
+│  ├─ SemVer on-demand update checker                                         │
 │  └─ Echo REST Handlers (/api/v1/marketplace/*)                              │
 │                                                                             │
 │  Phase 3: Web UI Marketplace Catalog, Settings & E2E Verification           │
@@ -581,9 +597,9 @@ The Plugins Settings page (`/settings/plugins`) is updated to feature a cohesive
 - [ ] Implement `internal/plugin/marketplace/repository.go` with multi-repository index fetching, disk caching, and aggregation.
 - [ ] **Verification**: Unit tests covering valid signatures, tampered payloads, corrupted checksums, and unreachable repository fallback.
 
-### Phase 2: Installer Engine, Auto-Updater & REST Handlers
+### Phase 2: Installer Engine, Updater & REST Handlers
 - [ ] Implement `internal/plugin/marketplace/installer.go` with platform detection (`runtime.GOOS`/`GOARCH`), staging download, `chmod 0755`, atomic `os.Rename`, and `PluginManager.ReloadPlugin` integration.
-- [ ] Implement `internal/plugin/marketplace/updater.go` with background ticker, SemVer 2.0 comparison, SDK version compatibility checks, and policy dispatching (`disabled`, `notify`, `auto_apply`).
+- [ ] Implement `internal/plugin/marketplace/updater.go` with on-demand SemVer 2.0 comparison and SDK version compatibility checks.
 - [ ] Implement `internal/api/marketplace_handler.go` with all routes (`/api/v1/marketplace/*`) registered in `internal/api/handler.go`.
 - [ ] **Verification**: Integration tests with mock HTTP index server verifying end-to-end install, uninstall, and update workflows. Backend tests pass: `go test -v ./...`.
 
@@ -600,7 +616,7 @@ The Plugins Settings page (`/settings/plugins`) is updated to feature a cohesive
 1. **Unit Testing**:
    - `internal/plugin/marketplace/verifier_test.go`: Test Ed25519 signature generation and verification across valid and tampered binary fixtures.
    - `internal/plugin/marketplace/repository_test.go`: Test multi-repository index merging, caching expiry, and error handling for unreachable endpoints.
-   - `internal/plugin/marketplace/updater_test.go`: Test SemVer diffing and policy execution logic.
+   - `internal/plugin/marketplace/updater_test.go`: Test SemVer diffing and compatibility checking logic.
 2. **API Integration Testing**:
    - `internal/api/marketplace_handler_test.go`: Mock repository HTTP responses, verify JSON response contracts, status codes, and error payloads.
 3. **End-to-End Verification**:
