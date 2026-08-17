@@ -19,15 +19,15 @@ Since Kiyomi runs as a Go server, it implements a 3-tier strategy to handle anti
 
 ### Tier 1: Dynamic Cookie & Header Injection
 - `sdk.HttpSource` supports custom `User-Agent`, `Referer`, and domain cookie maps (`isAdult=1`, `readway=2`, `cf_clearance`).
-- `h.SetCookies(domainURL, cookieHeader)` allows injecting fresh Cloudflare session cookies into any running source adapter.
+- `h.SetCookies(domainURL, cookieHeader)` allows injecting fresh Cloudflare session cookies into any running provider adapter.
 - `sdk.IsCloudflareChallenge(resp, body)` detects Cloudflare `403` / `503` challenge pages (`"Just a moment..."`, Turnstile).
 
 ### Tier 2: Headless Solver (CDP / FlareSolverr / Rod)
 - For automated headless server setups, Kiyomi can spawn a headless Chrome instance via Chrome DevTools Protocol (`github.com/go-rod/rod` in Go) or delegate to a FlareSolverr sidecar container.
-- When a 403/503 is detected, the sidecar loads the page, executes JS, captures `cf_clearance` & `__cf_bm` cookies, and updates Kiyomi's source cookie jar automatically.
+- When a 403/503 is detected, the sidecar loads the page, executes JS, captures `cf_clearance` & `__cf_bm` cookies, and updates Kiyomi's provider cookie jar automatically.
 - **TLS Fingerprint Matching**: Spoofs Chrome's TLS Client Hello fingerprint (via Go's `utls`) to prevent Cloudflare from flagging Go's standard `crypto/tls` fingerprint.
 
 ### Tier 3: Web Client Interactive Pass-Through
-- When a user reads via the Kiyomi Web Client and a source encounters a Cloudflare challenge:
+- When a user reads via the Kiyomi Web Client and a provider encounters a Cloudflare challenge:
 - The Web Client presents an in-browser prompt allowing the user to solve the challenge directly in their browser.
-- The web client posts the resulting `cf_clearance` cookie back to Kiyomi's `/api/v1/sources/{sourceID}/cookies` endpoint.
+- The web client posts the resulting cookies and fingerprint back to Kiyomi's `/api/v1/providers/{providerId}/fingerprint` endpoint.

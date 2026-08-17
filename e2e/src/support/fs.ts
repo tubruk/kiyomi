@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import sqlite3 from 'better-sqlite3';
 
 export async function libraryContains(home: string, mangaTitle: string): Promise<boolean> {
   const libraryPath = path.join(home, 'library');
@@ -18,18 +17,29 @@ export function fileExists(filePath: string): boolean {
 export async function chapterDownloaded(
   home: string,
   mangaTitle: string,
-  chapterNumber: number
+  chapterTitle: string
 ): Promise<boolean> {
-  const mangaPath = path.join(home, 'library', mangaTitle);
-  if (!fs.existsSync(mangaPath)) {
+  const libraryPath = path.join(home, 'library');
+  if (!fs.existsSync(libraryPath)) {
     return false;
   }
 
-  const chapters = fs.readdirSync(mangaPath, { withFileTypes: true });
-  const chapterDir = chapters.find((entry) => {
-    const match = entry.name.match(new RegExp(`^ch?[-.]?${chapterNumber}(\\.|$)`, 'i'));
-    return entry.isDirectory() && match !== null;
-  });
+  // Find manga folder matching mangaTitle
+  const mangaEntries = fs.readdirSync(libraryPath, { withFileTypes: true });
+  const mangaDir = mangaEntries.find(
+    (entry) => entry.isDirectory() && entry.name === mangaTitle
+  );
+
+  if (!mangaDir) {
+    return false;
+  }
+
+  // Find chapter folder containing pages
+  const mangaPath = path.join(libraryPath, mangaDir.name);
+  const chapterEntries = fs.readdirSync(mangaPath, { withFileTypes: true });
+  const chapterDir = chapterEntries.find(
+    (entry) => entry.isDirectory() && entry.name === chapterTitle
+  );
 
   if (!chapterDir) {
     return false;
@@ -38,20 +48,4 @@ export async function chapterDownloaded(
   const chapterPath = path.join(mangaPath, chapterDir.name);
   const files = fs.readdirSync(chapterPath);
   return files.length > 0;
-}
-
-export async function dbHasDownloadJobs(home: string, count: number): Promise<boolean> {
-  const dbPath = path.join(home, 'kiyomi.db');
-  if (!fs.existsSync(dbPath)) {
-    return count === 0;
-  }
-
-  const db = sqlite3(dbPath);
-  try {
-    const stmt = db.prepare('SELECT COUNT(*) as cnt FROM download_jobs WHERE status = ?');
-    const result = stmt.get('completed') as { cnt: number };
-    return result.cnt === count;
-  } finally {
-    db.close();
-  }
 }

@@ -1,21 +1,18 @@
 # Filesystem-First Library Architecture
 
-> [!NOTE]
-> Currently, the repository implements a **purely filesystem-based metadata library** (Phase 1). There is **no active SQLite database index** (`kiyomi.db`) compiled or running. All library metadata, chapter records, page lists, and reading progress details are written directly to and read directly from local `meta.json` and `pages.json` files on the filesystem. The SQLite schema described below remains an approved design specification for future implementation.
-
 ## Overview
 
-Kiyomi is shifting from a provider-centric model (Tachiyomi/Mihon-style, where external sources are authoritative) to a **filesystem-first, library-centric model**. The local manga library is the product; providers become optional enrichment services.
+Kiyomi is shifting from a provider-centric model (Tachiyomi/Mihon-style, where external providers are authoritative) to a **filesystem-first, library-centric model**. The local manga library is the product; providers become optional enrichment services.
 
 ### Core Principle
 
-> **Filesystem is the source of truth. The database is a disposable index that can be wiped and rebuilt from disk at any time.**
+> **Filesystem is the sole source of truth.**
 
 This enables:
-- True offline-first operation (library works without providers)
+- True offline operation (library works without providers)
 - Native backup, sync, and migration via `cp -r library/`
 - Import/export between Kiyomi instances
-- Recovery from DB corruption without data loss
+- Recovery from corruption without data loss
 - Adoption of existing manga collections (later, lower priority)
 
 ---
@@ -34,7 +31,6 @@ $KIYOMI_HOME/
 │           ├── 001.jpg               # page images (zero-padded, 3+ digits)
 │           ├── 002.jpg
 │           └── ...
-├── kiyomi.db                        # SQLite index (disposable cache)
 ├── cache/                           # transient: thumbnails, provider images
 └── ...
 ```
@@ -168,51 +164,6 @@ The chapter-level `meta.json` does NOT include any number mapping field by defau
 
 ---
 
-## Database Schema (Disposable Index)
-
-> [!NOTE]
-> As mentioned, the database index is not yet implemented. In the current filesystem-only model, all user reading progress, ratings, status, notes, and metadata are persisted directly in `meta.json` files on disk.
-
-### Planned Schema (For Future DB Caching Phases)
-
-- `manga` — list, search, filters
-- `chapter_progress` — user reading state (cached from filesystem)
-- `reading_progress` — derived aggregate, cache only
-
-### What Gets Added
-
-```sql
-CREATE TABLE IF NOT EXISTS chapters (
-    id TEXT PRIMARY KEY,
-    manga_id TEXT NOT NULL REFERENCES manga(id) ON DELETE CASCADE,
-    number REAL NOT NULL DEFAULT 0.0,
-    title TEXT NOT NULL DEFAULT '',
-    content_provider_id TEXT NOT NULL DEFAULT '',
-    content_chapter_ref TEXT NOT NULL DEFAULT '',
-    is_orphan BOOLEAN NOT NULL DEFAULT 0,        -- missing from current provider
-    is_downloaded BOOLEAN NOT NULL DEFAULT 0,    -- derived from filesystem scan
-    last_synced_at DATETIME,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_chapters_manga_id ON chapters(manga_id);
-CREATE INDEX IF NOT EXISTS idx_chapters_is_orphan ON chapters(is_orphan);
-CREATE INDEX IF NOT EXISTS idx_chapters_is_downloaded ON chapters(is_downloaded);
-```
-
-### What Gets Removed
-
-- `chapter_download` — filesystem is the source of truth for download state
-- `download_job` — moves to filesystem-based queue (job manifests as files, simpler recovery)
-- `pages` table — derived from filesystem scan, cache only with mtime invalidation
-
-### Manga Table Adjustments
-
-- `cover_asset` / `banner_asset` paths remain (filesystem-derived during scan)
-- `content_provider_id` / `content_remote_id` mirror what `meta.json` `content` holds
-
----
 
 ## Page Source Resolution
 
@@ -225,7 +176,7 @@ Reader page source order:
   3. Provider (live)     — fetched on demand
 ```
 
-**Per-page source state, not chapter-level.** Each page carries its own `Source ∈ {disk, cache, provider}` state. The reader queries filesystem stat + cache lookup to determine source at runtime. No DB schema change required.
+**Per-page source state, not chapter-level.** Each page carries its own `Source ∈ {disk, cache, provider}` state. The reader queries filesystem stat + cache lookup to determine source at runtime.
 
 **API contract** for page list:
 ```
@@ -235,7 +186,7 @@ Response: []Page{Index, Source, URL?}
   URL present only when Source = provider (transient signed URL)
 ```
 
-**`is_downloaded` remains chapter-level** for listing/filtering UX. It is `true` when all pages have `Source = disk`. Per-page state is computed on demand via filesystem stat; it is not stored in the DB.
+**`is_downloaded` remains chapter-level** for listing/filtering UX. It is `true` when all pages have `Source = disk`. Per-page state is computed on demand via filesystem stat.
 
 **"Refresh" = re-enqueue missing pages.** The Refresh UI action iterates the chapter's page list and enqueues `DownloadPageArgs` for every page where `Source ≠ disk`. This is not a separate job kind — it is the original download job re-issued. Existing pages are left alone; only missing pages are fetched.
 
@@ -400,7 +351,7 @@ All provider-based discoveries and library additions happen via the **Explore Vi
 
 ## Provider Migration
 
-When user switches manga's provider (e.g., source taken down, user prefers different):
+When user switches manga's provider (e.g., provider taken down, user prefers different):
 
 1. User picks new provider in manga detail UI
 2. Kiyomi re-fetches chapter list from new provider, writes new `content` in `meta.json`
@@ -438,10 +389,9 @@ Selection persists while navigating between chapter pages. Action buttons live i
 
 1. Should chapter folders support loose files (jpg, png, webp) mixed? Or enforce single format?
 2. Library scan on startup — full or incremental? Incremental is faster but adds complexity.
-3. DB cache invalidation — mtime check on `meta.json`? Inotify/FSEvents for real-time?
-4. Concurrent access — multiple Kiyomi instances on same library? Single-writer lock?
-5. Storage backend abstraction — pure filesystem vs pluggable (S3, etc.)? Start filesystem-only, abstract later.
-6. When orphan chapters have downloaded pages — should we offer a "download source-less chapter" action using cached page bytes as source?
+3. Concurrent access — multiple Kiyomi instances on same library? Single-writer lock?
+4. Storage backend abstraction — pure filesystem vs pluggable (S3, etc.)? Start filesystem-only, abstract later.
+5. When orphan chapters have downloaded pages — should we offer a "download provider-less chapter" action using cached page bytes as source?
 
 ---
 
@@ -460,4 +410,4 @@ Selection persists while navigating between chapter pages. Action buttons live i
   - `docs/developer/permanent_download_plan.md` — Phase 1 schema obsolete; worker/dispatcher concepts still relevant in spirit
 - Related still-current docs:
   - `docs/developer/architecture.md` — system overview; "Disk Storage" section marked superseded
-  - `docs/developer/sources_sdk.md` — provider SDK, will need `HasStableChapterID()` added
+  - `docs/plugin_developer/` — provider SDK documentation

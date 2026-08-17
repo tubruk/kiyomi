@@ -16,7 +16,6 @@ const (
 	EnvHome        = "KIYOMI_HOME"
 	EnvDownloadDir = "KIYOMI_DOWNLOAD_DIR"
 	EnvCacheDir    = "KIYOMI_CACHE_DIR"
-	EnvDBPath      = "KIYOMI_DB_PATH"
 	EnvPort        = "KIYOMI_PORT"
 	EnvLibraryDir  = "KIYOMI_LIBRARY_DIR"
 
@@ -27,9 +26,9 @@ const (
 	// a freshly built web/dist takes effect without recompiling Go.
 	EnvWebDir = "KIYOMI_WEB_DIR"
 
+	// EnvProviderConfig is the override env var.
 	EnvProviderConfig   = "KIYOMI_PROVIDER_CONFIG"
 	EnvPluginDir        = "KIYOMI_PLUGIN_DIR"
-	EnvOfflineMode      = "KIYOMI_OFFLINE_MODE"
 	EnvCachePageTTL     = "KIYOMI_CACHE_PAGE_TTL"
 	EnvCacheMetadataTTL = "KIYOMI_CACHE_METADATA_TTL"
 	EnvCacheImageTTL    = "KIYOMI_CACHE_IMAGE_TTL"
@@ -56,12 +55,6 @@ type Config struct {
 	// CacheDir is the absolute path on disk where ephemeral assets are cached.
 	// When the user supplies a relative path (the default), it is resolved against Home.
 	CacheDir string
-
-	// DBPath is the absolute filesystem path to the SQLite database file
-	// (e.g. "<home>/kiyomi.db"). Relative values from KIYOMI_DB_PATH are
-	// joined to Home; absolute values are used verbatim. The default is
-	// "<home>/kiyomi.db".
-	DBPath string
 
 	// LibraryDir is the absolute filesystem path to the manga library root.
 	// When the user supplies a relative path (the default), it is resolved
@@ -92,9 +85,6 @@ type Config struct {
 	// PluginDir is the filesystem path to the directory containing executable plugin binaries.
 	// Defaults to "<home>/plugins". Relative values are joined to Home; absolute values are used verbatim.
 	PluginDir string
-
-	// OfflineMode determines whether network calls to providers are disabled.
-	OfflineMode bool
 
 	// Per-category Cache TTLs
 	CachePageTTL     time.Duration
@@ -165,21 +155,6 @@ func Load() *Config {
 		)
 	}
 
-	dbPath, dbSrc := resolveDBPath(cfg.Home)
-	cfg.DBPath = dbPath
-	switch dbSrc {
-	case sourceEnvOverride:
-		slog.Info("config: db path overridden by env",
-			slog.String("env", EnvDBPath),
-			slog.String("path", cfg.DBPath),
-		)
-	case sourceRelativeDefault:
-		slog.Debug("config: using default db path relative to home",
-			slog.String("home", cfg.Home),
-			slog.String("path", cfg.DBPath),
-		)
-	}
-
 	webDist, webSrc := resolveWebDist(cfg.Home)
 	cfg.WebDist = webDist
 	if webSrc == sourceEnvOverride {
@@ -236,7 +211,6 @@ func Load() *Config {
 		)
 	}
 
-	cfg.OfflineMode = parseBool(EnvOfflineMode, false)
 	cfg.CachePageTTL = parseDuration(EnvCachePageTTL, 168*time.Hour)
 	cfg.CacheMetadataTTL = parseDuration(EnvCacheMetadataTTL, 12*time.Hour)
 	cfg.CacheImageTTL = parseDuration(EnvCacheImageTTL, 720*time.Hour)
@@ -297,14 +271,6 @@ func resolveCacheDir(home string) (string, configSource) {
 	return filepath.Join(home, "cache"), sourceRelativeDefault
 }
 
-// resolveDBPath applies the relative-vs-absolute rule to the SQLite file
-// path. Default is "<home>/kiyomi.db".
-func resolveDBPath(home string) (string, configSource) {
-	if v := strings.TrimSpace(os.Getenv(EnvDBPath)); v != "" {
-		return resolveAgainstHome(home, v), sourceEnvOverride
-	}
-	return filepath.Join(home, "kiyomi.db"), sourceRelativeDefault
-}
 
 // resolveWebDist returns the dev-mode override for the web UI bundle
 // source. Empty result means "serve the embedded bundle" (the
@@ -367,7 +333,7 @@ func resolveAgainstHome(home, raw string) string {
 
 // Validate is a best-effort sanity check run at startup. It does not fail
 // fatally: callers may choose to log warnings only. Today the checks are
-// that Home, DownloadDir, and DBPath are non-empty; future fields can extend
+// that Home and DownloadDir are non-empty; future fields can extend
 // it without changing the public surface.
 func (c *Config) Validate() error {
 	if c == nil {
@@ -381,9 +347,6 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.CacheDir) == "" {
 		return errors.New("config: cache dir is empty")
-	}
-	if strings.TrimSpace(c.DBPath) == "" {
-		return errors.New("config: db path is empty")
 	}
 	if strings.TrimSpace(c.LibraryDir) == "" {
 		return errors.New("config: library dir is empty")
@@ -401,8 +364,8 @@ func (c *Config) String() string {
 		return "<nil config>"
 	}
 	return fmt.Sprintf(
-		"home=%s download_dir=%s cache_dir=%s db_path=%s library_dir=%s web_dist=%s port=%s global_concurrency=%d provider_concurrency=%d provider_config=%s plugin_dir=%s cache_max_bytes=%d",
-		c.Home, c.DownloadDir, c.CacheDir, c.DBPath, c.LibraryDir, c.WebDist, c.Port, c.GlobalConcurrency, c.ProviderConcurrency, c.ProviderConfigPath, c.PluginDir, c.CacheMaxBytes,
+		"home=%s download_dir=%s cache_dir=%s library_dir=%s web_dist=%s port=%s global_concurrency=%d provider_concurrency=%d provider_config=%s plugin_dir=%s cache_max_bytes=%d",
+		c.Home, c.DownloadDir, c.CacheDir, c.LibraryDir, c.WebDist, c.Port, c.GlobalConcurrency, c.ProviderConcurrency, c.ProviderConfigPath, c.PluginDir, c.CacheMaxBytes,
 	)
 }
 

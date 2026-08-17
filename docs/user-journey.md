@@ -350,7 +350,7 @@ Cache does not corrupt library data. Library files are never evicted.
 
 ### Progress Sync
 
-Reading progress stored in `kiyomi.db`, not on filesystem. Single-writer SQLite, survives restarts.
+Reading progress is stored in the manga's filesystem metadata (`meta.json` / `chapters.json`), surviving restarts.
 
 ---
 

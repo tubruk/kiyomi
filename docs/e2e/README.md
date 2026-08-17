@@ -39,11 +39,10 @@ Why not Storybook / Vitest browser mode? Our journeys span UI + filesystem + DB 
 │                                                                  │
 │  tmpdir                                                           │
 │  ├── library/            (seeded or empty fixtures)               │
-│  ├── cache/              (fresh)                                  │
-│  └── kiyomi.db           (fresh SQLite)                           │
+│  └── cache/              (fresh)                                  │
 │                                                                  │
 │  child process: ./bin/kiyomi-e2e                               │
-│  env: KIYOMI_HOME=tmpdir, KIYOMI_PORT=<worker-port>, KIYOMI_OFFLINE_MODE=1 │
+│  env: KIYOMI_HOME=tmpdir, KIYOMI_PORT=<worker-port>               │
 │       KIYOMI_PROVIDER_CONFIG=tmpdir/providers.json               │
 │       KIYOMI_MOCK_FIXTURES=fixtures/providers                   │
 │                                                                  │
@@ -57,7 +56,6 @@ Why not Storybook / Vitest browser mode? Our journeys span UI + filesystem + DB 
 
 Each scenario gets:
 - Fresh `KIYOMI_HOME` (mkdtemp).
-- Fresh SQLite file.
 - Fresh BrowserContext (cookies, storage cleared).
 - Unique port: each parallel worker gets `4111+N` (N = worker index). No port discovery parsing needed.
 - Mock provider pointed at JSON fixtures for that scenario.
@@ -70,10 +68,9 @@ Teardown: kill server, rm tmpdir, close context. No state leaks across scenarios
 
 | Layer | What | How |
 |---|---|---|
-| Filesystem | Library / cache / DB | `mkdtemp` per scenario in `os.tmpdir()/kiyomi-e2e-<uuid>` |
+| Filesystem | Library / cache | `mkdtemp` per scenario in `os.tmpdir()/kiyomi-e2e-<uuid>` |
 | Ports | HTTP listener | Each parallel worker claims `4111+N` (N = worker index). Range avoids collisions; no discovery parsing needed |
-| Database | SQLite | `<tmp>/kiyomi.db`, never reused |
-| Providers | External | `KIYOMI_OFFLINE_MODE=1` blocks any non-mocked network call. Mock provider serves everything |
+| Providers | External | Mock provider pointed at JSON fixtures serves everything |
 | Browser | Cookies / localStorage | `browser.newContext()` per scenario |
 | Time | `time.Now()` in worker | Short env TTLs (`KIYOMI_CACHE_PAGE_TTL=2s`) — real time, fast expiry. No fake clock. |
 | Workers | Concurrency | `KIYOMI_GLOBAL_CONCURRENCY=2`, `KIYOMI_PROVIDER_CONCURRENCY=1` so queue order is predictable |
@@ -88,7 +85,7 @@ Teardown: kill server, rm tmpdir, close context. No state leaks across scenarios
 BDD is behavioral. We don't pin time — we assert on visible state.
 
 **Plan:**
-1. **`KIYOMI_OFFLINE_MODE=1`** already exists — flip it on per scenario.
+1. **Mock provider** pointed at scenario fixtures is used.
 2. **No automatic scan on startup** — the library indexer is passive (no `IndexAll` called, no periodic scan registered). Nothing to disable.
 3. **Mock provider IDs** are deterministic strings (`mock-manga-001`, `mock-chapter-001`).
 4. **Cache TTL** where it matters: short TTLs via env (`KIYOMI_CACHE_PAGE_TTL=2s`, `KIYOMI_CACHE_SEARCH_TTL=1s`) — real time, fast expiry. No fake clock.
@@ -410,7 +407,7 @@ Each phase is a single PR. AGENTS.md mandates verifications: `go test ./...`, `b
 1. **Auth.** Kiyomi has no auth by design — anyone who reaches the server can use it. Background step does not include login. Close: no action needed.
 2. **WebSocket.** Codebase is HTTP/REST only — confirmed zero WebSocket usage across `internal/` and `web/src`. Close: no action needed.
 3. **Screenshot on every step vs only on failure.** Default: only on failure, plus a `Then I screenshot {name}` step for ad-hoc captures.
-4. **Re-using `kiyomi.db` between scenarios.** Avoided by architecture — all DB access is via struct fields injected at construction. No package-level `*sql.DB` singletons or `sync.Once` pools exist. Close.
+4. **Re-using library directories between scenarios.** Avoided by architecture — all data access is via directory paths configured per handler. Close.
 5. **Coverage of the **System Journeys** (Library Scan, Cache Eviction, Progress Sync) from `user-journey.md`.** Not user-visible. Cover indirectly via Layer C asserts in the journey scenarios. Promote to their own feature file if regressions bite.
 
 ---

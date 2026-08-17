@@ -8,7 +8,6 @@ Kiyomi is configured entirely through environment variables. All paths default t
 | :--- | :--- | :--- |
 | `KIYOMI_HOME` | Current working directory | Base directory for all relative paths |
 | `KIYOMI_PORT` | `8080` | HTTP server port |
-| `KIYOMI_DB_PATH` | `<home>/kiyomi.db` | Path to the SQLite database file (reserved for future database indexing) |
 | `KIYOMI_LIBRARY_DIR` | `<home>/library` | Manga library root |
 | `KIYOMI_DOWNLOAD_DIR` | `<home>/library` | Downloaded chapter assets |
 | `KIYOMI_CACHE_DIR` | `<home>/cache` | Image and metadata disk cache |
@@ -29,7 +28,6 @@ Kiyomi is configured entirely through environment variables. All paths default t
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `KIYOMI_OFFLINE_MODE` | `false` | Disable all outbound network calls |
 | `KIYOMI_LOG_LEVEL` | `info` | Log threshold: `debug`, `info`, `warn`, `error` |
 | `KIYOMI_LOG_FORMAT` | `pretty` | Log format: `pretty`, `json`, `text` |
 
