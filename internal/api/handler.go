@@ -112,6 +112,11 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	// System Info
 	v1.GET("/info", h.getInfo)
 
+	// System Cache
+	v1.GET("/system/cache", h.getCacheStats)
+	v1.POST("/system/cache/clear", h.clearCache)
+
+
 	// Content Providers
 	v1.GET("/providers", h.listContentProviders)
 	v1.GET("/providers/:providerId/manga", h.getProviderMangaCatalog)

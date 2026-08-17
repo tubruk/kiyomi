@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
-import { BookOpen, Sun, Moon, Monitor, Check } from 'lucide-react';
+import { BookOpen, Sun, Moon, Monitor, Check, Settings } from 'lucide-react';
 
 import { Badge } from './ui/badge';
 import { useTheme } from '../context/ThemeContext';
@@ -21,7 +21,7 @@ export const Header: React.FC = () => {
   }
 
   const isExploreActive = location.pathname.startsWith('/explore') || location.pathname.startsWith('/providers');
-  const isPluginsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/plugins');
+  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/plugins');
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/80 backdrop-blur-md">
@@ -63,21 +63,24 @@ export const Header: React.FC = () => {
             >
               Explore
             </Link>
-            <Link
-              to="/settings/plugins"
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                isPluginsActive
-                  ? 'bg-secondary text-primary font-semibold'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              Settings
-            </Link>
           </nav>
         </div>
 
-        {/* Theme Switcher */}
+        {/* Actions: Settings & Theme Switcher */}
         <div className="flex items-center gap-3">
+          <Link
+            to="/settings/plugins"
+            className={`inline-flex size-9 items-center justify-center rounded-full border border-border bg-card transition-colors cursor-pointer shrink-0 ${
+              isSettingsActive
+                ? 'bg-secondary text-primary'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Settings className="size-4" />
+          </Link>
+
           <DropdownMenu>
             <DropdownMenuTrigger
               className="inline-flex size-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"

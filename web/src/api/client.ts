@@ -10,6 +10,7 @@ import {
   ProviderCollision,
   ReloadPluginsResponse,
   AppInfo,
+  CacheStats,
 } from '../types/api';
 
 const API_BASE = '/api/v1';
@@ -239,5 +240,16 @@ export const api = {
         body: JSON.stringify({ providerId, preference }),
       }
     );
+  },
+
+  // Cache Management
+  getCacheStats: (): Promise<CacheStats> => {
+    return fetchAPI<CacheStats>('/system/cache');
+  },
+
+  clearCache: (): Promise<{ status: string }> => {
+    return fetchAPI<{ status: string }>('/system/cache/clear', {
+      method: 'POST',
+    });
   },
 };

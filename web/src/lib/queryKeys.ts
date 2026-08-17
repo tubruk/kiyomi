@@ -33,6 +33,9 @@ export const queryKeys = {
   collisions: {
     all: ['collisions'] as const,
   },
+  system: {
+    cache: ['system', 'cache'] as const,
+  },
   info: ['info'] as const,
 };
 

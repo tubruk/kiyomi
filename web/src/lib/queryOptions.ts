@@ -70,3 +70,9 @@ export const infoQueryOptions = () =>
     queryFn: () => api.getInfo(),
     staleTime: Infinity, // build info never changes at runtime
   });
+
+export const cacheStatsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.system.cache,
+    queryFn: api.getCacheStats,
+  });

@@ -507,3 +507,67 @@ func (c *DiskCache) StartCleanupWorker(ctx context.Context, interval time.Durati
 		}
 	}()
 }
+
+// Stats returns the total size in bytes and count of cached .img files in the images directory.
+func (c *DiskCache) Stats() (int64, int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	imagesDir := filepath.Join(c.dir, "images")
+	if _, err := os.Stat(imagesDir); os.IsNotExist(err) {
+		return 0, 0, nil
+	}
+
+	var totalSize int64
+	var count int
+
+	err := filepath.WalkDir(imagesDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".img") {
+			info, err := d.Info()
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				return err
+			}
+			totalSize += info.Size()
+			count++
+		}
+		return nil
+	})
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("failed to calculate cache stats: %w", err)
+	}
+
+	return totalSize, count, nil
+}
+
+// Clear removes all files in the cache images directory and recreates the empty images directory.
+func (c *DiskCache) Clear() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	imagesDir := filepath.Join(c.dir, "images")
+	if err := os.RemoveAll(imagesDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to clear cache directory: %w", err)
+	}
+
+	if err := os.MkdirAll(imagesDir, 0755); err != nil {
+		return fmt.Errorf("failed to recreate cache directory: %w", err)
+	}
+
+	return nil
+}
+

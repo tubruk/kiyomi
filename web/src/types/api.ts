@@ -231,3 +231,8 @@ export interface AppInfo {
   build_time: string;
   commit: string;
 }
+
+export interface CacheStats {
+  size_bytes: number;
+  item_count: number;
+}

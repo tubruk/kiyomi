@@ -593,3 +593,76 @@ func TestDiskCache_ParallelPurgeRace(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestStatsAndClear(t *testing.T) {
+	tempDir := t.TempDir()
+	c, err := NewDiskCache(tempDir, 24*time.Hour, 10*1024*1024)
+	if err != nil {
+		t.Fatalf("failed to init cache: %v", err)
+	}
+
+	// 1. Initially empty stats
+	size, count, err := c.Stats()
+	if err != nil {
+		t.Fatalf("Stats failed on empty cache: %v", err)
+	}
+	if size != 0 || count != 0 {
+		t.Fatalf("expected 0 bytes and 0 count, got %d bytes and %d count", size, count)
+	}
+
+	// 2. Add 2 cached items
+	data1 := []byte("image-data-one-12345")
+	data2 := []byte("image-data-two-67890")
+
+	rc1, _, err := c.GetOrFetch(context.Background(), "https://example.com/img1.jpg", func(ctx context.Context) (io.ReadCloser, Meta, error) {
+		return io.NopCloser(bytes.NewReader(data1)), Meta{ContentType: "image/jpeg"}, nil
+	})
+	if err != nil {
+		t.Fatalf("GetOrFetch 1 failed: %v", err)
+	}
+	_ = rc1.Close()
+
+	rc2, _, err := c.GetOrFetch(context.Background(), "https://example.com/img2.jpg", func(ctx context.Context) (io.ReadCloser, Meta, error) {
+		return io.NopCloser(bytes.NewReader(data2)), Meta{ContentType: "image/jpeg"}, nil
+	})
+	if err != nil {
+		t.Fatalf("GetOrFetch 2 failed: %v", err)
+	}
+	_ = rc2.Close()
+
+	// 3. Stats after adding items
+	expectedSize := int64(len(data1) + len(data2))
+	size, count, err = c.Stats()
+	if err != nil {
+		t.Fatalf("Stats failed after fetching images: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected count 2, got %d", count)
+	}
+	if size != expectedSize {
+		t.Fatalf("expected size %d, got %d", expectedSize, size)
+	}
+
+	// 4. Clear cache
+	if err := c.Clear(); err != nil {
+		t.Fatalf("Clear failed: %v", err)
+	}
+
+	// 5. Stats after clear
+	size, count, err = c.Stats()
+	if err != nil {
+		t.Fatalf("Stats failed after clear: %v", err)
+	}
+	if size != 0 || count != 0 {
+		t.Fatalf("expected 0 bytes and 0 count after clear, got %d bytes and %d count", size, count)
+	}
+
+	// 6. GetPath returns false
+	if _, _, hit := c.GetPath("https://example.com/img1.jpg"); hit {
+		t.Fatal("expected cache miss for img1 after clear")
+	}
+	if _, _, hit := c.GetPath("https://example.com/img2.jpg"); hit {
+		t.Fatal("expected cache miss for img2 after clear")
+	}
+}
+
