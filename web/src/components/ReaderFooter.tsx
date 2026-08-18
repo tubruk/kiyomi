@@ -1,33 +1,46 @@
 import React from 'react';
-import { ArrowUp, Palette } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, ChevronsUp } from 'lucide-react';
 import { Button } from './ui/button';
 import { Slider } from './ui/slider';
-
-export type ReaderTheme = 'oled' | 'dark' | 'sepia' | 'light';
+import { ReaderFitModeSelector } from './ReaderFitModeSelector';
+import { FitMode } from '../hooks/useReaderFitMode';
 
 interface ReaderFooterProps {
   currentPage: number;
   totalPages: number;
-  readingMode?: string;
-  readerTheme: ReaderTheme;
-  onThemeChange: (theme: ReaderTheme) => void;
+  readingMode: string;
+  fitMode: FitMode;
   onPageChange: (page: number) => void;
   onScrollTop: () => void;
+  onFitModeChange: (mode: FitMode) => void;
+  onReadingModeChange: (mode: string) => void;
 }
 
 export const ReaderFooter: React.FC<ReaderFooterProps> = ({
   currentPage,
   totalPages,
   readingMode,
-  readerTheme,
-  onThemeChange,
+  fitMode,
   onPageChange,
   onScrollTop,
+  onFitModeChange,
+  onReadingModeChange,
 }) => {
   const isRTL = readingMode === 'rtl';
+  const isVertical = readingMode === 'vertical' || readingMode === 'longstrip';
+
+  const scrollIcon = isRTL ? (
+    <ChevronsRight className="size-4" aria-hidden />
+  ) : isVertical ? (
+    <ChevronsUp className="size-4" aria-hidden />
+  ) : (
+    <ChevronsLeft className="size-4" aria-hidden />
+  );
+
+  const scrollLabel = isRTL ? 'Scroll to End' : 'Scroll to Top';
 
   return (
-    <footer className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/90 backdrop-blur-md px-4 py-2.5">
+    <footer className="border-t border-border bg-background/90 backdrop-blur-md px-4 py-2.5">
       <div className="mx-auto flex max-w-4xl items-center gap-4">
         {/* Page Counter */}
         <span data-testid="page-indicator" className="min-w-[70px] text-xs font-semibold text-muted-foreground">
@@ -44,62 +57,37 @@ export const ReaderFooter: React.FC<ReaderFooterProps> = ({
             dir={isRTL ? 'rtl' : undefined}
             onValueChange={(val) => {
               if (Array.isArray(val) && typeof val[0] === 'number') {
-                onPageChange(val[0]);
+                // In RTL, slider is visually mirrored — invert the value so
+                // dragging "left" (thumb visually left) = higher page
+                const page = isRTL ? totalPages - val[0] + 1 : val[0];
+                onPageChange(page);
               } else if (typeof val === 'number') {
-                onPageChange(val);
+                const page = isRTL ? totalPages - val + 1 : val;
+                onPageChange(page);
               }
             }}
             className="cursor-pointer"
           />
         </div>
 
-        {/* Background Canvas Theme Selector */}
-        <div className="hidden sm:flex items-center gap-1">
-          <Palette className="size-3.5 text-muted-foreground mr-1" aria-hidden />
-          <button
-            type="button"
-            title="OLED Black Theme"
-            onClick={() => onThemeChange('oled')}
-            className={`size-5 rounded-full border border-border bg-black transition-transform cursor-pointer ${
-              readerTheme === 'oled' ? 'scale-125 ring-2 ring-primary' : 'hover:scale-110'
-            }`}
-          />
-          <button
-            type="button"
-            title="Dark Charcoal Theme"
-            onClick={() => onThemeChange('dark')}
-            className={`size-5 rounded-full border border-border bg-zinc-900 transition-transform cursor-pointer ${
-              readerTheme === 'dark' ? 'scale-125 ring-2 ring-primary' : 'hover:scale-110'
-            }`}
-          />
-          <button
-            type="button"
-            title="Sepia Paper Theme"
-            onClick={() => onThemeChange('sepia')}
-            className={`size-5 rounded-full border border-border bg-[#e8e0d0] transition-transform cursor-pointer ${
-              readerTheme === 'sepia' ? 'scale-125 ring-2 ring-primary' : 'hover:scale-110'
-            }`}
-          />
-          <button
-            type="button"
-            title="White Light Theme"
-            onClick={() => onThemeChange('light')}
-            className={`size-5 rounded-full border border-border bg-white transition-transform cursor-pointer ${
-              readerTheme === 'light' ? 'scale-125 ring-2 ring-primary' : 'hover:scale-110'
-            }`}
-          />
-        </div>
+        {/* Reader Settings (fit mode + direction) */}
+        <ReaderFitModeSelector
+          fitMode={fitMode}
+          readingMode={readingMode}
+          onFitModeChange={onFitModeChange}
+          onReadingModeChange={onReadingModeChange}
+        />
 
-        {/* Scroll to Top */}
+        {/* Jump to Start / End */}
         <Button
           variant="outline"
           size="icon"
           className="h-8 w-8 cursor-pointer"
           onClick={onScrollTop}
-          title="Scroll to Top"
-          aria-label="Scroll to Top"
+          title={scrollLabel}
+          aria-label={scrollLabel}
         >
-          <ArrowUp className="size-4" aria-hidden />
+          {scrollIcon}
         </Button>
       </div>
     </footer>

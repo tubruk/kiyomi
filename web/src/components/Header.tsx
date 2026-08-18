@@ -24,7 +24,7 @@ export const Header: React.FC = () => {
   const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/plugins');
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/80 backdrop-blur-md">
+    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/80 backdrop-blur-md hidden md:block">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
         {/* Brand Logo & Desktop Nav */}
         <div className="flex items-center gap-6">

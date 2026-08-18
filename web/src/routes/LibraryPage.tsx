@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Skeleton } from '../components/ui/skeleton';
 import { LibraryMangaCard } from '../components/LibraryMangaCard';
 import { LibraryShelfFilters } from '../components/LibraryShelfFilters';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../components/ui/sheet';
 
 const sortOptions: Record<string, string> = {
   title_asc: 'Title (A to Z)',
@@ -178,71 +179,188 @@ export const LibraryPage: React.FC = () => {
 
       {/* Shelves Tabs & Filter Bar */}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {libraryManga.length > 0 && (
-            <LibraryShelfFilters
-              shelves={allShelves}
-              counts={counts}
-              activeShelf={activeShelf}
-              onSelectShelf={setActiveShelf}
-            />
-          )}
+        {/* Desktop Filter Layout */}
+        <div className="hidden md:flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {libraryManga.length > 0 && (
+              <LibraryShelfFilters
+                shelves={allShelves}
+                counts={counts}
+                activeShelf={activeShelf}
+                onSelectShelf={setActiveShelf}
+              />
+            )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2 w-full pt-1">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Sort Dropdown */}
-              <div className="flex items-center gap-1.5">
-                <Select value={sortBy} onValueChange={(val) => val && setSortBy(val)}>
-                  <SelectTrigger className="w-[170px] text-xs h-9">
-                    <ArrowUpDown className="size-3.5 mr-1 text-muted-foreground" />
-                    <SelectValue placeholder="Sort by">
-                      {sortOptions[sortBy] || sortBy}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="title_asc" className="text-xs">Title (A to Z)</SelectItem>
-                    <SelectItem value="title_desc" className="text-xs">Title (Z to A)</SelectItem>
-                    <SelectItem value="rating_desc" className="text-xs">Rating (Highest)</SelectItem>
-                    <SelectItem value="rating_asc" className="text-xs">Rating (Lowest)</SelectItem>
-                    <SelectItem value="added_desc" className="text-xs">Recently Added</SelectItem>
-                    <SelectItem value="updated_desc" className="text-xs">Recently Updated</SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="flex flex-wrap items-center justify-between gap-2 w-full pt-1">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Sort Dropdown */}
+                <div className="flex items-center gap-1.5">
+                  <Select value={sortBy} onValueChange={(val) => val && setSortBy(val)}>
+                    <SelectTrigger className="w-[170px] text-xs h-9">
+                      <ArrowUpDown className="size-3.5 mr-1 text-muted-foreground" />
+                      <SelectValue placeholder="Sort by">
+                        {sortOptions[sortBy] || sortBy}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="title_asc" className="text-xs">Title (A to Z)</SelectItem>
+                      <SelectItem value="title_desc" className="text-xs">Title (Z to A)</SelectItem>
+                      <SelectItem value="rating_desc" className="text-xs">Rating (Highest)</SelectItem>
+                      <SelectItem value="rating_asc" className="text-xs">Rating (Lowest)</SelectItem>
+                      <SelectItem value="added_desc" className="text-xs">Recently Added</SelectItem>
+                      <SelectItem value="updated_desc" className="text-xs">Recently Updated</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Tag Filter Dropdown */}
+                {allTags.length > 0 && (
+                  <Select value={selectedTag} onValueChange={(val) => setSelectedTag(!val || val === 'all_tags' ? '' : val)}>
+                    <SelectTrigger className="w-[140px] text-xs h-9">
+                      <Filter className="size-3.5 mr-1 text-muted-foreground" />
+                      <SelectValue placeholder="All Tags">
+                        {selectedTag || 'All Tags'}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all_tags" className="text-xs">All Tags</SelectItem>
+                      {allTags.map((tag) => (
+                        <SelectItem key={tag} value={tag} className="text-xs">
+                          {tag}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
-              {/* Tag Filter Dropdown */}
-              {allTags.length > 0 && (
-                <Select value={selectedTag} onValueChange={(val) => setSelectedTag(!val || val === 'all_tags' ? '' : val)}>
-                  <SelectTrigger className="w-[140px] text-xs h-9">
-                    <Filter className="size-3.5 mr-1 text-muted-foreground" />
-                    <SelectValue placeholder="All Tags">
-                      {selectedTag || 'All Tags'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all_tags" className="text-xs">All Tags</SelectItem>
-                    {allTags.map((tag) => (
-                      <SelectItem key={tag} value={tag} className="text-xs">
-                        {tag}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            {/* Quick Filter Input */}
-            <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
-              <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by title or author..."
-                value={filterSearch}
-                onChange={(e) => setFilterSearch(e.target.value)}
-                className="pl-8 text-xs h-9"
-              />
+              {/* Quick Filter Input */}
+              <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search by title or author..."
+                  value={filterSearch}
+                  onChange={(e) => setFilterSearch(e.target.value)}
+                  className="pl-8 text-xs h-9"
+                />
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Mobile Filter Layout */}
+        <div className="flex md:hidden items-center gap-2 w-full">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search..."
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+              className="pl-8 text-xs h-9"
+            />
+          </div>
+
+          <Sheet>
+            <SheetTrigger
+              render={
+                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs cursor-pointer shrink-0">
+                  <Filter className="size-3.5" />
+                  <span>Filter & Sort</span>
+                </Button>
+              }
+            />
+            <SheetContent side="bottom" className="h-[80vh] rounded-t-xl sm:max-w-full">
+              <SheetHeader>
+                <SheetTitle>Filter & Sort</SheetTitle>
+              </SheetHeader>
+              <div className="mt-4 flex flex-col gap-6 overflow-y-auto max-h-[calc(80vh-100px)] pb-10">
+                {/* Sorting */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
+                  <Select value={sortBy} onValueChange={(val) => val && setSortBy(val)}>
+                    <SelectTrigger className="w-full text-xs h-10">
+                      <ArrowUpDown className="size-3.5 mr-1 text-muted-foreground" />
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="title_asc" className="text-xs">Title (A to Z)</SelectItem>
+                      <SelectItem value="title_desc" className="text-xs">Title (Z to A)</SelectItem>
+                      <SelectItem value="rating_desc" className="text-xs">Rating (Highest)</SelectItem>
+                      <SelectItem value="rating_asc" className="text-xs">Rating (Lowest)</SelectItem>
+                      <SelectItem value="added_desc" className="text-xs">Recently Added</SelectItem>
+                      <SelectItem value="updated_desc" className="text-xs">Recently Updated</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Shelves Selection */}
+                {libraryManga.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Shelf / Status</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allShelves.map((shelf) => {
+                        const isActive = activeShelf === shelf.id;
+                        const count = counts[shelf.id] ?? 0;
+                        return (
+                          <button
+                            key={shelf.id}
+                            type="button"
+                            onClick={() => setActiveShelf(shelf.id)}
+                            className={`rounded-full px-3 py-1 text-xs font-medium border cursor-pointer transition-colors ${
+                              isActive
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-card text-foreground border-border hover:bg-accent'
+                            }`}
+                          >
+                            {shelf.label} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tag Filter */}
+                {allTags.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter by Tag</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTag('')}
+                        className={`rounded-full px-3 py-1 text-xs font-medium border cursor-pointer transition-colors ${
+                          !selectedTag
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-card text-foreground border-border hover:bg-accent'
+                        }`}
+                      >
+                        All Tags
+                      </button>
+                      {allTags.map((tag) => {
+                        const isActive = selectedTag === tag;
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => setSelectedTag(tag)}
+                            className={`rounded-full px-3 py-1 text-xs font-medium border cursor-pointer transition-colors ${
+                              isActive
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-card text-foreground border-border hover:bg-accent'
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
 
         {/* Selected Tag Badge indicator */}

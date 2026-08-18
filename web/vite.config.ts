@@ -12,6 +12,9 @@ export default defineConfig({
     },
   },
   server: {
+	  allowedHosts: ['mihimaru.balinese-chicken.ts.net'],
+
+	host: true,
     port: 5173,
     proxy: {
       '/api': {

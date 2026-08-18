@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
-import { BookOpen, Compass } from 'lucide-react';
+import { BookOpen, Compass, Settings } from 'lucide-react';
 
 export const MobileBottomNav: React.FC = () => {
   const location = useLocation();
@@ -36,6 +36,20 @@ export const MobileBottomNav: React.FC = () => {
       >
         <Compass className="size-5" aria-hidden />
         <span>Explore</span>
+      </Link>
+
+      <Link
+        to="/settings/plugins"
+        activeOptions={{ exact: false }}
+        activeProps={{
+          className: 'flex flex-col items-center justify-center gap-1 text-xs font-medium transition-colors text-primary',
+        }}
+        inactiveProps={{
+          className: 'flex flex-col items-center justify-center gap-1 text-xs font-medium transition-colors text-muted-foreground hover:text-foreground',
+        }}
+      >
+        <Settings className="size-5" aria-hidden />
+        <span>Settings</span>
       </Link>
     </nav>
   );

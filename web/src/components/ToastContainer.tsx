@@ -13,8 +13,19 @@ export const ToastContainer: React.FC = () => {
 
   return (
     <>
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+      <div className="fixed bottom-20 sm:bottom-4 left-4 sm:left-auto sm:right-4 z-50 flex flex-col gap-2 sm:max-w-sm w-full sm:w-auto pointer-events-none items-center sm:items-end">
         {toasts.map((t) => {
+          if (t.mode === 'subtle') {
+            return (
+              <div
+                key={t.id}
+                className="pointer-events-auto mx-auto rounded-md border border-border bg-card/90 backdrop-blur-sm px-3 py-1.5 text-[11px] font-medium text-foreground shadow-lg transition-all duration-200 animate-in slide-in-from-bottom-2 max-w-[200px] text-center"
+              >
+                <span>{t.message}</span>
+              </div>
+            );
+          }
+
           const isError = t.type === 'error' || Boolean(t.details);
           return (
             <div
@@ -35,7 +46,7 @@ export const ToastContainer: React.FC = () => {
               {t.type === 'success' && <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />}
               {t.type === 'error' && <AlertCircle className="size-4 shrink-0 text-destructive" />}
               {t.type === 'info' && <Info className="size-4 shrink-0 text-primary" />}
-              
+
               <span className="flex-1 line-clamp-2">{t.message}</span>
 
               {isError && (

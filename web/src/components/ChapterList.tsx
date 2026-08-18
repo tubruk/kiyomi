@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ArrowDown, ArrowUp, BookOpen, Search, MoreVertical, RefreshCw, Trash2, AlertCircle, Check } from 'lucide-react';
 import { Chapter, Source } from '../types/api';
@@ -70,6 +70,8 @@ export const ChapterList: React.FC<ChapterListProps> = ({
 }) => {
   const [filterQuery, setFilterQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   const filteredChapters = useMemo(() => {
     let result = chapters.map((ch, idx) => ({
@@ -101,6 +103,15 @@ export const ChapterList: React.FC<ChapterListProps> = ({
       return order === 'asc' ? comparison : -comparison;
     });
   }, [chapters, filterQuery, sortBy, order]);
+
+  // Reset to page 1 when filtered list shrinks
+  useEffect(() => {
+    setPage(1);
+  }, [filteredChapters.length]);
+
+  const totalPages = Math.ceil(filteredChapters.length / PAGE_SIZE);
+  const safePage = Math.min(Math.max(1, page), totalPages || 1);
+  const paginatedChapters = filteredChapters.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const memoizedProviderName = useMemo(() => {
     if (!selectedContentProviderId || !contentProviders) return undefined;
@@ -256,7 +267,7 @@ export const ChapterList: React.FC<ChapterListProps> = ({
             {filterQuery ? 'No matching chapters found.' : 'No chapters found.'}
           </div>
         ) : (
-          filteredChapters.map((c) => {
+          paginatedChapters.map((c) => {
             const dateVal = c.uploadDate || c.uploadedAt;
             const dateStr = dateVal
               ? new Date(dateVal).toLocaleDateString()
@@ -366,6 +377,33 @@ export const ChapterList: React.FC<ChapterListProps> = ({
               </div>
             );
           })
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 pt-4 pb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="h-8 px-3 text-xs cursor-pointer"
+            >
+              Prev
+            </Button>
+            <span className="text-xs text-muted-foreground font-mono">
+              {safePage} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="h-8 px-3 text-xs cursor-pointer"
+            >
+              Next
+            </Button>
+          </div>
         )}
       </div>
     </div>

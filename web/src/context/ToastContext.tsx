@@ -7,11 +7,13 @@ export interface ToastMessage {
   message: string;
   type: ToastType;
   details?: string;
+  /** 'default' shows full toast with dismiss button. 'subtle' shows minimal inline toast above bottom bar. */
+  mode?: 'default' | 'subtle';
 }
 
 interface ToastContextValue {
   toasts: ToastMessage[];
-  showToast: (message: string, type?: ToastType, details?: string) => void;
+  showToast: (message: string, type?: ToastType, details?: string, mode?: 'default' | 'subtle') => void;
   removeToast: (id: string) => void;
 }
 
@@ -24,9 +26,9 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info', details?: string) => {
+  const showToast = useCallback((message: string, type: ToastType = 'info', details?: string, mode: 'default' | 'subtle' = 'default') => {
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type, details }]);
+    setToasts((prev) => [...prev, { id, message, type, details, mode }]);
 
     setTimeout(() => {
       removeToast(id);

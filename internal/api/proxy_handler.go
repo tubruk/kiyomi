@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,48 @@ import (
 	"github.com/tubruk/kiyomi/internal/library"
 	"github.com/tubruk/kiyomi/pkg/provider/sdk"
 )
+
+func (h *Handler) streamDataURI(c echo.Context, urlStr string) error {
+	// data:[<mediatype>][;base64],<data>
+	// Strip "data:" prefix.
+	dataStart := strings.Index(urlStr, ",")
+	if dataStart < 0 {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid data URI"})
+	}
+
+	header := urlStr[5:dataStart]
+	data := urlStr[dataStart+1:]
+
+	contentType := "text/plain"
+	if idx := strings.Index(header, ";"); idx >= 0 {
+		contentType = header[:idx]
+		if strings.HasSuffix(header, ";base64") {
+			contentType = strings.TrimSuffix(contentType, ";base64")
+		}
+	}
+	if contentType == "" {
+		contentType = "text/plain"
+	}
+
+	var body []byte
+	var err error
+	if strings.HasSuffix(header, ";base64") {
+		body, err = base64.StdEncoding.DecodeString(data)
+	} else {
+		body = []byte(data)
+	}
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "failed to decode data URI"})
+	}
+
+	c.Response().Header().Set("Content-Type", contentType)
+	c.Response().Header().Set("Content-Length", strconv.Itoa(len(body)))
+	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+
+	c.Response().WriteHeader(http.StatusOK)
+	_, err = c.Response().Writer.Write(body)
+	return err
+}
 
 func (h *Handler) getChapterPages(c echo.Context) error {
 	chapterRef := c.Param("chapterId")
@@ -294,6 +337,11 @@ func (h *Handler) buildProxyRequest(ctx context.Context, urlStr string, refererP
 }
 
 func (h *Handler) streamRemoteImage(c echo.Context, urlStr string, content *library.ContentSource) error {
+	// Handle data: URIs directly — no HTTP fetch needed.
+	if len(urlStr) >= 5 && urlStr[:5] == "data:" {
+		return h.streamDataURI(c, urlStr)
+	}
+
 	queryReferer := c.QueryParam("referer")
 
 	if h.imageCache == nil {

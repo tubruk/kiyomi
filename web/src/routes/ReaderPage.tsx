@@ -10,10 +10,14 @@ import {
   useProviderChapterList,
   useLibraryManga,
   useUpdateChapterProgressMutation,
+  useUpdateLibraryMangaMutation,
 } from '../api/hooks';
 import { useToast } from '../context/ToastContext';
 import { ReaderTopBar } from '../components/ReaderTopBar';
-import { ReaderFooter, ReaderTheme } from '../components/ReaderFooter';
+import { ReaderFooter } from '../components/ReaderFooter';
+import { ReaderHint } from '../components/ReaderHint';
+import { useReadingHint } from '../hooks/useReadingHint';
+import { useReaderFitMode } from '../hooks/useReaderFitMode';
 import { getProxyImageUrl, formatChapterTitleWithPage } from '../lib/utils';
 import { Chapter } from '../types/api';
 
@@ -88,7 +92,7 @@ export const ReaderPage: React.FC = () => {
   const remoteId = params.remoteId;
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark');
+  const [showOverlays, setShowOverlays] = useState(true);
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -149,7 +153,7 @@ export const ReaderPage: React.FC = () => {
     if (chapterId && currentChapter && prevChapterIdRef.current !== chapterId) {
       const chNum = currentChapter.meta?.number ?? (currentChapter as any).number;
       const chTitle = currentChapter.meta?.title ?? (currentChapter as any).title;
-      showToast(chTitle ? `Chapter ${chNum}: ${chTitle}` : `Chapter ${chNum}`, 'info');
+      showToast(chTitle ? `Chapter ${chNum}: ${chTitle}` : `Chapter ${chNum}`, 'info', undefined, 'subtle');
       prevChapterIdRef.current = chapterId;
     }
   }, [chapterId, currentChapter, showToast]);
@@ -188,8 +192,49 @@ export const ReaderPage: React.FC = () => {
 
   const isPaged = readingMode === 'rtl' || readingMode === 'ltr';
 
+  // Reading mode hint
+  const { hint: readingHint, dismissHint: dismissReadingHint } = useReadingHint(effectiveMangaId, readingMode);
+
+  // Fit mode
+  const { fitMode, setFitMode } = useReaderFitMode();
+
+  // Helper to get fit mode classes for page images
+  const getFitModeClasses = (baseClasses: string): string => {
+    const fitWidthClass = 'max-w-full h-auto';
+    const fitHeightClass = 'max-h-[calc(100vh-7.5rem)] w-auto max-w-full object-contain';
+    const fitOriginalClass = 'max-w-none h-auto';
+
+    let fitClass: string;
+    switch (fitMode) {
+      case 'fit-width':
+        fitClass = fitWidthClass;
+        break;
+      case 'fit-original':
+        fitClass = fitOriginalClass;
+        break;
+      case 'fit-height':
+      default:
+        fitClass = fitHeightClass;
+        break;
+    }
+
+    // Replace fit-related classes in baseClasses, then append fitClass
+    const withoutFit = baseClasses
+      .replace(/max-w-full|max-w-none/g, '')
+      .replace(/max-h-\[calc\(100vh-7\.5rem\)\]/g, '')
+      .replace(/w-auto|h-auto/g, '')
+      .replace(/object-contain/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return `${withoutFit} ${fitClass}`.trim();
+  };
+
   // Progress update mutation
   const updateProgressMutation = useUpdateChapterProgressMutation();
+
+  // Manga metadata update mutation
+  const updateLibraryMangaMutation = useUpdateLibraryMangaMutation();
 
   const isChapterRead = Boolean(currentChapter?.meta?.is_read ?? (currentChapter as any)?.is_read);
   const chapterLastReadPage = currentChapter?.meta?.last_read_page ?? (currentChapter as any)?.last_read_page ?? 0;
@@ -221,22 +266,6 @@ export const ReaderPage: React.FC = () => {
     }
   }, [chapterId, isChapterRead]);
 
-  // Save / restore scroll position per chapter via sessionStorage for continuous mode
-  const scrollStorageKey = `kiyomi_reader_scroll_${chapterId}`;
-
-  useEffect(() => {
-    if (isPaged) return;
-    const handleSaveScroll = () => {
-      if (chapterId && window.scrollY > 0) {
-        sessionStorage.setItem(scrollStorageKey, window.scrollY.toString());
-      }
-    };
-    window.addEventListener('scroll', handleSaveScroll, { passive: true });
-    return () => {
-      handleSaveScroll();
-      window.removeEventListener('scroll', handleSaveScroll);
-    };
-  }, [chapterId, scrollStorageKey, isPaged]);
 
   // Restore initial reading position to last_read_page or requested target page when loading a chapter
   useEffect(() => {
@@ -266,43 +295,22 @@ export const ReaderPage: React.FC = () => {
       return;
     }
 
-    const hasExplicitPageParam =
-      rawPage === 'last' ||
-      (rawPage !== undefined &&
-        rawPage !== null &&
-        rawPage !== '' &&
-        !isNaN(Number(rawPage)));
-
-    if (!hasExplicitPageParam) {
-      const savedScroll = sessionStorage.getItem(scrollStorageKey);
-      if (savedScroll) {
-        const top = parseFloat(savedScroll);
-        if (!isNaN(top) && top > 0) {
-          hasResumed.current = true;
-          setTimeout(() => {
-            window.scrollTo({ top, behavior: 'instant' });
-          }, 50);
-          return;
-        }
-      }
-    }
-
     if (targetResumePage > 1) {
       hasResumed.current = true;
+      setCurrentPage(targetResumePage);
+      lastReportedPage.current = targetResumePage;
       setTimeout(() => {
         const targetEl = pageRefs.current[targetResumePage - 1];
         if (targetEl) {
           targetEl.scrollIntoView({ behavior: 'instant', block: 'start' });
         }
-        setCurrentPage(targetResumePage);
-        lastReportedPage.current = targetResumePage;
-      }, 100);
+      }, 0);
     } else {
       window.scrollTo({ top: 0, behavior: 'instant' });
       setCurrentPage(1);
       lastReportedPage.current = 1;
     }
-  }, [chapterId, pages.length, searchParams.page, isChapterRead, chapterLastReadPage, scrollStorageKey, isPaged]);
+  }, [chapterId, pages.length, searchParams.page, isChapterRead, chapterLastReadPage, isPaged]);
 
   // Debounced auto-save (1.5s idle) & auto mark-as-read on last page
   useEffect(() => {
@@ -651,6 +659,8 @@ export const ReaderPage: React.FC = () => {
         targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
+    // Sync page to URL for bookmarking
+    navigate({ search: { ...searchParams, page: targetPage } as any, replace: true });
   };
 
   // Scroll tracking — passive + rAF throttle (for continuous vertical / longstrip modes)
@@ -697,19 +707,17 @@ export const ReaderPage: React.FC = () => {
     }
   };
 
-  // Map theme to background color class
-  const getThemeBgClass = () => {
-    switch (readerTheme) {
-      case 'oled':
-        return 'bg-black text-white';
-      case 'dark':
-        return 'bg-zinc-900 text-white';
-      case 'sepia':
-        return 'bg-[#e8e0d0] text-zinc-900';
-      case 'light':
-        return 'bg-white text-black';
-      default:
-        return 'bg-zinc-900 text-white';
+  const handleReadingModeChange = (mode: string) => {
+    dismissReadingHint();
+    if (effectiveMangaId) {
+      updateLibraryMangaMutation.mutate({
+        mangaId: effectiveMangaId,
+        fields: {
+          reading_mode: mode,
+          readingDirection: mode,
+          content: { reading_mode: mode },
+        },
+      });
     }
   };
 
@@ -731,7 +739,7 @@ export const ReaderPage: React.FC = () => {
             key={`page-${currentPage - 1}`}
             src={prevPageData.assetUrl || getProxyImageUrl(prevPageData.url, manga?.url)}
             alt={`Page ${currentPage - 1}`}
-            className="max-h-[calc(100vh-7.5rem)] w-auto max-w-full object-contain rounded-sm shadow-md select-none pointer-events-none"
+            className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
             draggable={false}
             onError={(e) => {
               if (prevPageData.url && e.currentTarget.src !== prevPageData.url) {
@@ -757,7 +765,7 @@ export const ReaderPage: React.FC = () => {
             key={`page-${currentPage + 1}`}
             src={nextPageData.assetUrl || getProxyImageUrl(nextPageData.url, manga?.url)}
             alt={`Page ${currentPage + 1}`}
-            className="max-h-[calc(100vh-7.5rem)] w-auto max-w-full object-contain rounded-sm shadow-md select-none pointer-events-none"
+            className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
             draggable={false}
             onError={(e) => {
               if (nextPageData.url && e.currentTarget.src !== nextPageData.url) {
@@ -783,7 +791,7 @@ export const ReaderPage: React.FC = () => {
       key={`page-${currentPage}`}
       src={currentPageData.assetUrl || getProxyImageUrl(currentPageData.url, manga?.url)}
       alt={`Page ${currentPage}`}
-      className="max-h-[calc(100vh-7.5rem)] w-auto max-w-full object-contain rounded-sm shadow-md select-none pointer-events-none"
+      className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
       draggable={false}
       onError={(e) => {
         if (currentPageData.url && e.currentTarget.src !== currentPageData.url) {
@@ -798,24 +806,27 @@ export const ReaderPage: React.FC = () => {
   const rightSlotContent = readingMode === 'rtl' ? beforeSlotContent : afterSlotContent;
 
   return (
-    <div className={`min-h-screen transition-colors duration-200 ${getThemeBgClass()}`}>
-      <ReaderTopBar
-        mangaTitle={manga?.title}
-        chapterTitle={chapters[currentChapterIndex]?.title || chapters[currentChapterIndex]?.name || 'Chapter View'}
-        currentPage={currentPage}
-        totalPages={pages.length}
-        chapterNumber={chapters[currentChapterIndex]?.number ?? chapters[currentChapterIndex]?.meta?.number}
-        mangaId={mangaId}
-        providerId={providerId}
-        remoteId={remoteId}
-        chapters={chapters}
-        currentChapterId={chapterId}
-        hasPrevChapter={hasPrevChapter}
-        hasNextChapter={hasNextChapter}
-        onPrevChapter={handlePrevChapter}
-        onNextChapter={handleNextChapter}
-        onSelectChapter={handleSelectChapter}
-      />
+    <div className={`min-h-screen transition-colors duration-200 bg-black pt-14`}>
+      <div className={`fixed top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${showOverlays ? 'translate-y-0' : '-translate-y-full'}`}>
+        <ReaderTopBar
+          mangaTitle={manga?.title}
+          chapterTitle={chapters[currentChapterIndex]?.title || chapters[currentChapterIndex]?.name || 'Chapter View'}
+          currentPage={currentPage}
+          totalPages={pages.length}
+          chapterNumber={chapters[currentChapterIndex]?.number ?? chapters[currentChapterIndex]?.meta?.number}
+          mangaId={mangaId}
+          providerId={providerId}
+          remoteId={remoteId}
+          chapters={chapters}
+          currentChapterId={chapterId}
+          readingMode={readingMode}
+          hasPrevChapter={hasPrevChapter}
+          hasNextChapter={hasNextChapter}
+          onPrevChapter={handlePrevChapter}
+          onNextChapter={handleNextChapter}
+          onSelectChapter={handleSelectChapter}
+        />
+      </div>
 
       <main
         className={`mx-auto ${
@@ -829,7 +840,16 @@ export const ReaderPage: React.FC = () => {
         {isPagesLoading ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Loader2 className="size-8 animate-spin mb-3 text-primary" aria-hidden />
-            <p className="text-sm font-medium">Fetching chapter pages...</p>
+            {currentChapter ? (
+              <p className="text-sm font-medium text-muted-foreground/70">
+                {currentChapter.meta?.number ?? (currentChapter as any).number}
+                {(currentChapter.meta?.title ?? (currentChapter as any).title) && (
+                  <> — {currentChapter.meta?.title ?? (currentChapter as any).title}</>
+                )}
+              </p>
+            ) : (
+              <p className="text-sm font-medium">Fetching chapter pages...</p>
+            )}
           </div>
         ) : isPagesError ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-8 text-center text-sm text-destructive my-12">
@@ -892,13 +912,22 @@ export const ReaderPage: React.FC = () => {
 
               {/* Click Navigation Zones */}
               <div className="absolute inset-0 flex select-none z-10 pointer-events-auto">
-                {/* Left Half Zone */}
+                {/* Left 30% Zone */}
                 <div
                   data-testid="reader-zone-left"
                   role="button"
                   tabIndex={-1}
                   aria-label={readingMode === 'rtl' ? 'Next Page' : 'Previous Page'}
-                  className="w-1/2 h-full cursor-pointer"
+                  className="w-[30%] h-full cursor-pointer touch-manipulation"
+                  onTouchEnd={(e) => {
+                    e.stopPropagation();
+                    if (didDragRef.current || isAnimating) return;
+                    if (readingMode === 'rtl') {
+                      goToNextPage();
+                    } else {
+                      goToPrevPage();
+                    }
+                  }}
                   onClick={() => {
                     if (didDragRef.current || isAnimating) return;
                     if (readingMode === 'rtl') {
@@ -908,13 +937,40 @@ export const ReaderPage: React.FC = () => {
                     }
                   }}
                 />
-                {/* Right Half Zone */}
+                {/* Center 40% Zone */}
+                <div
+                  data-testid="reader-zone-center"
+                  role="button"
+                  tabIndex={-1}
+                  aria-label="Toggle Overlays"
+                  className="w-[40%] h-full cursor-pointer touch-manipulation"
+                  onTouchEnd={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (didDragRef.current || isAnimating) return;
+                    setShowOverlays((prev) => !prev);
+                  }}
+                  onClick={() => {
+                    if (didDragRef.current || isAnimating) return;
+                    setShowOverlays((prev) => !prev);
+                  }}
+                />
+                {/* Right 30% Zone */}
                 <div
                   data-testid="reader-zone-right"
                   role="button"
                   tabIndex={-1}
                   aria-label={readingMode === 'rtl' ? 'Previous Page' : 'Next Page'}
-                  className="w-1/2 h-full cursor-pointer"
+                  className="w-[30%] h-full cursor-pointer touch-manipulation"
+                  onTouchEnd={(e) => {
+                    e.stopPropagation();
+                    if (didDragRef.current || isAnimating) return;
+                    if (readingMode === 'rtl') {
+                      goToPrevPage();
+                    } else {
+                      goToNextPage();
+                    }
+                  }}
                   onClick={() => {
                     if (didDragRef.current || isAnimating) return;
                     if (readingMode === 'rtl') {
@@ -924,11 +980,6 @@ export const ReaderPage: React.FC = () => {
                     }
                   }}
                 />
-              </div>
-
-              {/* Discreet floating page badge */}
-              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-background/80 px-2.5 py-0.5 text-[11px] font-medium text-foreground backdrop-blur-md shadow-sm border border-border/50 pointer-events-none select-none z-20">
-                {currentPage} / {pages.length}
               </div>
             </div>
           </div>
@@ -938,9 +989,10 @@ export const ReaderPage: React.FC = () => {
             data-testid="reader-content"
             className={
               readingMode === 'longstrip'
-                ? 'flex flex-col gap-0 items-center w-full max-w-3xl mx-auto'
-                : 'flex flex-col gap-6 items-center w-full max-w-3xl mx-auto my-4'
+                ? 'flex flex-col gap-0 items-center w-full max-w-3xl mx-auto cursor-pointer'
+                : 'flex flex-col gap-6 items-center w-full max-w-3xl mx-auto my-4 cursor-pointer'
             }
+            onClick={() => setShowOverlays((prev) => !prev)}
           >
             {pages.map((p) => {
               const originalIndex = p.index;
@@ -957,7 +1009,7 @@ export const ReaderPage: React.FC = () => {
                     <img
                       src={imgSrc}
                       alt={`Page ${pageNum}`}
-                      className="mx-auto max-w-full h-auto block object-contain transition-opacity duration-300 min-h-[100px]"
+                      className={getFitModeClasses('block transition-opacity duration-300 min-h-[100px]')}
                       loading="lazy"
                       onError={(e) => {
                         if (p.url && e.currentTarget.src !== p.url) {
@@ -978,7 +1030,7 @@ export const ReaderPage: React.FC = () => {
                   <img
                     src={imgSrc}
                     alt={`Page ${pageNum}`}
-                    className="mx-auto max-w-full h-auto rounded-sm shadow-md transition-opacity duration-300 min-h-[300px] object-contain"
+                    className={getFitModeClasses('rounded-sm shadow-md transition-opacity duration-300 min-h-[300px]')}
                     loading="lazy"
                     onError={(e) => {
                       if (p.url && e.currentTarget.src !== p.url) {
@@ -997,16 +1049,27 @@ export const ReaderPage: React.FC = () => {
       </main>
 
       {pages.length > 0 && (
-        <ReaderFooter
-          currentPage={currentPage}
-          totalPages={pages.length}
-          readingMode={readingMode}
-          readerTheme={readerTheme}
-          onThemeChange={setReaderTheme}
-          onPageChange={handlePageChange}
-          onScrollTop={handleScrollTop}
-        />
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50"
+          style={{
+            transform: showOverlays ? 'translateY(0)' : 'translateY(100%)',
+            transition: 'transform 300ms ease-in-out',
+          }}
+        >
+          <ReaderFooter
+            currentPage={currentPage}
+            totalPages={pages.length}
+            readingMode={readingMode}
+            fitMode={fitMode}
+            onPageChange={handlePageChange}
+            onScrollTop={handleScrollTop}
+            onFitModeChange={setFitMode}
+            onReadingModeChange={handleReadingModeChange}
+          />
+        </div>
       )}
+
+      {readingHint && <ReaderHint hint={readingHint} onDismiss={dismissReadingHint} />}
     </div>
   );
 };

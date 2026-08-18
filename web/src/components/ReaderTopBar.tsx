@@ -17,6 +17,7 @@ interface ReaderTopBarProps {
   remoteId?: string;
   chapters?: Chapter[];
   currentChapterId?: string;
+  readingMode?: string;
   hasPrevChapter: boolean;
   hasNextChapter: boolean;
   onPrevChapter: () => void;
@@ -35,6 +36,7 @@ export const ReaderTopBar: React.FC<ReaderTopBarProps> = ({
   remoteId,
   chapters = [],
   currentChapterId,
+  readingMode,
   hasPrevChapter,
   hasNextChapter,
   onPrevChapter,
@@ -130,29 +132,63 @@ export const ReaderTopBar: React.FC<ReaderTopBarProps> = ({
 
         {/* Controls Right: Prev / Next Chapter Buttons */}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!hasPrevChapter}
-            onClick={onPrevChapter}
-            title="Previous Chapter"
-            className="h-8 px-2 sm:px-3 text-xs cursor-pointer"
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-            <span className="hidden md:inline">Prev</span>
-          </Button>
+          {readingMode === 'rtl' ? (
+            <>
+              {/* RTL: Next on left */}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasNextChapter}
+                onClick={onNextChapter}
+                title="Next Chapter"
+                className="h-8 px-2 sm:px-3 text-xs cursor-pointer"
+              >
+                <ChevronLeft className="size-4" aria-hidden />
+                <span className="hidden md:inline">Next</span>
+              </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!hasNextChapter}
-            onClick={onNextChapter}
-            title="Next Chapter"
-            className="h-8 px-2 sm:px-3 text-xs cursor-pointer"
-          >
-            <span className="hidden md:inline">Next</span>
-            <ChevronRight className="size-4" aria-hidden />
-          </Button>
+              {/* RTL: Prev on right */}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasPrevChapter}
+                onClick={onPrevChapter}
+                title="Previous Chapter"
+                className="h-8 px-2 sm:px-3 text-xs cursor-pointer"
+              >
+                <span className="hidden md:inline">Prev</span>
+                <ChevronRight className="size-4" aria-hidden />
+              </Button>
+            </>
+          ) : (
+            <>
+              {/* LTR: Prev on left */}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasPrevChapter}
+                onClick={onPrevChapter}
+                title="Previous Chapter"
+                className="h-8 px-2 sm:px-3 text-xs cursor-pointer"
+              >
+                <ChevronLeft className="size-4" aria-hidden />
+                <span className="hidden md:inline">Prev</span>
+              </Button>
+
+              {/* LTR: Next on right */}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasNextChapter}
+                onClick={onNextChapter}
+                title="Next Chapter"
+                className="h-8 px-2 sm:px-3 text-xs cursor-pointer"
+              >
+                <span className="hidden md:inline">Next</span>
+                <ChevronRight className="size-4" aria-hidden />
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </header>

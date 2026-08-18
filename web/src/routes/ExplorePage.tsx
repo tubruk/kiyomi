@@ -6,9 +6,10 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Flame, Clock, Search, ChevronLeft, ChevronRight, Compass, X } from 'lucide-react';
+import { Flame, Clock, Search, ChevronLeft, ChevronRight, Compass, X, Filter } from 'lucide-react';
 import { MangaCard } from '../components/MangaCard';
 import { SkeletonCard } from '../components/SkeletonCard';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../components/ui/sheet';
 
 export const ExplorePage: React.FC = () => {
   const navigate = useNavigate();
@@ -102,7 +103,7 @@ export const ExplorePage: React.FC = () => {
 
         {/* Source Selector */}
         {sources.length > 0 && (
-          <div className="flex items-center gap-2 bg-card border border-border rounded-lg p-1.5 shadow-xs">
+          <div className="hidden md:flex items-center gap-2 bg-card border border-border rounded-lg p-1.5 shadow-xs">
             <span className="text-xs font-semibold px-2 text-muted-foreground uppercase tracking-wider">Source:</span>
             <Select value={activeProviderId} onValueChange={(val) => val && handleSourceChange(val)}>
               <SelectTrigger className="w-[180px] h-8 text-xs border-none bg-transparent shadow-none focus:ring-0">
@@ -122,8 +123,8 @@ export const ExplorePage: React.FC = () => {
         )}
       </div>
 
-      {/* Control Bar: Mode Tabs & Search Input */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-muted/40 border border-border p-3 rounded-xl">
+      {/* Control Bar: Mode Tabs & Search Input (Desktop) */}
+      <div className="hidden md:flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-muted/40 border border-border p-3 rounded-xl">
         <Tabs value={mode} onValueChange={(v) => handleModeChange(v as 'popular' | 'latest')}>
           <TabsList variant="default" className="bg-card">
             <TabsTrigger value="popular" className="gap-1.5 px-4 text-xs cursor-pointer">
@@ -165,6 +166,101 @@ export const ExplorePage: React.FC = () => {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Mobile Control Bar & Filter Sheet (Mobile) */}
+      <div className="flex md:hidden items-center gap-2 w-full bg-muted/40 border border-border p-3 rounded-xl">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input
+            placeholder="Search catalog..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                navigate({
+                  to: '/providers/$providerId',
+                  params: { providerId: activeProviderId || 'mangafox' },
+                  search: (prev) => ({ ...prev, q: searchTerm || undefined, page: 1 }),
+                });
+              }
+            }}
+            className="pl-9 text-xs bg-card border-border pr-8"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+
+        <Sheet>
+          <SheetTrigger
+            render={
+              <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs cursor-pointer shrink-0">
+                <Filter className="size-3.5" />
+                <span>Filter</span>
+              </Button>
+            }
+          />
+          <SheetContent side="bottom" className="h-[60vh] rounded-t-xl sm:max-w-full">
+            <SheetHeader>
+              <SheetTitle>Filter Catalog</SheetTitle>
+            </SheetHeader>
+            <div className="mt-4 flex flex-col gap-6 overflow-y-auto max-h-[calc(60vh-100px)] pb-10">
+              {/* Source Selector */}
+              {sources.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Source / Provider</span>
+                  <Select value={activeProviderId} onValueChange={(val) => val && handleSourceChange(val)}>
+                    <SelectTrigger className="w-full h-10 text-xs bg-card">
+                      <SelectValue placeholder="Select Provider">
+                        {sources.find((s) => s.id === activeProviderId)?.name || activeProviderId}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sources.map((s) => (
+                        <SelectItem key={s.id} value={s.id} className="text-xs">
+                          {s.name} {s.language || s.lang ? `(${s.language || s.lang})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Mode Selection */}
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sort / Mode</span>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={mode === 'popular' ? 'default' : 'outline'}
+                    className="flex-1 text-xs cursor-pointer gap-1.5"
+                    onClick={() => handleModeChange('popular')}
+                  >
+                    <Flame className="size-3.5 text-orange-500 fill-orange-500" />
+                    <span>Popular / Top</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={mode === 'latest' ? 'default' : 'outline'}
+                    className="flex-1 text-xs cursor-pointer gap-1.5"
+                    onClick={() => handleModeChange('latest')}
+                  >
+                    <Clock className="size-3.5 text-blue-500" />
+                    <span>Latest Updates</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
 
       {/* Main Content Area */}
