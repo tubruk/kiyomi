@@ -28,13 +28,12 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
   const { data: chaptersData } = useChapterList(manga.id);
   const chapters = chaptersData?.chapters || [];
 
-  const { unreadCount, isAllRead } = useMemo(() => {
-    if (chapters.length === 0) return { unreadCount: 0, isAllRead: false };
+  const { unreadCount } = useMemo(() => {
+    if (chapters.length === 0) return { unreadCount: 0 };
     const readCount = chapters.filter((c) => Boolean(c.meta?.is_read ?? (c as any).is_read)).length;
     const unread = chapters.length - readCount;
     return {
       unreadCount: unread,
-      isAllRead: readCount === chapters.length && chapters.length > 0,
     };
   }, [chapters]);
 
@@ -66,10 +65,10 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
           )}
           {chapters.length > 0 && (
             <div className="absolute bottom-2 left-2 z-10">
-              {isAllRead ? (
+              {userStatus === 'completed' ? (
                 <Badge
                   variant="secondary"
-                  className="bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider backdrop-blur-xs shadow-xs"
+                  className="bg-purple-600 text-white text-[10px] font-bold uppercase tracking-wider backdrop-blur-xs shadow-xs"
                 >
                   Completed
                 </Badge>

@@ -16,6 +16,7 @@ import { useToast } from '../context/ToastContext';
 import { ReaderTopBar } from '../components/ReaderTopBar';
 import { ReaderFooter } from '../components/ReaderFooter';
 import { ReaderHint } from '../components/ReaderHint';
+import { CompletionPromptDialog } from '../components/CompletionPromptDialog';
 import { useReadingHint } from '../hooks/useReadingHint';
 import { useReaderFitMode } from '../hooks/useReaderFitMode';
 import { getProxyImageUrl, formatChapterTitleWithPage } from '../lib/utils';
@@ -96,6 +97,7 @@ export const ReaderPage: React.FC = () => {
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -241,6 +243,7 @@ export const ReaderPage: React.FC = () => {
 
   const hasMarkedRead = useRef(false);
   const hasResumed = useRef(false);
+  const hasDismissedCompletion = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const animTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
@@ -254,6 +257,7 @@ export const ReaderPage: React.FC = () => {
   useEffect(() => {
     hasMarkedRead.current = isChapterRead;
     hasResumed.current = false;
+    hasDismissedCompletion.current = false;
     lastReportedPage.current = 1;
     setDragOffset(0);
     setIsDragging(false);
@@ -325,6 +329,17 @@ export const ReaderPage: React.FC = () => {
           chapterId,
           progress: { is_read: true, last_read_page: currentPage },
         });
+
+        // Trigger completion prompt if on last chapter and manga is in "reading" status
+        if (
+          effectiveMangaId &&
+          !hasNextChapter &&
+          !hasDismissedCompletion.current &&
+          (manga?.user_status === 'reading' || manga?.meta?.user_status === 'reading')
+        ) {
+          hasDismissedCompletion.current = true;
+          setShowCompletionDialog(true);
+        }
       }
       return;
     }
@@ -1070,6 +1085,13 @@ export const ReaderPage: React.FC = () => {
       )}
 
       {readingHint && <ReaderHint hint={readingHint} onDismiss={dismissReadingHint} />}
+
+      <CompletionPromptDialog
+        open={showCompletionDialog}
+        mangaId={effectiveMangaId || ''}
+        mangaTitle={manga?.title}
+        onClose={() => setShowCompletionDialog(false)}
+      />
     </div>
   );
 };
