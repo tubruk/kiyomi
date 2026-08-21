@@ -80,3 +80,22 @@ This document contains operational conventions, repository layout maps, and veri
 ### Error Logging & Inspection Invariants
 - **Backend Logging**: HTTP logging middleware MUST only log failed requests (status >= 400 or handler errors) to keep terminal logs clean and free of 200 OK access noise. Provider error handlers MUST log explicit `slog.Error` messages with route URI, provider ID, status code, and underlying error cause.
 - **Frontend Toast & Modal Inspection**: Frontend mutation error handlers MUST NOT dump raw stack traces or un-truncated HTML into toast messages. Render a concise preview in the toast paired with a "Details" action button that opens a manually dismissable Error Details Modal containing a scrollable monospace trace box and a "Copy Error" button.
+
+---
+
+## 7. Repository Hygiene — No Personal Data in Tracked Files
+
+AI agents MUST NOT introduce absolute local filesystem paths, personal usernames, home-directory references, machine-specific identifiers, or absolute `file://` URLs into any tracked file (source, docs, configs, skills, comments, test fixtures, or generated artifacts that end up in git).
+
+### Forbidden Patterns in Tracked Files
+- Absolute home paths: `/Users/<name>/...`, `/home/<name>/...`, `C:\Users\<name>\...`, `~/...` (when expanded).
+- Absolute `file://` URLs of any kind (`file:///Users/...`, `file:///home/...`, etc.).
+- Hardcoded local usernames, hostnames, MAC addresses, internal IPs (RFC1918 ranges), personal email addresses.
+- Tooling output that embeds local paths (e.g., V8/Playwright coverage reports with `file://` sourcemaps) MUST be excluded via `.gitignore` (or `.dockerignore`) and never committed.
+
+### Required Practices
+- **Docs and skills**: reference repo files via **repo-relative paths** (e.g., `./pkg/foo/bar.go` or `pkg/foo/bar.go`), never `file://` URLs or absolute paths. If a link target is required, use a relative path or a public URL (GitHub blob URL is acceptable).
+- **Code, comments, fixtures, generated artifacts**: never embed local absolute paths. Use placeholders (`$HOME`, `<repo-root>`, `os.UserHomeDir()`) when paths are needed at runtime.
+- **Before committing**: run `git diff --cached | grep -nE '/Users/|/home/|file:///'` and remove any hits.
+- **Pre-merge / pre-push gate**: `git grep -nE '/Users/|<your-username>|file:///'` on all tracked files MUST return zero results.
+- **Test artifacts**: coverage reports (`.out`, Playwright `test-results/`, V8 JSON), IDE scratch dirs, `.env*`, and local DB files MUST be listed in `.gitignore` and `.dockerignore`.
