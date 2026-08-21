@@ -39,13 +39,20 @@ func IsValidUserStatus(status string) bool {
 	}
 }
 
+// ProviderRef represents a provider binding for a manga.
+type ProviderRef struct {
+	ProviderID      string `json:"provider_id"`
+	ProviderMangaID string `json:"provider_manga_id"`
+	MangaTitle      string `json:"manga_title,omitempty"`
+}
+
 // ContentSource represents the upstream primary content provider binding.
 type ContentSource struct {
-	ProviderID   string    `json:"provider_id"`
-	MangaID      string    `json:"manga_id,omitempty"`
-	ChapterRef   string    `json:"chapter_ref,omitempty"`
-	ReadingMode  string    `json:"reading_mode,omitempty"`
-	LastSyncedAt time.Time `json:"last_synced_at,omitempty"`
+	ProviderID      string    `json:"provider_id"`
+	ProviderMangaID string    `json:"provider_manga_id,omitempty"`
+	ChapterRef      string    `json:"chapter_ref,omitempty"`
+	ReadingMode     string    `json:"reading_mode,omitempty"`
+	LastSyncedAt    time.Time `json:"last_synced_at,omitempty"`
 }
 
 // MangaMeta matches the schema defined in docs/design/library.md
@@ -65,6 +72,7 @@ type MangaMeta struct {
 	Country           string         `json:"country"`
 	CoverURL          string         `json:"cover_url,omitempty"`
 	Content           *ContentSource `json:"content,omitempty"`
+	Providers         []ProviderRef  `json:"providers,omitempty"`
 	UserStatus        string         `json:"user_status"`
 	UserRating        float64        `json:"user_rating"`
 	UserFavorite      bool           `json:"user_favorite"`
@@ -405,6 +413,30 @@ func (l *Library) DeleteChapter(mangaID, chapterID string) error {
 	return nil
 }
 
+// DeleteAllChapters removes every chapter subdirectory under library/<mangaID>/.
+// Manga meta.json is preserved. Safe no-op if no chapters exist.
+func (l *Library) DeleteAllChapters(mangaID string) error {
+	mangaID = sanitizeID(mangaID)
+	mangaDir := filepath.Join(l.root, mangaID)
+	entries, err := os.ReadDir(mangaDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("delete all chapters for manga %s: %w", mangaID, err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		chapterDir := filepath.Join(mangaDir, entry.Name())
+		if err := os.RemoveAll(chapterDir); err != nil {
+			return fmt.Errorf("delete chapter %s/%s: %w", mangaID, entry.Name(), err)
+		}
+	}
+	return nil
+}
+
 // UpdateChapterProgress updates the reading progress for a chapter and updates the parent manga's last read metadata.
 func (l *Library) UpdateChapterProgress(mangaID, chapterID string, isRead bool, lastReadPage int) (*ChapterInfo, error) {
 	mangaID = sanitizeID(mangaID)
@@ -540,5 +572,147 @@ func (l *Library) SaveChapterPages(mangaID, chapterID string, pages []PageItem) 
 	}
 
 	return nil
+}
+
+// AddProvider appends a provider binding to manga. Dedup by (provider_id, provider_manga_id).
+func (l *Library) AddProvider(mangaID string, ref ProviderRef) error {
+	mangaID = sanitizeID(mangaID)
+	meta, err := l.GetManga(mangaID)
+	if err != nil {
+		return fmt.Errorf("add provider: %w", err)
+	}
+
+	// Check for duplicate
+	for _, p := range meta.Providers {
+		if p.ProviderID == ref.ProviderID && p.ProviderMangaID == ref.ProviderMangaID {
+			return fmt.Errorf("add provider: duplicate provider binding (%s, %s)", ref.ProviderID, ref.ProviderMangaID)
+		}
+	}
+
+	meta.Providers = append(meta.Providers, ref)
+	if err := l.SaveManga(mangaID, meta); err != nil {
+		return fmt.Errorf("add provider: save manga: %w", err)
+	}
+	return nil
+}
+
+// RemoveProvider removes the (provider_id, provider_manga_id) entry.
+// Returns error if it would leave no Content-capable provider.
+func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID string, capabilityLookup func(providerID string) []string) error {
+	mangaID = sanitizeID(mangaID)
+	meta, err := l.GetManga(mangaID)
+	if err != nil {
+		return fmt.Errorf("remove provider: %w", err)
+	}
+
+	// Find and remove the provider ref
+	found := false
+	var newProviders []ProviderRef
+	for _, p := range meta.Providers {
+		if p.ProviderID == providerID && p.ProviderMangaID == providerMangaID {
+			found = true
+			continue
+		}
+		newProviders = append(newProviders, p)
+	}
+	if !found {
+		return fmt.Errorf("remove provider: provider binding not found")
+	}
+
+	// Check if removal would leave no content-capable provider.
+	// Only enforce this constraint if the provider being removed is the current content provider.
+	if meta.Content != nil && meta.Content.ProviderID == providerID && meta.Content.ProviderMangaID == providerMangaID {
+		// Check if any OTHER remaining provider has content capability
+		hasContent := false
+		for _, p := range newProviders {
+			caps := capabilityLookup(p.ProviderID)
+			for _, cap := range caps {
+				if cap == "content" {
+					hasContent = true
+					break
+				}
+			}
+			if hasContent {
+				break
+			}
+		}
+		if !hasContent {
+			return fmt.Errorf("remove provider: cannot remove last content-capable provider")
+		}
+		// Clear content since we're removing the content provider
+		meta.Content = nil
+	}
+
+	meta.Providers = newProviders
+	if err := l.SaveManga(mangaID, meta); err != nil {
+		return fmt.Errorf("remove provider: save manga: %w", err)
+	}
+	return nil
+}
+
+// SwitchContentProvider sets content provider and re-correlates chapters.
+// If provider not in providers[], add it first.
+func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMangaID string, mangaTitle string) error {
+	mangaID = sanitizeID(mangaID)
+	meta, err := l.GetManga(mangaID)
+	if err != nil {
+		return fmt.Errorf("switch content provider: %w", err)
+	}
+
+	// Check if provider is already in providers list
+	found := false
+	for _, p := range meta.Providers {
+		if p.ProviderID == providerID && p.ProviderMangaID == providerMangaID {
+			found = true
+			break
+		}
+	}
+
+	// If not found, add it
+	if !found {
+		title := mangaTitle
+		if title == "" {
+			title = meta.Title
+		}
+		meta.Providers = append(meta.Providers, ProviderRef{
+			ProviderID:      providerID,
+			ProviderMangaID: providerMangaID,
+			MangaTitle:      title,
+		})
+	}
+
+	// Set content provider
+	if meta.Content == nil {
+		meta.Content = &ContentSource{}
+	}
+	meta.Content.ProviderID = providerID
+	meta.Content.ProviderMangaID = providerMangaID
+
+	if err := l.SaveManga(mangaID, meta); err != nil {
+		return fmt.Errorf("switch content provider: save manga: %w", err)
+	}
+	return nil
+}
+
+// HasContentProvider returns true if any provider in providers[] (excluding the given pair) has Content capability.
+func (l *Library) HasContentProvider(mangaID string, excludingProviderID, excludingMangaID string, capabilityLookup func(providerID string) []string) (bool, error) {
+	mangaID = sanitizeID(mangaID)
+	meta, err := l.GetManga(mangaID)
+	if err != nil {
+		return false, fmt.Errorf("has content provider: %w", err)
+	}
+
+	for _, p := range meta.Providers {
+		if p.ProviderID == excludingProviderID && p.ProviderMangaID == excludingMangaID {
+			continue
+		}
+		caps := capabilityLookup(p.ProviderID)
+		for _, cap := range caps {
+			if cap == "content" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 

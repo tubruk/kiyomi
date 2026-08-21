@@ -1,0 +1,30 @@
+[
+  {
+    "remoteId": "alpha",
+    "title": "Alpha Manga",
+    "aliases": ["Alpha", "サンプル"],
+    "coverUrl": "mock-primary/cover-alpha.png",
+    "availability": "available"
+  },
+  {
+    "remoteId": "beta",
+    "title": "Beta Manga",
+    "aliases": ["Beta"],
+    "coverUrl": "mock-primary/cover-alpha.png",
+    "availability": "available"
+  },
+  {
+    "remoteId": "empty-manga",
+    "title": "Empty Manga",
+    "aliases": [],
+    "coverUrl": "mock-primary/cover-alpha.png",
+    "availability": "available"
+  },
+  {
+    "remoteId": "unavailable-manga",
+    "title": "Unavailable Manga",
+    "aliases": [],
+    "coverUrl": "mock-primary/cover-alpha.png",
+    "availability": "unavailable"
+  }
+]

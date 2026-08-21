@@ -32,10 +32,10 @@ func TestLibraryCRUD(t *testing.T) {
 		UserRating:   9.0,
 		UserFavorite: true,
 		Content: &ContentSource{
-			ProviderID:   "mangadex",
-			MangaID:      "remote-manga-123",
-			ReadingMode:  "rtl",
-			LastSyncedAt: time.Now().Truncate(time.Second),
+			ProviderID:      "mangadex",
+			ProviderMangaID: "remote-manga-123",
+			ReadingMode:     "rtl",
+			LastSyncedAt:    time.Now().Truncate(time.Second),
 		},
 	}
 
@@ -61,7 +61,7 @@ func TestLibraryCRUD(t *testing.T) {
 	if gotMeta.UserRating != mangaMeta.UserRating {
 		t.Errorf("expected user_rating %v, got %v", mangaMeta.UserRating, gotMeta.UserRating)
 	}
-	if gotMeta.Content == nil || gotMeta.Content.MangaID != mangaMeta.Content.MangaID {
+	if gotMeta.Content == nil || gotMeta.Content.ProviderMangaID != mangaMeta.Content.ProviderMangaID {
 		t.Errorf("content binding mismatch: got %+v", gotMeta.Content)
 	}
 	if gotMeta.Content.ReadingMode != "rtl" {
@@ -780,6 +780,200 @@ func TestChapterPages_Errors(t *testing.T) {
 	}
 }
 
+func TestAddProvider(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-add-provider-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "manga-prov-1"
+
+	// Create manga
+	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Provider Test Manga"}); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	// Add first provider
+	ref1 := ProviderRef{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Provider Test Manga"}
+	if err := lib.AddProvider(mangaID, ref1); err != nil {
+		t.Fatalf("failed to add provider: %v", err)
+	}
+
+	meta, _ := lib.GetManga(mangaID)
+	if len(meta.Providers) != 1 {
+		t.Errorf("expected 1 provider, got %d", len(meta.Providers))
+	}
+	if meta.Providers[0].ProviderID != "mangadex" {
+		t.Errorf("expected provider_id mangadex, got %s", meta.Providers[0].ProviderID)
+	}
+
+	// Add second provider
+	ref2 := ProviderRef{ProviderID: "mangafox", ProviderMangaID: "mf-456", MangaTitle: "Provider Test Manga"}
+	if err := lib.AddProvider(mangaID, ref2); err != nil {
+		t.Fatalf("failed to add second provider: %v", err)
+	}
+
+	meta, _ = lib.GetManga(mangaID)
+	if len(meta.Providers) != 2 {
+		t.Errorf("expected 2 providers, got %d", len(meta.Providers))
+	}
+
+	// Add duplicate should fail
+	if err := lib.AddProvider(mangaID, ref1); err == nil {
+		t.Errorf("expected error adding duplicate provider, got nil")
+	}
+}
+
+func TestRemoveProvider(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-remove-provider-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	capLookup := func(providerID string) []string {
+		if providerID == "mangadex" || providerID == "mangafox" {
+			return []string{"metadata", "content", "tracking"}
+		}
+		return nil
+	}
+
+	lib := NewLibrary(tempDir)
+	mangaID := "manga-remove-prov"
+
+	// Create manga with multiple providers
+	meta := &MangaMeta{
+		Title: "Remove Provider Test",
+		Providers: []ProviderRef{
+			{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Remove Test"},
+			{ProviderID: "mangafox", ProviderMangaID: "mf-456", MangaTitle: "Remove Test"},
+		},
+		Content: &ContentSource{ProviderID: "mangadex", ProviderMangaID: "md-123"},
+	}
+	if err := lib.SaveManga(mangaID, meta); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	// Remove mangafox (not content provider) should succeed
+	if err := lib.RemoveProvider(mangaID, "mangafox", "mf-456", capLookup); err != nil {
+		t.Fatalf("failed to remove non-content provider: %v", err)
+	}
+
+	meta, _ = lib.GetManga(mangaID)
+	if len(meta.Providers) != 1 {
+		t.Errorf("expected 1 provider after removal, got %d", len(meta.Providers))
+	}
+
+	// Remove mangadex (content provider) should fail since it's the last content-capable one
+	if err := lib.RemoveProvider(mangaID, "mangadex", "md-123", capLookup); err == nil {
+		t.Errorf("expected error removing last content-capable provider, got nil")
+	}
+
+	// Remove non-existent provider should fail
+	if err := lib.RemoveProvider(mangaID, "nonexistent", "nx-999", capLookup); err == nil {
+		t.Errorf("expected error removing non-existent provider, got nil")
+	}
+}
+
+func TestSwitchContentProvider(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-switch-provider-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "manga-switch-prov"
+
+	// Create manga with content provider
+	meta := &MangaMeta{
+		Title: "Switch Provider Test",
+		Content: &ContentSource{ProviderID: "mangadex", ProviderMangaID: "md-123"},
+		Providers: []ProviderRef{
+			{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Switch Test"},
+		},
+	}
+	if err := lib.SaveManga(mangaID, meta); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	// Switch to mangafox (already in providers)
+	if err := lib.SwitchContentProvider(mangaID, "mangafox", "mf-456", ""); err != nil {
+		t.Fatalf("failed to switch content provider: %v", err)
+	}
+
+	meta, _ = lib.GetManga(mangaID)
+	if meta.Content.ProviderID != "mangafox" || meta.Content.ProviderMangaID != "mf-456" {
+		t.Errorf("expected content provider mangafox/mf-456, got %s/%s", meta.Content.ProviderID, meta.Content.ProviderMangaID)
+	}
+	// mangafox should be added to providers
+	if len(meta.Providers) != 2 {
+		t.Errorf("expected 2 providers after switch, got %d", len(meta.Providers))
+	}
+
+	// Switch to mangadex (existing provider in list)
+	if err := lib.SwitchContentProvider(mangaID, "mangadex", "md-123", ""); err != nil {
+		t.Fatalf("failed to switch back to existing provider: %v", err)
+	}
+
+	meta, _ = lib.GetManga(mangaID)
+	if meta.Content.ProviderID != "mangadex" {
+		t.Errorf("expected content provider mangadex, got %s", meta.Content.ProviderID)
+	}
+}
+
+func TestHasContentProvider(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-has-content-prov-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	capLookup := func(providerID string) []string {
+		if providerID == "mangadex" || providerID == "mangafox" {
+			return []string{"metadata", "content", "tracking"}
+		}
+		return nil
+	}
+
+	lib := NewLibrary(tempDir)
+	mangaID := "manga-has-content"
+
+	// Create manga with one provider
+	meta := &MangaMeta{
+		Title: "Has Content Test",
+		Providers: []ProviderRef{
+			{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Has Content Test"},
+		},
+	}
+	if err := lib.SaveManga(mangaID, meta); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	// Check excluding mangadex - should return false (no other content providers)
+	has, err := lib.HasContentProvider(mangaID, "mangadex", "md-123", capLookup)
+	if err != nil {
+		t.Fatalf("HasContentProvider failed: %v", err)
+	}
+	if has {
+		t.Errorf("expected false when excluding only content provider, got true")
+	}
+
+	// Add another content provider
+	meta.Providers = append(meta.Providers, ProviderRef{ProviderID: "mangafox", ProviderMangaID: "mf-456", MangaTitle: "Has Content Test"})
+	lib.SaveManga(mangaID, meta)
+
+	// Now excluding mangadex should return true (mangafox is still there)
+	has, err = lib.HasContentProvider(mangaID, "mangadex", "md-123", capLookup)
+	if err != nil {
+		t.Fatalf("HasContentProvider failed: %v", err)
+	}
+	if !has {
+		t.Errorf("expected true when mangafox still provides content, got false")
+	}
+}
 
 
 

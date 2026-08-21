@@ -1,0 +1,30 @@
+{
+  "remoteId": "beta",
+  "title": "Beta Manga",
+  "aliases": ["Beta"],
+  "coverUrl": "mock-primary/cover-alpha.png",
+  "synopsis": "Secondary seeded manga used to populate the library with multiple entries.",
+  "author": "Tanaka, Yuki",
+  "artist": "Sato, Haru",
+  "genres": ["Adventure", "Drama"],
+  "totalChapters": 2,
+  "availability": "available",
+  "chapters": [
+    {
+      "id": "beta-ch-001",
+      "name": "Chapter 1: Prologue",
+      "url": "primary/beta-ch-001",
+      "number": 1.0,
+      "uploadDate": "2026-06-01T00:00:00Z",
+      "sourceOrder": 1
+    },
+    {
+      "id": "beta-ch-002",
+      "name": "Chapter 2: Discovery",
+      "url": "primary/beta-ch-002",
+      "number": 2.0,
+      "uploadDate": "2026-06-08T00:00:00Z",
+      "sourceOrder": 2
+    }
+  ]
+}

@@ -239,8 +239,8 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 		"meta": map[string]interface{}{
 			"title": "Refresh Manga 1",
 			"content": map[string]interface{}{
-				"provider_id": "mockprov",
-				"manga_id":    "mock-1",
+				"provider_id":       "mockprov",
+				"provider_manga_id": "mock-1",
 			},
 		},
 	}
@@ -263,8 +263,8 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 	var refreshResp struct {
 		Added      int    `json:"added"`
 		Updated    int    `json:"updated"`
-		ProviderID string `json:"providerId"`
-		MangaID    string `json:"mangaId"`
+		ProviderID string `json:"provider_id"`
+		MangaID    string `json:"manga_id"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &refreshResp); err != nil {
 		t.Fatalf("failed to decode refresh response: %v", err)
@@ -487,9 +487,9 @@ func TestLibraryHandler_ReadingModeOperations(t *testing.T) {
 		"meta": map[string]interface{}{
 			"title": "Reading Mode Test Manga",
 			"content": map[string]interface{}{
-				"provider_id":  "mangadex",
-				"manga_id":     "remote-rm-1",
-				"reading_mode": "rtl",
+				"provider_id":       "mangadex",
+				"provider_manga_id": "remote-rm-1",
+				"reading_mode":      "rtl",
 			},
 		},
 	}
@@ -607,8 +607,8 @@ func TestLibraryHandler_RefreshLibraryManga_ConcurrentBatch(t *testing.T) {
 		"meta": map[string]interface{}{
 			"title": "Batch Refresh Manga 1",
 			"content": map[string]interface{}{
-				"provider_id": "batchrefreshprov",
-				"manga_id":    "batch-manga-1",
+				"provider_id":       "batchrefreshprov",
+				"provider_manga_id": "batch-manga-1",
 			},
 		},
 	}
@@ -669,6 +669,12 @@ type mockRefreshPagesProvider struct {
 	pageUrls   []string
 }
 
+type mockNoContentProvider struct {
+	mockProvider
+}
+
+func (m *mockNoContentProvider) Capabilities() []string { return []string{"metadata"} }
+
 func (m *mockRefreshPagesProvider) FetchPages(ctx context.Context, mangaRef, chapterRef string) ([]sdk.Page, error) {
 	m.fetchCalls.Add(1)
 	pages := make([]sdk.Page, len(m.pageUrls))
@@ -697,8 +703,8 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 	_ = h.lib.SaveManga(mangaID, &library.MangaMeta{
 		Title: "Refresh Manga",
 		Content: &library.ContentSource{
-			ProviderID: "refreshpagesprov",
-			MangaID:    "remote-manga-1",
+			ProviderID:      "refreshpagesprov",
+			ProviderMangaID: "remote-manga-1",
 		},
 	})
 	_ = h.lib.SaveChapter(mangaID, chapterID, &library.ChapterMeta{
@@ -806,5 +812,352 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 	}
 }
 
+func TestLibraryHandler_ProviderBindings(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	// Register providers used in this test
+	// mangafox is content-capable (mockProvider default: metadata+content)
+	h.registry.Register(&mockProvider{id: "mangafox", name: "MangaFox"})
+	// mangadex is NOT content-capable for this test (only metadata)
+	h.registry.Register(&mockNoContentProvider{mockProvider: mockProvider{id: "mangadex", name: "MangaDex"}})
+
+	// Create manga first
+	createBody := map[string]interface{}{
+		"id": "provider-test-manga",
+		"meta": map[string]interface{}{
+			"title": "Provider Binding Test",
+		},
+	}
+	createBytes, _ := json.Marshal(createBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga", bytes.NewReader(createBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 1. List providers (empty initially)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/provider-test-manga/providers", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var listResp map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &listResp)
+	providers := listResp["providers"].([]interface{})
+	if len(providers) != 0 {
+		t.Errorf("expected 0 providers initially, got %d", len(providers))
+	}
+
+	// 2. Add a provider binding
+	addBody := map[string]interface{}{
+		"provider_id":       "mangadex",
+		"provider_manga_id": "md-123",
+		"manga_title":       "Provider Binding Test",
+	}
+	addBytes, _ := json.Marshal(addBody)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/provider-test-manga/providers", bytes.NewReader(addBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var addResp map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &addResp)
+	addedProviders := addResp["providers"].([]interface{})
+	if len(addedProviders) != 1 {
+		t.Errorf("expected 1 provider after add, got %d", len(addedProviders))
+	}
+
+	// 3. Add duplicate should return 409 Conflict
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/provider-test-manga/providers", bytes.NewReader(addBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for duplicate, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Add another provider
+	addBody2 := map[string]interface{}{
+		"provider_id":       "mangafox",
+		"provider_manga_id": "mf-456",
+		"manga_title":       "Provider Binding Test Fox",
+	}
+	addBytes2, _ := json.Marshal(addBody2)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/provider-test-manga/providers", bytes.NewReader(addBytes2))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for second add, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. Switch content provider (PATCH /content)
+	switchBody := map[string]interface{}{
+		"provider_id":       "mangafox",
+		"provider_manga_id": "mf-456",
+	}
+	switchBytes, _ := json.Marshal(switchBody)
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/provider-test-manga/content", bytes.NewReader(switchBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for switch content, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var switchResp struct {
+		Meta struct {
+			Content *library.ContentSource `json:"content"`
+		} `json:"meta"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &switchResp)
+	if switchResp.Meta.Content.ProviderID != "mangafox" {
+		t.Errorf("expected content provider mangafox, got %s", switchResp.Meta.Content.ProviderID)
+	}
+
+	// 6. Try to remove mangafox provider (content provider) - should fail with 409
+	// because mangadex is not a registered provider with content capability
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/library/manga/provider-test-manga/providers/mangafox/mf-456", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for removing content provider without backup, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 7. Remove mangadex provider (non-content provider) - should succeed
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/library/manga/provider-test-manga/providers/mangadex/md-123", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content for remove non-content provider, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 8. Remove non-existent provider -> 404
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/library/manga/provider-test-manga/providers/nonexistent/nx-999", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found for non-existent, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 8. GET non-existent manga -> 404
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/nonexistent/providers", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found for non-existent manga, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLibraryHandler_ProviderBindings_AddRemoteManga(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockP := &mockProvider{id: "importprov", name: "Import Provider"}
+	h.registry.Register(mockP)
+
+	// Import a manga from provider
+	importBody := map[string]interface{}{
+		"provider_id": "importprov",
+		"remote_id":   "imported-manga-1",
+		"user_status": "reading",
+	}
+	importBytes, _ := json.Marshal(importBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/import", bytes.NewReader(importBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var importResp struct {
+		Meta struct {
+			Providers []library.ProviderRef `json:"providers"`
+		} `json:"meta"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &importResp)
+
+	// Verify Providers was populated with the import
+	if len(importResp.Meta.Providers) != 1 {
+		t.Fatalf("expected 1 provider in imported manga, got %d", len(importResp.Meta.Providers))
+	}
+	if importResp.Meta.Providers[0].ProviderID != "importprov" {
+		t.Errorf("expected provider_id importprov, got %s", importResp.Meta.Providers[0].ProviderID)
+	}
+	if importResp.Meta.Providers[0].ProviderMangaID != "imported-manga-1" {
+		t.Errorf("expected provider_manga_id imported-manga-1, got %s", importResp.Meta.Providers[0].ProviderMangaID)
+	}
+}
+
+func TestLibraryHandler_AddProvider_SetAsContent(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockP := &mockProvider{id: "contentprov", name: "Content Provider"}
+	h.registry.Register(mockP)
+
+	mockNoContent := &mockNoContentProvider{mockProvider: mockProvider{id: "nocontentprov", name: "No Content Provider"}}
+	h.registry.Register(mockNoContent)
+
+	// Create manga first
+	createBody := map[string]interface{}{
+		"id": "setascontent-manga",
+		"meta": map[string]interface{}{
+			"title": "SetAsContent Test",
+		},
+	}
+	createBytes, _ := json.Marshal(createBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga", bytes.NewReader(createBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 1. Add provider with set_as_content=true (content-capable) -> 201, content pointer set
+	addBody := map[string]interface{}{
+		"provider_id":       "contentprov",
+		"provider_manga_id": "cp-123",
+		"manga_title":       "SetAsContent Test",
+		"set_as_content":    true,
+	}
+	addBytes, _ := json.Marshal(addBody)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/setascontent-manga/providers", bytes.NewReader(addBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created with set_as_content, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var addResp map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &addResp)
+	providers := addResp["providers"].([]interface{})
+	if len(providers) != 1 {
+		t.Errorf("expected 1 provider, got %d", len(providers))
+	}
+
+	// Verify content pointer was set
+	updated, _ := h.lib.GetManga("setascontent-manga")
+	if updated.Content == nil {
+		t.Fatalf("expected Content to be set")
+	}
+	if updated.Content.ProviderID != "contentprov" {
+		t.Errorf("expected content provider contentprov, got %s", updated.Content.ProviderID)
+	}
+
+	// 2. Add another provider with set_as_content=true -> 201, content flipped
+	addBody2 := map[string]interface{}{
+		"provider_id":       "contentprov",
+		"provider_manga_id": "cp-456",
+		"set_as_content":    true,
+	}
+	addBytes2, _ := json.Marshal(addBody2)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/setascontent-manga/providers", bytes.NewReader(addBytes2))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for second set_as_content, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	updated2, _ := h.lib.GetManga("setascontent-manga")
+	if updated2.Content.ProviderID != "contentprov" || updated2.Content.ProviderMangaID != "cp-456" {
+		t.Errorf("expected content flipped to cp-456, got %s/%s", updated2.Content.ProviderID, updated2.Content.ProviderMangaID)
+	}
+
+	// 3. Add provider without set_as_content -> 201, content unchanged
+	addBody3 := map[string]interface{}{
+		"provider_id":       "contentprov",
+		"provider_manga_id": "cp-789",
+		"set_as_content":    false,
+	}
+	addBytes3, _ := json.Marshal(addBody3)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/setascontent-manga/providers", bytes.NewReader(addBytes3))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created without set_as_content, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	updated3, _ := h.lib.GetManga("setascontent-manga")
+	if updated3.Content.ProviderMangaID != "cp-456" {
+		t.Errorf("expected content unchanged after non-set_as_content add, got %s", updated3.Content.ProviderMangaID)
+	}
+
+	// 4. Add non-content provider with set_as_content=true -> 400
+	addBodyBad := map[string]interface{}{
+		"provider_id":       "nocontentprov",
+		"provider_manga_id": "ncp-999",
+		"set_as_content":    true,
+	}
+	addBytesBad, _ := json.Marshal(addBodyBad)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/setascontent-manga/providers", bytes.NewReader(addBytesBad))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for non-content with set_as_content, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLibraryHandler_SwitchContentProvider_CapabilityValidation(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockP := &mockProvider{id: "contentprov", name: "Content Provider"}
+	h.registry.Register(mockP)
+
+	mockNoContent := &mockNoContentProvider{mockProvider: mockProvider{id: "nocontentprov", name: "No Content Provider"}}
+	h.registry.Register(mockNoContent)
+
+	// Create manga with existing providers
+	createBody := map[string]interface{}{
+		"id": "switchcap-manga",
+		"meta": map[string]interface{}{
+			"title":     "Switch Capability Test",
+			"providers": []library.ProviderRef{{ProviderID: "contentprov", ProviderMangaID: "existing-1"}},
+		},
+	}
+	createBytes, _ := json.Marshal(createBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga", bytes.NewReader(createBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 1. Switch to content-capable provider -> 200
+	switchBody := map[string]interface{}{
+		"provider_id":       "contentprov",
+		"provider_manga_id": "existing-1",
+	}
+	switchBytes, _ := json.Marshal(switchBody)
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/switchcap-manga/content", bytes.NewReader(switchBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for switch to content-capable, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Switch to non-content provider -> 400
+	switchBodyBad := map[string]interface{}{
+		"provider_id":       "nocontentprov",
+		"provider_manga_id": "ncp-1",
+	}
+	switchBytesBad, _ := json.Marshal(switchBodyBad)
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/switchcap-manga/content", bytes.NewReader(switchBytesBad))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for switch to non-content, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
 
 

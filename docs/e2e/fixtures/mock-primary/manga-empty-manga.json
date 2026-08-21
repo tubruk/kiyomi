@@ -1,0 +1,13 @@
+{
+  "remoteId": "empty-manga",
+  "title": "Empty Manga",
+  "aliases": [],
+  "coverUrl": "mock-primary/cover-alpha.png",
+  "synopsis": "A manga with no chapters to test the empty-state UX.",
+  "author": "",
+  "artist": "",
+  "genres": [],
+  "totalChapters": 0,
+  "availability": "available",
+  "chapters": []
+}

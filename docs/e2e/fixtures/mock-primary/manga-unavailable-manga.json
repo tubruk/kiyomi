@@ -1,0 +1,13 @@
+{
+  "remoteId": "unavailable-manga",
+  "title": "Unavailable Manga",
+  "aliases": [],
+  "coverUrl": "mock-primary/cover-alpha.png",
+  "synopsis": "Synopsis for Unavailable Manga. Marked as unavailable upstream.",
+  "author": "",
+  "artist": "",
+  "genres": [],
+  "totalChapters": 0,
+  "availability": "unavailable",
+  "chapters": []
+}

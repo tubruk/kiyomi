@@ -2,6 +2,7 @@ import {
   Source,
   Manga,
   MangaMeta,
+  ProviderRef,
   ExploreResponse,
   ChapterListResponse,
   PageListResponse,
@@ -145,6 +146,31 @@ export const api = {
 
   deleteLibraryManga: (mangaId: string): Promise<void> => {
     return fetchAPI<void>(`/library/manga/${mangaId}`, { method: 'DELETE' });
+  },
+
+  // Provider Bindings
+  addProvider: (mangaId: string, ref: ProviderRef, setAsContent?: boolean): Promise<Manga> => {
+    return fetchAPI<Manga>(`/library/manga/${mangaId}/providers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...ref, set_as_content: setAsContent }),
+    });
+  },
+
+  removeProvider: (mangaId: string, providerId: string, providerMangaId: string): Promise<void> => {
+    return fetchAPI<void>(`/library/manga/${mangaId}/providers/${providerId}/${encodeURIComponent(providerMangaId)}`, { method: 'DELETE' });
+  },
+
+  switchContentProvider: (mangaId: string, providerId: string, providerMangaId: string): Promise<Manga> => {
+    return fetchAPI<Manga>(`/library/manga/${mangaId}/content`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider_id: providerId, provider_manga_id: providerMangaId }),
+    });
+  },
+
+  listProviders: (mangaId: string): Promise<ProviderRef[]> => {
+    return fetchAPI<ProviderRef[]>(`/library/manga/${mangaId}/providers`);
   },
 
   // Chapters & Pages

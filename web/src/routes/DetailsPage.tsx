@@ -14,6 +14,7 @@ import {
   Heart,
   Play,
   MoreVertical,
+  Download,
 } from 'lucide-react';
 import { api } from '../api/client';
 import {
@@ -27,13 +28,16 @@ import {
   useDeleteLibraryMangaMutation,
 } from '../api/hooks';
 import { useToast } from '../context/ToastContext';
-import { Manga, UserStatus, Chapter } from '../types/api';
+import { Manga, UserStatus, Chapter, ProviderRef } from '../types/api';
 import { getProxyImageUrl } from '../lib/utils';
 import { queryKeys } from '../lib/queryKeys';
 import { Button } from '../components/ui/button';
 import { GenrePill } from '../components/GenrePill';
 import { ChapterList } from '../components/ChapterList';
 import { EditMetadataDialog } from '../components/EditMetadataDialog';
+import { ProviderList } from '../components/ProviderList';
+import { AddProviderDialog } from '../components/AddProviderDialog';
+import { ImportMetadataDialog } from '../components/ImportMetadataDialog';
 import { Card } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -91,6 +95,9 @@ export const DetailsPage: React.FC = () => {
   const [localUserNotes, setLocalUserNotes] = useState('');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
+  const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
+  const [isImportMetadataOpen, setIsImportMetadataOpen] = useState(false);
+  const [isProvidersCollapsed, setIsProvidersCollapsed] = useState(true);
 
   // 1. Fetch Library List to check if in Library
   const { data: libraryManga = [] } = useLibraryManga();
@@ -99,7 +106,7 @@ export const DetailsPage: React.FC = () => {
     ? libraryManga.find(
         (m) =>
           (m.contentProviderId === providerIdParam || m.sourceId === providerIdParam || m.meta?.content?.provider_id === providerIdParam) &&
-          (m.contentRemoteId === remoteIdParam || m.url === remoteIdParam || m.id === remoteIdParam || m.meta?.content?.manga_id === remoteIdParam)
+          (m.contentRemoteId === remoteIdParam || m.url === remoteIdParam || m.id === remoteIdParam || m.meta?.content?.provider_manga_id === remoteIdParam)
       )
     : libraryManga.find((m) => m.id === params.mangaId);
 
@@ -218,6 +225,39 @@ export const DetailsPage: React.FC = () => {
     onError: (err: any) => {
       const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
       showToast(`Remove failed: ${err.message || 'An error occurred'}`, 'error', detail);
+    },
+  });
+
+  const removeProviderMutation = useMutation({
+    mutationFn: (provider: ProviderRef) => {
+      if (!targetMangaId) throw new Error('No manga ID');
+      return api.removeProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
+      showToast('Provider removed', 'success');
+    },
+    onError: (err: any) => {
+      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+      showToast(`Remove failed: ${err.message || 'An error occurred'}`, 'error', detail);
+    },
+  });
+
+  const switchToMutation = useMutation({
+    mutationFn: ({ provider }: { provider: ProviderRef }) => {
+      if (!targetMangaId) throw new Error('No manga ID');
+      return api.switchContentProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      showToast('Switched content provider', 'success');
+    },
+    onError: (err: any) => {
+      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+      showToast(`Switch failed: ${err.message || 'An error occurred'}`, 'error', detail);
     },
   });
 
@@ -398,10 +438,6 @@ export const DetailsPage: React.FC = () => {
     ? `${activeProvider.name}${activeProvider.language || activeProvider.lang ? ` (${(activeProvider.language || activeProvider.lang)!.toUpperCase()})` : ''}`
     : activeContentProviderId || undefined;
 
-  const contentProviderTitle = isRemoteRoute
-    ? manga?.title
-    : remoteManga?.title;
-
   const coverSrc = manga?.coverAssetUrl || getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
 
   const isFavorite = manga?.userFavorite || manga?.user_favorite || manga?.meta?.user_favorite;
@@ -411,7 +447,10 @@ export const DetailsPage: React.FC = () => {
   const hasZeroChapters = isRemoteRoute && !isInLibrary
     ? !isRemoteChaptersLoading && Boolean(remoteChaptersData) && remoteChaptersData?.chapters?.length === 0
     : !isLocalChaptersLoading && Boolean(localChaptersData) && localChaptersData?.chapters?.length === 0;
-  const isUnavailable = (manga?.availability === 'unavailable') || (remoteManga?.availability === 'unavailable') || (manga?.meta?.availability === 'unavailable') || (isRemoteRoute && hasZeroChapters);
+  // "Unavailable" means the provider has marked the whole content as takedown/gone.
+  // Distinct from "hasZeroChapters" (metadata exists but no chapters yet), which
+  // surfaces a separate "No chapters found" empty state in ChapterList.
+  const isUnavailable = (manga?.availability === 'unavailable') || (remoteManga?.availability === 'unavailable') || (manga?.meta?.availability === 'unavailable');
 
   return (
     <div className="flex flex-col gap-6">
@@ -683,6 +722,13 @@ export const DetailsPage: React.FC = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem
+                    onClick={() => setIsImportMetadataOpen(true)}
+                    className="text-xs cursor-pointer gap-2"
+                  >
+                    <Download className="size-4" />
+                    Import metadata
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
                     onClick={() => setIsEditMetadataOpen(true)}
                     className="text-xs cursor-pointer gap-2"
                   >
@@ -819,6 +865,66 @@ export const DetailsPage: React.FC = () => {
         </div>
       </Card>
 
+      {/* Provider Bindings Section */}
+          {!isRemoteRoute && isInLibrary && manga && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setIsProvidersCollapsed(!isProvidersCollapsed)}
+                  className="flex items-center gap-1.5 hover:opacity-80 cursor-pointer"
+                >
+                  <h2 className="text-sm font-semibold text-foreground">Providers</h2>
+                  {isProvidersCollapsed ? (
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronUp className="size-4 text-muted-foreground" />
+                  )}
+                </button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsAddProviderOpen(true)}
+                    className="gap-1.5 h-8 text-xs cursor-pointer"
+                  >
+                    <Plus className="size-3" />
+                    Add provider
+                  </Button>
+                </div>
+              </div>
+
+              {!isProvidersCollapsed && (
+                <ProviderList
+                  providers={manga.meta?.providers || []}
+                  contentProviderId={manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id}
+                  contentProviderMangaId={manga.contentRemoteId || manga.meta?.content?.provider_manga_id}
+                  sources={sources}
+                  onRemove={(provider) => {
+                    if (confirm(`Remove "${provider.manga_title || provider.provider_id}" from this manga?`)) {
+                      removeProviderMutation.mutate(provider);
+                    }
+                  }}
+                  onSwitchTo={(provider) => {
+                    if (confirm('Switching content provider will discard cached chapters and reading progress for this manga. Continue?')) {
+                      switchToMutation.mutate({ provider });
+                    }
+                  }}
+                  isRemoving={removeProviderMutation.isPending}
+                  canRemoveProvider={(provider) => {
+                    // Can't remove the last content provider
+                    const hasContentCapability = sources.find(s => s.id === provider.provider_id)?.capabilities?.includes('content');
+                    if (!hasContentCapability) return true;
+                    const contentProviders = (manga.meta?.providers || []).filter(
+                      p => sources.find(s => s.id === p.provider_id)?.capabilities?.includes('content')
+                    );
+                    return contentProviders.length > 1;
+                  }}
+                  isContentUnavailable={isUnavailable}
+                />
+              )}
+            </div>
+          )}
+
       {/* Chapters Section using ChapterList */}
       {manga && (
         <ChapterList
@@ -833,7 +939,6 @@ export const DetailsPage: React.FC = () => {
           isLoading={isChaptersLoading}
           isError={isChaptersError}
           contentProviderName={contentProviderName}
-          contentProviderTitle={contentProviderTitle}
           providerName={activeProvider?.name || activeContentProviderId}
           isUnavailable={isUnavailable}
           isInLibrary={isInLibrary}
@@ -849,6 +954,29 @@ export const DetailsPage: React.FC = () => {
           manga={manga}
           open={isEditMetadataOpen}
           onOpenChange={setIsEditMetadataOpen}
+        />
+      )}
+
+      {/* Add Provider Dialog */}
+      {manga && (
+        <AddProviderDialog
+          mangaId={manga.id}
+          sources={sources}
+          existingProviders={manga.meta?.providers || []}
+          mangaTitle={manga.title}
+          mangaAliases={manga.aliases || manga.meta?.aliases || []}
+          open={isAddProviderOpen}
+          onOpenChange={setIsAddProviderOpen}
+        />
+      )}
+
+      {/* Import Metadata Dialog */}
+      {manga && (
+        <ImportMetadataDialog
+          manga={manga}
+          sources={sources}
+          open={isImportMetadataOpen}
+          onOpenChange={setIsImportMetadataOpen}
         />
       )}
     </div>

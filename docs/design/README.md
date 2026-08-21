@@ -11,4 +11,5 @@ Architecture and design specifications for the Kiyomi codebase.
 | [Reader](./reader.md) | Web reader architecture and reading modes |
 | [Reading Progress](./reading_progress.md) | Progress tracking model and sync design |
 | [Metadata Import](./metadata_import.md) | Metadata enrichment and import flow |
+| [Provider Binding](./provider-binding.md) | Decisions for add/switch/remove content provider endpoints |
 | [Anti-bot](./antibot.md) | TLS fingerprinting and header spoofing approach |

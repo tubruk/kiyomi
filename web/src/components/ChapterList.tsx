@@ -1,12 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ArrowDown, ArrowUp, BookOpen, Search, MoreVertical, RefreshCw, Trash2, AlertCircle, Check } from 'lucide-react';
-import { Chapter, Source } from '../types/api';
+import { Chapter } from '../types/api';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Skeleton } from './ui/skeleton';
-import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { cn } from '../lib/utils';
 import {
   DropdownMenu,
@@ -31,7 +30,6 @@ interface ChapterListProps {
   isLoading: boolean;
   isError: boolean;
   contentProviderName?: string;
-  contentProviderTitle?: string;
   providerName?: string;
   isUnavailable?: boolean;
   hasNoContentProvider?: boolean;
@@ -41,8 +39,6 @@ interface ChapterListProps {
   onRefreshChapters?: () => void;
   isRefreshing?: boolean;
   onRemoveChapter?: (chapterId: string) => void;
-  contentProviders?: Source[];
-  selectedContentProviderId?: string;
 }
 
 export const ChapterList: React.FC<ChapterListProps> = ({
@@ -55,7 +51,6 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   isLoading,
   isError,
   contentProviderName,
-  contentProviderTitle,
   providerName,
   isUnavailable = false,
   hasNoContentProvider = false,
@@ -65,8 +60,6 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   onRefreshChapters,
   isRefreshing = false,
   onRemoveChapter,
-  contentProviders = [],
-  selectedContentProviderId,
 }) => {
   const [filterQuery, setFilterQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -113,14 +106,7 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   const safePage = Math.min(Math.max(1, page), totalPages || 1);
   const paginatedChapters = filteredChapters.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const memoizedProviderName = useMemo(() => {
-    if (!selectedContentProviderId || !contentProviders) return undefined;
-    const cp = contentProviders.find((p) => p.id === selectedContentProviderId);
-    if (!cp) return selectedContentProviderId;
-    return `${cp.name}${cp.language || cp.lang ? ` (${(cp.language || cp.lang)!.toUpperCase()})` : ''}`;
-  }, [contentProviders, selectedContentProviderId]);
-
-  const resolvedProviderName = contentProviderName || memoizedProviderName;
+  const resolvedProviderName = contentProviderName;
 
   if (hasNoContentProvider) {
     return (
@@ -184,32 +170,11 @@ export const ChapterList: React.FC<ChapterListProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Content Provider Badge with Tooltip */}
           {resolvedProviderName && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground hidden md:inline">Provider:</span>
-              <Tooltip>
-                <TooltipTrigger
-                  className="inline-flex items-center justify-center h-9 px-3 rounded-md border border-border bg-card text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-hidden cursor-help transition-all shadow-xs active:scale-[0.98]"
-                >
-                  {resolvedProviderName}
-                </TooltipTrigger>
-                <TooltipContent
-                  side="top"
-                  align="center"
-                  className="flex flex-col items-start gap-0.5 p-2.5"
-                >
-                  <span className="font-semibold opacity-70 text-[9px] uppercase tracking-wider text-background">
-                    Title on Provider
-                  </span>
-                  <span className="font-medium text-xs break-words select-text text-background">
-                    {contentProviderTitle || 'Loading original title...'}
-                  </span>
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            <span className="text-xs text-muted-foreground">
+              Provided by <span className="font-medium text-foreground">{resolvedProviderName}</span>
+            </span>
           )}
-
           {/* Filter Input */}
           <div className="relative min-w-[180px] flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" aria-hidden />

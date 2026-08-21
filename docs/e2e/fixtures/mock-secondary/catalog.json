@@ -1,0 +1,9 @@
+[
+  {
+    "remoteId": "alpha",
+    "title": "Alpha (Secondary)",
+    "aliases": ["Alpha"],
+    "coverUrl": "mock-secondary/cover-alpha.png",
+    "availability": "available"
+  }
+]

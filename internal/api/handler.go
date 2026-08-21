@@ -150,6 +150,12 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	v1.PATCH("/library/manga/:mangaId", h.patchLibraryManga)
 	v1.DELETE("/library/manga/:mangaId", h.deleteLibraryManga)
 
+	// Provider Bindings
+	v1.GET("/library/manga/:mangaId/providers", h.listProviders)
+	v1.POST("/library/manga/:mangaId/providers", h.addProvider)
+	v1.DELETE("/library/manga/:mangaId/providers/:providerId/:providerMangaID", h.removeProvider)
+	v1.PATCH("/library/manga/:mangaId/content", h.switchContentProvider)
+
 	// Chapters & Pages
 	v1.GET("/library/manga/:mangaId/chapters", h.listChapters)
 	v1.GET("/library/manga/:mangaId/chapters/:chapterId", h.getChapter)

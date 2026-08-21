@@ -6,10 +6,16 @@ export interface ExternalLink {
 
 export interface ContentSource {
   provider_id: string;
-  manga_id?: string;
+  provider_manga_id?: string;
   chapter_ref?: string;
   last_synced_at?: string;
   reading_mode?: string;
+}
+
+export interface ProviderRef {
+  provider_id: string;
+  provider_manga_id: string;
+  manga_title?: string;
 }
 
 export interface Source {
@@ -40,6 +46,7 @@ export interface MangaMeta {
   content_rating?: string;
   publisher?: string;
   release_year?: number;
+  providers?: ProviderRef[];
   content?: ContentSource;
   user_status?: UserStatus | string;
   user_rating?: number;

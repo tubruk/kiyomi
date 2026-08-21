@@ -111,7 +111,7 @@ export const ReaderPage: React.FC = () => {
     ? libraryManga.find(
         (m) =>
           (m.contentProviderId === providerId || m.sourceId === providerId || m.meta?.content?.provider_id === providerId) &&
-          (m.contentRemoteId === remoteId || m.url === remoteId || m.id === remoteId || m.meta?.content?.manga_id === remoteId)
+          (m.contentRemoteId === remoteId || m.url === remoteId || m.id === remoteId || m.meta?.content?.provider_manga_id === remoteId)
       )
     : undefined;
 

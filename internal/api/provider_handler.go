@@ -384,10 +384,17 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		CoverURL:    meta.CoverURL,
 		UserStatus:  body.UserStatus,
 		Content: &library.ContentSource{
-			ProviderID:   body.ProviderID,
-			MangaID:      body.RemoteID,
-			ReadingMode:  string(meta.ReadingMode),
-			LastSyncedAt: time.Now(),
+			ProviderID:      body.ProviderID,
+			ProviderMangaID: body.RemoteID,
+			ReadingMode:     string(meta.ReadingMode),
+			LastSyncedAt:    time.Now(),
+		},
+		Providers: []library.ProviderRef{
+			{
+				ProviderID:      body.ProviderID,
+				ProviderMangaID: body.RemoteID,
+				MangaTitle:      meta.Title,
+			},
 		},
 	}
 

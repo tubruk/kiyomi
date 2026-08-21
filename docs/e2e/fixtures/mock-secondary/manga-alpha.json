@@ -1,0 +1,30 @@
+{
+  "remoteId": "alpha",
+  "title": "Alpha (Secondary)",
+  "aliases": ["Alpha"],
+  "coverUrl": "mock-secondary/cover-alpha.png",
+  "synopsis": "Secondary provider description: alternate chapter count.",
+  "author": "Different Author",
+  "artist": "Different Artist",
+  "genres": ["Action"],
+  "totalChapters": 2,
+  "availability": "available",
+  "chapters": [
+    {
+      "id": "sec-001",
+      "name": "Chapter 1: Prologue",
+      "url": "secondary/sec-001",
+      "number": 1.0,
+      "uploadDate": "2026-06-01T00:00:00Z",
+      "sourceOrder": 1
+    },
+    {
+      "id": "sec-002",
+      "name": "Chapter 2: Climax",
+      "url": "secondary/sec-002",
+      "number": 2.0,
+      "uploadDate": "2026-06-15T00:00:00Z",
+      "sourceOrder": 2
+    }
+  ]
+}

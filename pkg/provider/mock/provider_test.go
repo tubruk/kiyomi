@@ -60,3 +60,29 @@ func TestMockProviderAvailability(t *testing.T) {
 		t.Errorf("expected title 'Unavailable Manga', got %s", meta.Title)
 	}
 }
+
+func TestMockProviderWithCustomID(t *testing.T) {
+	p := NewWithID("mock-a", "Mock A", getFixturesDir())
+	if p.ID() != "mock-a" {
+		t.Errorf("expected ID mock-a, got %s", p.ID())
+	}
+	if p.Name() != "Mock A" {
+		t.Errorf("expected name Mock A, got %s", p.Name())
+	}
+	// Verify it still works as a provider
+	results, err := p.Search(context.Background(), "", sdk.SearchOptions{})
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("expected catalog results")
+	}
+}
+
+func TestMockProviderDistinctInstances(t *testing.T) {
+	a := NewWithID("mock-a", "Mock A", getFixturesDir())
+	b := NewWithID("mock-b", "Mock B", getFixturesDir())
+	if a.ID() == b.ID() {
+		t.Error("instances should have distinct IDs")
+	}
+}

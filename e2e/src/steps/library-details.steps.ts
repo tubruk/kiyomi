@@ -3,12 +3,20 @@ import { expect } from '@playwright/test';
 import { getWorld } from '../hooks';
 
 When('I click on the manga {string} in the library', async function (title: string) {
-  const { page } = getWorld();
+  const { page, port } = getWorld();
+  // If currently on manga details, navigate back to library first.
+  if (page.url().includes('/manga/')) {
+    await page.goto(`http://localhost:${port}/`, { waitUntil: 'domcontentloaded' });
+  }
+
   // Wait for real library manga cards to render
   await page.waitForFunction(() => {
     const cards = document.querySelectorAll('[class*="bg-card"]');
     return cards.length > 0;
   }, { timeout: 15000 });
+
+  // Allow any in-flight mutation to settle
+  await page.waitForTimeout(500);
 
   const card = page
     .locator('[class*="bg-card"]')
@@ -44,12 +52,10 @@ Then('I see the manga title {string}', async function (title: string) {
 
 Then('I see the manga aliases containing {string}', async function (aliasText: string) {
   const { page } = getWorld();
-  const aliasElement = page
-    .locator('p, div, span')
-    .filter({ hasText: 'Aliases:' })
-    .filter({ hasText: aliasText })
-    .first();
-  await expect(aliasElement).toBeVisible({ timeout: 10000 });
+  // Locate the aliases <p> block and verify it contains the expected alias text.
+  const aliasesBlock = page.locator('p', { hasText: 'Aliases:' }).first();
+  await aliasesBlock.waitFor({ state: 'visible', timeout: 10000 });
+  await expect(aliasesBlock).toContainText(aliasText, { timeout: 5000 });
 });
 
 Then('I see the merged author and artist {string}', async function (authorArtist: string) {

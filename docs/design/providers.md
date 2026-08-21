@@ -24,7 +24,7 @@ A provider declares which capabilities it implements. A provider may implement o
 | **Content** | Chapter lists, page lists, page image streams | MangaDex, MangaFox, local file import |
 | **Tracking** | Push reading progress to external account | MyAnimeList, AniList |
 
-A provider does not need to implement all three. For example, a metadata-only provider feeds the library, while a content-only provider feeds the reader. A library entry binds to one Content provider and zero or more Tracking providers.
+A provider does not need to implement all three. For example, a metadata-only provider feeds the library, while a content-only provider feeds the reader. A library entry binds to zero or more providers concurrently via `providers[]`, with one active content provider selected via `content`.
 
 ## Conceptual Model
 
@@ -264,12 +264,13 @@ Special behavior:
 
 ## Migration / Multi-Provider
 
-A library entry binds to one Content provider at a time (per library design). The user may migrate to a different Content provider via the library UI. During migration:
+A library entry binds to multiple providers concurrently via `providers[]` in `meta.json`. Each entry contains `provider_id`, `provider_manga_id`, and `manga_title` (provider's canonical title at time of add).
 
-- Old provider reference marked stale, not deleted immediately
-- New provider reference becomes primary
-- Refresh logic only queries primary
-- History not stored in filesystem (single source of truth = current)
+The active content provider is identified by `content.provider_id` and `content.provider_manga_id` in `meta.json`. When user switches content provider:
+
+- New entry added to `providers[]`
+- `content` updated to new provider
+- Old entry remains in `providers[]` for future capability expansion
 
 Tracking providers are independent of content. A library entry may bind to multiple tracking providers concurrently.
 

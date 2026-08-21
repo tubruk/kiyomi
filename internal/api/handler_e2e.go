@@ -18,8 +18,13 @@ func getMockFixturesDir() string {
 }
 
 func registerE2EProviders(reg *provider.Registry) {
-	fixturesDir := getMockFixturesDir()
-	reg.Register(mock.New(fixturesDir))
+	baseDir := getMockFixturesDir()
+	primaryDir := filepath.Join(baseDir, "mock-primary")
+	secondaryDir := filepath.Join(baseDir, "mock-secondary")
+
+	reg.Register(mock.NewWithID("mock", "Mock Provider", primaryDir))
+	reg.Register(mock.NewWithID("mock-primary", "Mock Primary", primaryDir))
+	reg.Register(mock.NewWithID("mock-secondary", "Mock Secondary", secondaryDir))
 }
 
 func registerE2ERoutes(e *echo.Echo) {

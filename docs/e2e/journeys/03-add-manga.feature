@@ -18,6 +18,9 @@ Feature: Add Manga to Library
     Then the manga "Alpha Manga" appears in the library
     And the manga cover thumbnail displays the content provider badge "mock"
     And the manga has "5" chapters listed
+    When I click on the manga "Alpha Manga" in the library
+    Then I am on the library manga details page for "Alpha Manga"
+    And the provider section shows the provider "mock"
 
   Scenario: Manga already in library — duplicate prevented in Explore
     Given the manga "Alpha Manga" is already in the library

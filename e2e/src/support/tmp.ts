@@ -42,6 +42,16 @@ export function copyFixtures(src: string, dest: string): void {
   if (fs.existsSync(librarySeedSrc)) {
     copyDirRecursive(librarySeedSrc, librarySeedDest);
   }
+
+  // Per-provider mock fixture directories (mock-primary/, mock-secondary/).
+  // The e2e binary registers NewWithID(...) against these subdirs at startup.
+  for (const name of ['mock-primary', 'mock-secondary']) {
+    const subSrc = path.join(src, name);
+    const subDest = path.join(fixturesDest, name);
+    if (fs.existsSync(subSrc)) {
+      copyDirRecursive(subSrc, subDest);
+    }
+  }
 }
 
 function copyDirRecursive(src: string, dest: string): void {

@@ -79,9 +79,14 @@ $KIYOMI_HOME/
   "end_date": "",
   "country": "JP",
 
+  "providers": [
+    { "provider_id": "kitsu", "provider_manga_id": "abc123", "manga_title": "Kitsu Title" },
+    { "provider_id": "mal", "provider_manga_id": "xyz789", "manga_title": "MAL Title" }
+  ],
+
   "content": {
     "provider_id": "kitsu",
-    "manga_id": "abc123",
+    "provider_manga_id": "abc123",
     "reading_mode": "longstrip",
     "last_synced_at": "2026-08-06T10:00:00Z"
   },
@@ -97,7 +102,9 @@ $KIYOMI_HOME/
 ```
 
 **Notes:**
-- `content` is optional (user can add manga without provider binding)
+- `providers` is an array of all known provider references for this manga. Each entry contains `provider_id`, `provider_manga_id` (provider's ID for this manga), and `manga_title` (provider's canonical title at time of add, for display only).
+- `providers` is optional (user can add manga without any provider binding).
+- `content` is optional (user can add manga without provider binding). When present, `content.provider_id` and `content.provider_manga_id` MUST match an entry in `providers`.
 - `user_status` enum: `unread` | `reading` | `completed` | `on_hold` | `dropped` | `plan_to_read` (backend lowercase, UI renders as title case labels)
 - `user_favorite` boolean: marks entry as favorite / starred series
 - `user_rating` float (0.0–10.0): user score evaluation (0 represents unrated)
@@ -105,6 +112,24 @@ $KIYOMI_HOME/
 - `user_*` fields are pure user data, never overwritten by provider sync
 - `tags` follows existing taxonomy (structural prefix + flat descriptors)
 - `collections` is user-owned, untouched by syncs
+
+### Identifier Convention
+
+Kiyomi maintains four distinct ID spaces:
+
+| ID | Generation | Storage | Scope |
+|---|---|---|---|
+| Local manga ID | ULID/KSUID, generated on add | Folder name (`library/<id>/`) | Local only |
+| Local chapter ID | ULID, generated on add | Folder name | Local only |
+| Provider manga ID | Provider's opaque ref | `providers[].provider_manga_id`, `content.provider_manga_id` | Provider |
+| Provider chapter ref | Provider's opaque ref | `content.chapter_ref` | Provider |
+
+**Rules:**
+- Top-level `manga_id` in `meta.json` is **implicit** — the folder name is the source of truth. No `manga_id` field appears at the top level of `meta.json`.
+- `provider_manga_id` appears **only** inside `providers[]` entries and `content` blocks.
+- `chapter_ref` appears **only** inside `content` block at chapter level.
+- Always pair `provider_id` with `provider_manga_id` when crossing layer boundaries (e.g., when looking up a provider binding).
+- Local IDs are never exposed to or sourced from providers.
 
 ### `library/<manga_id>/<chapter_id>/meta.json`
 
@@ -129,7 +154,7 @@ $KIYOMI_HOME/
 ```
 
 **Notes:**
-- `content` is single (no array, no history)
+- `content` is single (no array, no history). `content.provider_id` must match an entry in the manga's `providers[]` array.
 - `number_mapping` is optional, populated only when LLM-assisted normalization runs
 - Refresh reads `content.provider_id` only, never walks history
 - Migration overwrites `content`, no audit trail in filesystem
@@ -156,7 +181,7 @@ type ContentProvider interface {
 }
 ```
 
-**Why this matters:** manga-level `content.manga_id` is the manga identity used to fetch the chapter list. Chapter-level `content.chapter_ref` is what's used to fetch page URLs from the provider API. When the provider's chapter IDs are stable across renumbering, the same `content.chapter_ref` refers to the same chapter over time; when not, renumbering breaks correlation and fallback heuristics apply. No separate stable-id field is stored in `meta.json` — the provider capability flag tells us whether `content.chapter_ref` itself is durable.
+**Why this matters:** manga-level `content.provider_manga_id` is the manga identity used to fetch the chapter list. Chapter-level `content.chapter_ref` is what's used to fetch page URLs from the provider API. When the provider's chapter IDs are stable across renumbering, the same `content.chapter_ref` refers to the same chapter over time; when not, renumbering breaks correlation and fallback heuristics apply. No separate stable-id field is stored in `meta.json` — the provider capability flag tells us whether `content.chapter_ref` itself is durable.
 
 ### `number_mapping` (Open Extension Point)
 
@@ -351,19 +376,22 @@ All provider-based discoveries and library additions happen via the **Explore Vi
 
 ## Provider Migration
 
-When user switches manga's provider (e.g., provider taken down, user prefers different):
+When user switches manga's content provider (e.g., provider taken down, user prefers different):
 
 1. User picks new provider in manga detail UI
-2. Kiyomi re-fetches chapter list from new provider, writes new `content` in `meta.json`
-3. Chapter correlation runs:
+2. Kiyomi adds new entry to `providers[]` with `{ provider_id, provider_manga_id, manga_title }`
+3. Kiyomi updates `content` to point to new provider for page fetching
+4. Kiyomi re-fetches chapter list from new provider
+5. Chapter correlation runs:
    - If `has_stable_chapter_id=true` for new provider: match by `chapter_ref`
    - If `has_stable_chapter_id=false`: fallback to title/number heuristic matching, low-confidence matches flagged
-4. Orphan chapters handled manually by user (list via filter, keep or remove)
+6. Orphan chapters handled manually by user (list via filter, keep or remove)
 
-**Decisions:**
-- Orphan chapters are kept permanently by default unless manually removed by the user. There is no automatic cleanup of orphan chapters, ensuring local files are preserved.
-- When `chapter_ref` doesn't match and title/number heuristics fail, the chapter is marked as an orphan.
-- Should we store old `content` history in `meta.json` for potential rollback? (Open Question)
+**Design decisions:**
+- `providers[]` accumulates all known provider references over time. Old entries are never auto-deleted.
+- `content` always points to the currently active content provider.
+- Both `content.provider_id` and `content.provider_manga_id` must match an entry in `providers[]`.
+- Orphan chapters are kept permanently unless manually removed by the user.
 
 ## Bulk Chapter Operations
 

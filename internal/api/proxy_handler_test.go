@@ -421,8 +421,8 @@ func TestGetChapterPages_LazyLoadingAndRefresh(t *testing.T) {
 	_ = h.lib.SaveManga(mangaID, &library.MangaMeta{
 		Title: "Lazy Manga",
 		Content: &library.ContentSource{
-			ProviderID: "countingprov",
-			MangaID:    mangaID,
+			ProviderID:      "countingprov",
+			ProviderMangaID: mangaID,
 		},
 	})
 	_ = h.lib.SaveChapter(mangaID, chapterID, &library.ChapterMeta{

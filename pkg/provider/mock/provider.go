@@ -69,14 +69,32 @@ type chapterFixture struct {
 
 // Provider implements all sdk interfaces for e2e testing.
 type Provider struct {
+	id          string
+	name        string
 	fixturesDir string
 	catalog     []catalogEntry
 	mangaCache  map[string]*mangaFixture
 }
 
-// New creates a new mock provider, loading fixtures from fixturesDir.
+// New creates a mock provider with default ID "mock" and name "Mock Provider".
+// Backward-compatible — existing callers untouched.
 func New(fixturesDir string) *Provider {
 	p := &Provider{
+		id:          ProviderID,
+		name:        ProviderName,
+		fixturesDir: fixturesDir,
+		mangaCache:  make(map[string]*mangaFixture),
+	}
+	p.loadCatalog()
+	return p
+}
+
+// NewWithID creates a mock provider with custom ID and name, sharing the same fixture format.
+// Use for e2e scenarios that need two distinct providers (e.g., binding + switch tests).
+func NewWithID(id, name, fixturesDir string) *Provider {
+	p := &Provider{
+		id:          id,
+		name:        name,
 		fixturesDir: fixturesDir,
 		mangaCache:  make(map[string]*mangaFixture),
 	}
@@ -128,8 +146,8 @@ func (p *Provider) loadManga(remoteID string) *mangaFixture {
 
 // ---- sdk.Provider ----
 
-func (p *Provider) ID() string   { return ProviderID }
-func (p *Provider) Name() string { return ProviderName }
+func (p *Provider) ID() string   { return p.id }
+func (p *Provider) Name() string { return p.name }
 
 func (p *Provider) Icon() string {
 	return `<svg viewBox="0 0 24 24" fill="currentColor"><rect width="24" height="24"/></svg>`
@@ -245,6 +263,8 @@ func (p *Provider) FetchPages(ctx context.Context, mangaRef, chapterRef string) 
 	if mangaID == "" {
 		mangaID = guessRemoteID(chapterRef)
 	}
+	// Page URL uses /api/v1/mock prefix shared by all mock instances; the e2e page handler
+	// at internal/api/handler_e2e.go serves any matching path regardless of mock ID.
 	for i := 0; i < 8; i++ {
 		pages = append(pages, sdk.Page{
 			Index: i,
