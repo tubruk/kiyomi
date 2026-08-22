@@ -284,7 +284,7 @@ Tracking providers are independent of content. A library entry may bind to multi
 ## References
 
 - [Library Storage Design](./library.md) — library binding, refresh correlation, `has_stable_chapter_id`
-- [Plugin Developer Guide](../plugin_developer/README.md) — instructions for building custom provider plugins
+- [Plugin Developer Guide](../plugin_developer/_index.md) — instructions for building custom provider plugins
 - `docs/design/workers.md` — workers run provider calls with retry/rate-limit
 - `docs/developer/architecture.md` — WASM plugin runtime
 - `docs/developer/sources_sdk.md` — current SDK (will be superseded by this doc once stable)

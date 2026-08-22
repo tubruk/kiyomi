@@ -190,6 +190,6 @@ client := sdkhttp.NewClient(
 
 ## See also
 
-- [`../design/dns-override.md`](../design/dns-override.md) — full design spec.
-- [`../design/dns-override-sequence.md`](../design/dns-override-sequence.md) — sequence diagram.
+- [`../design/dns_override.md`](../design/dns_override.md) — full design spec.
+- [`../design/dns_override_sequence.md`](../design/dns_override_sequence.md) — sequence diagram.
 - [`../design/provider_plugin_architecture.md`](../design/provider_plugin_architecture.md) — plugin lifecycle and config flow.

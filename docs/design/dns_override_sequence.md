@@ -2,7 +2,7 @@
 
 End-to-end sequence from `KIYOMI_DNS_RESOLVERS` env var through the
 plugin subprocess's first outbound HTTP request. Mirrors the prose in
-[`dns-override.md`](./dns-override.md).
+[`dns_override.md`](./dns_override.md).
 
 ---
 
@@ -154,5 +154,5 @@ Wire beats env. Explicit Option beats wire. Custom dialer beats Option.
 
 ## See also
 
-- [`dns-override.md`](./dns-override.md) — full design spec.
-- [`../plugin_developer/dns-overrides.md`](../plugin_developer/dns-overrides.md) — plugin author guide.
+- [`dns_override.md`](./dns_override.md) — full design spec.
+- [`../plugin_developer/dns_overrides.md`](../plugin_developer/dns_overrides.md) — plugin author guide.

@@ -4,6 +4,17 @@ This document contains operational conventions, repository layout maps, and veri
 
 ---
 
+## Main Branch Acceptance Criteria
+
+All contributions and feature branches merged into the `main` branch must meet the following criteria:
+- **No Private Data**: No leaked credentials, passwords, private keys, or absolute local filesystem/personal paths in tracked files.
+- **Verification**: Unit tests, linters, and end-to-end (E2E) tests must pass cleanly.
+- **Squash Merges**: When merging a single-goal feature branch, squash merging is highly preferred to drop intermediary commits and keep history clean.
+- **Irrelevant Files**: Changes must not touch irrelevant Cucumber `.feature` files or unrelated test files.
+- **Explicit Reviews**: Any explicit code or architectural review request must actively consult relevant Golang, backend, or frontend skills/guidelines for project best practices.
+
+---
+
 ## 1. Project Structure Map
 
 - `cmd/kiyomi/`: Main Go application entry point.
@@ -99,3 +110,23 @@ AI agents MUST NOT introduce absolute local filesystem paths, personal usernames
 - **Before committing**: run `git diff --cached | grep -nE '/Users/|/home/|file:///'` and remove any hits.
 - **Pre-merge / pre-push gate**: `git grep -nE '/Users/|<your-username>|file:///'` on all tracked files MUST return zero results.
 - **Test artifacts**: coverage reports (`.out`, Playwright `test-results/`, V8 JSON), IDE scratch dirs, `.env*`, and local DB files MUST be listed in `.gitignore` and `.dockerignore`.
+
+---
+
+## 8. Documentation Guidelines & Standards
+
+To keep the repository clean, consistent, and maintainable, all documentation files under `docs/` must adhere to the following standards:
+
+### File Naming Conventions
+- **Lower-case Snake_Case**: All documentation files and directory names must use lower-case `snake_case` (underscores) rather than dashes or mixed-case.
+  - **Correct**: `provider_plugin_architecture.md`, `plugin_developer/`, `_index.md`
+  - **Incorrect**: `provider-plugin-architecture.md`, `plugin-developer/`, `README.md`
+- **Entry Files**: All entry / index documentation files under `docs/` must be named `_index.md` instead of `README.md`.
+- **Extension**: Use the `.md` extension for all markdown files.
+
+### Relative Linking
+- **Repository-Relative Links**: When referencing other files, source code, or documentation in the repository, always use repository-relative links (e.g. `../design/api.md` or `pkg/provider/sdk/sdk.go`).
+- **No Local Paths or file:// URLs**: Never include absolute local file paths, personal directories, or `file://` URLs in any tracked documentation or codebase comments.
+
+### Design Content Integrity
+- **Conceptual Design**: Design documents (under `docs/design/`) must focus on specifications, schemas, protocols, and conceptual models, remaining completely agnostic of temporary implementation phases, tasks, or backlog plans.

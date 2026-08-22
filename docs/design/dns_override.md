@@ -290,6 +290,6 @@ No provider-side config file format change. Old TOML with `dns_resolvers
 
 ## See also
 
-- [`dns-override-sequence.md`](./dns-override-sequence.md) — sequence diagram.
+- [`dns_override_sequence.md`](./dns_override_sequence.md) — sequence diagram.
 - [`provider_plugin_architecture.md`](./provider_plugin_architecture.md) — how plugins reach upstream.
-- [`plugin_developer/dns-overrides.md`](../plugin_developer/dns-overrides.md) — plugin author guide.
+- [`../plugin_developer/dns_overrides.md`](../plugin_developer/dns_overrides.md) — plugin author guide.

@@ -3,7 +3,7 @@
 //
 // See [dns-override design doc] for the full architecture.
 //
-// [dns-override design doc]: https://github.com/tubruk/kiyomi/blob/main/docs/design/dns-override.md
+// [dns-override design doc]: https://github.com/tubruk/kiyomi/blob/main/docs/design/dns_override.md
 package dnsresolver
 
 import (
@@ -22,7 +22,7 @@ import (
 //
 // See [dns-override design doc] for the full URL grammar.
 //
-// [dns-override design doc]: https://github.com/tubruk/kiyomi/blob/main/docs/design/dns-override.md
+// [dns-override design doc]: https://github.com/tubruk/kiyomi/blob/main/docs/design/dns_override.md
 type Spec struct {
 	Scheme    string   // "dns", "tls", "https"
 	Host      string   // Hostname or IP literal

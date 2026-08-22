@@ -1,6 +1,6 @@
 # E2E Test Plan — Kiyomi
 
-> Isolated, BDD-style end-to-end tests covering every user journey in `docs/user-journey.md`. Runnable locally with one command. CI-ready behind a flag.
+> Isolated, BDD-style end-to-end tests covering every user journey in `docs/user_journey.md`. Runnable locally with one command. CI-ready behind a flag.
 
 ---
 
@@ -101,7 +101,7 @@ This stays honest: tests measure what the user sees, not what the wall clock say
 kiyomi/
 ├── docs/
 │   └── e2e/
-│       ├── README.md                     # this file
+│       ├── _index.md                     # this file
 │       ├── journeys/
 │       │   ├── 01-explore-providers.feature
 │       │   ├── 02-remote-manga-chapters.feature
@@ -408,7 +408,7 @@ Each phase is a single PR. AGENTS.md mandates verifications: `go test ./...`, `b
 2. **WebSocket.** Codebase is HTTP/REST only — confirmed zero WebSocket usage across `internal/` and `web/src`. Close: no action needed.
 3. **Screenshot on every step vs only on failure.** Default: only on failure, plus a `Then I screenshot {name}` step for ad-hoc captures.
 4. **Re-using library directories between scenarios.** Avoided by architecture — all data access is via directory paths configured per handler. Close.
-5. **Coverage of the **System Journeys** (Library Scan, Cache Eviction, Progress Sync) from `user-journey.md`.** Not user-visible. Cover indirectly via Layer C asserts in the journey scenarios. Promote to their own feature file if regressions bite.
+5. **Coverage of the **System Journeys** (Library Scan, Cache Eviction, Progress Sync) from `user_journey.md`.** Not user-visible. Cover indirectly via Layer C asserts in the journey scenarios. Promote to their own feature file if regressions bite.
 
 ---
 

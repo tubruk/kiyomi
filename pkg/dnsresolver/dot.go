@@ -16,7 +16,7 @@ import (
 // hostname for SNI and certificate verification. If bootstrap is provided
 // and no explicit CA is configured, InsecureSkipVerify is set to true.
 // This is intentional for private-network operators running DoT with
-// self-signed certificates. See dns-override.md §Risks for the full
+// self-signed certificates. See dns_override.md §Risks for the full
 // security tradeoff documentation.
 func lookupDoT(ctx context.Context, hostname, server string, port int, bootstrap []string) (net.IP, error) {
 	// Determine the address to dial and the SNI hostname.
@@ -50,7 +50,7 @@ func lookupDoT(ctx context.Context, hostname, server string, port int, bootstrap
 	// If bootstrap was supplied (meaning operator wants to connect to a private
 	// resolver) and no explicit CA is configured, skip verification.
 	// This is the documented trade-off for self-signed certs in private
-	// networks. See dns-override.md §Risks: "DoT self-signed certs".
+	// networks. See dns_override.md §Risks: "DoT self-signed certs".
 	// Note: bootstrap applies even when server is an IP literal (for private IPs).
 	if len(bootstrap) > 0 && tlsConfig.RootCAs == nil {
 		tlsConfig.InsecureSkipVerify = true

@@ -11,7 +11,7 @@ Architecture and design specifications for the Kiyomi codebase.
 | [Reader](./reader.md) | Web reader architecture and reading modes |
 | [Reading Progress](./reading_progress.md) | Progress tracking model and sync design |
 | [Metadata Import](./metadata_import.md) | Metadata enrichment and import flow |
-| [Provider Binding](./provider-binding.md) | Decisions for add/switch/remove content provider endpoints |
+| [Provider Binding](./provider_binding.md) | Decisions for add/switch/remove content provider endpoints |
 | [Anti-bot](./antibot.md) | TLS fingerprinting and header spoofing approach |
-| [DNS Override](./dns-override.md) | `KIYOMI_DNS_RESOLVERS` env var: plain DNS / DoT / DoH override for backend + plugins |
-| [DNS Override — Sequence](./dns-override-sequence.md) | End-to-end sequence diagram of the resolver wiring |
+| [DNS Override](./dns_override.md) | `KIYOMI_DNS_RESOLVERS` env var: plain DNS / DoT / DoH override for backend + plugins |
+| [DNS Override — Sequence](./dns_override_sequence.md) | End-to-end sequence diagram of the resolver wiring |
