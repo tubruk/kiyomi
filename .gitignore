@@ -2,6 +2,7 @@
 node_modules
 web/node_modules
 web/dist
+web/dev-dist
 tmp
 bin
 pkg/webui/dist

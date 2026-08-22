@@ -49,6 +49,22 @@ export const ToastContainer: React.FC = () => {
 
               <span className="flex-1 line-clamp-2">{t.message}</span>
 
+              {t.action && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    t.action?.onClick();
+                    removeToast(t.id);
+                  }}
+                  className="h-6 px-2 text-[10px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer shrink-0"
+                >
+                  {t.action.label}
+                </Button>
+              )}
+
               {isError && (
                 <Button
                   type="button"

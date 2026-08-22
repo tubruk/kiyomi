@@ -11,6 +11,11 @@ import {
   Trash2,
   Image as ImageIcon,
   Info,
+  Download,
+  Smartphone,
+  Database,
+  CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -22,6 +27,8 @@ import {
 import { queryKeys } from '../lib/queryKeys';
 import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+import { clearQueryPersistence } from '../lib/persister';
 import { PluginItem } from '../types/api';
 import { PluginCard } from '../components/plugins/PluginCard';
 import { ScopedSettingsModal } from '../components/plugins/ScopedSettingsModal';
@@ -52,12 +59,15 @@ import { formatBytes } from '../lib/utils';
 export const SettingsPage: React.FC = () => {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const { isInstallable, isInstalled, install } = usePWAInstall();
 
   const [selectedSettingsPlugin, setSelectedSettingsPlugin] = useState<PluginItem | null>(null);
   const [selectedLogsPlugin, setSelectedLogsPlugin] = useState<PluginItem | null>(null);
 
-  // Clear cache confirmation modal
+  // Clear cache confirmation modals
   const [confirmClearCacheOpen, setConfirmClearCacheOpen] = useState(false);
+  const [confirmClearOfflineCacheOpen, setConfirmClearOfflineCacheOpen] = useState(false);
+  const [isClearingOfflineCache, setIsClearingOfflineCache] = useState(false);
 
   // Error modal state
   const [errorModalOpen, setErrorModalOpen] = useState(false);
@@ -315,10 +325,48 @@ export const SettingsPage: React.FC = () => {
               </CardFooter>
             </Card>
           </div>
+
+          {/* Offline Query Cache Card */}
+          <div className="max-w-2xl">
+            <Card className="border border-border/80 bg-card">
+              <CardHeader>
+                <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                  <Database className="size-4 text-primary" />
+                  Offline Query Cache
+                </CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">
+                  Browser IndexedDB storage used to persist library catalog, metadata, and chapter listings for offline browsing.
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+                <div className="rounded-lg bg-muted/30 p-3.5 border border-border/40 text-xs text-muted-foreground flex items-start gap-2.5">
+                  <Info className="size-4 text-primary shrink-0 mt-0.5" />
+                  <p className="leading-relaxed">
+                    Kiyomi caches queries locally in your browser so you can access your saved manga library and chapter details even when offline. Clearing this cache will reset the offline data store and refetch fresh data from the server.
+                  </p>
+                </div>
+              </CardContent>
+
+              <CardFooter className="flex items-center justify-end border-t border-border/60 bg-muted/20 px-6 py-4">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setConfirmClearOfflineCacheOpen(true)}
+                  disabled={isClearingOfflineCache}
+                  className="text-xs font-semibold cursor-pointer gap-2"
+                >
+                  <Trash2 className="size-4" />
+                  <span>Clear Offline Cache</span>
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* ── About Tab ── */}
-        <TabsContent value="about">
+        <TabsContent value="about" className="space-y-6">
           <div className="max-w-lg space-y-6">
             {/* App identity */}
             <div className="flex items-center gap-4">
@@ -329,11 +377,96 @@ export const SettingsPage: React.FC = () => {
                 <p className="text-xl font-bold tracking-tight text-foreground">
                   {info?.app ?? 'Kiyomi'}
                 </p>
-                <Badge variant="outline" className="text-xs font-mono font-semibold border-primary/30 text-primary mt-1">
-                  v{info?.version ?? '—'}
-                </Badge>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="outline" className="text-xs font-mono font-semibold border-primary/30 text-primary">
+                    v{info?.version ?? '—'}
+                  </Badge>
+                  {isInstalled ? (
+                    <Badge variant="secondary" className="text-xs font-medium text-emerald-600 dark:text-emerald-400 gap-1">
+                      <CheckCircle2 className="size-3" />
+                      Installed App
+                    </Badge>
+                  ) : isInstallable ? (
+                    <Badge variant="secondary" className="text-xs font-medium text-primary gap-1">
+                      <Sparkles className="size-3" />
+                      Installable PWA
+                    </Badge>
+                  ) : null}
+                </div>
               </div>
             </div>
+
+            {/* App Details & Installation Card */}
+            <Card className="border border-border/80 bg-card">
+              <CardHeader>
+                <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                  <Smartphone className="size-4 text-primary" />
+                  App Details & Installation
+                </CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">
+                  Install Kiyomi as a Progressive Web App (PWA) for a native standalone app experience and offline access.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-lg border border-border/60 bg-muted/20 p-3.5 flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-medium text-foreground block">Application Mode</span>
+                    <span className="text-xs text-muted-foreground">
+                      {isInstalled
+                        ? 'Running as standalone installed application'
+                        : isInstallable
+                        ? 'Ready to install on this device'
+                        : 'Running in web browser'}
+                    </span>
+                  </div>
+                  {isInstalled ? (
+                    <Badge variant="outline" className="text-xs text-emerald-500 border-emerald-500/30 gap-1 shrink-0">
+                      <CheckCircle2 className="size-3" />
+                      Installed
+                    </Badge>
+                  ) : isInstallable ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={async () => {
+                        const installed = await install();
+                        if (installed) {
+                          showToast('Kiyomi installed successfully!', 'success');
+                        }
+                      }}
+                      className="text-xs font-semibold gap-1.5 cursor-pointer shrink-0"
+                    >
+                      <Download className="size-3.5" />
+                      <span>Install App</span>
+                    </Button>
+                  ) : (
+                    <Badge variant="outline" className="text-xs text-muted-foreground shrink-0">
+                      Web Browser
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-border/60 bg-muted/20 p-3.5 flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-medium text-foreground block">Offline Query Cache</span>
+                    <span className="text-xs text-muted-foreground">
+                      Persisted library and chapter state in browser storage
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmClearOfflineCacheOpen(true)}
+                    disabled={isClearingOfflineCache}
+                    className="text-xs font-semibold gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Trash2 className="size-3.5 text-muted-foreground" />
+                    <span>Clear Cache</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Build metadata */}
             <div className="rounded-xl border border-border bg-muted/20 divide-y divide-border/60">
@@ -362,7 +495,7 @@ export const SettingsPage: React.FC = () => {
         </TabsContent>
       </Tabs>
 
-      {/* Confirmation Dialog for Clearing Cache */}
+      {/* Confirmation Dialog for Clearing Image Cache */}
       <Dialog open={confirmClearCacheOpen} onOpenChange={setConfirmClearCacheOpen}>
         <DialogContent className="max-w-md sm:max-w-md">
           <DialogHeader>
@@ -395,6 +528,52 @@ export const SettingsPage: React.FC = () => {
             >
               <Trash2 className="size-4" />
               <span>Clear Cache</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog for Clearing Offline Query Cache */}
+      <Dialog open={confirmClearOfflineCacheOpen} onOpenChange={setConfirmClearOfflineCacheOpen}>
+        <DialogContent className="max-w-md sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-foreground">
+              Clear Offline Query Cache
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground pt-1">
+              Are you sure you want to clear the offline query cache? Persisted library metadata, catalog results, and chapter lists in browser storage will be removed. Fresh data will be loaded from the server on demand.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex items-center justify-end gap-2 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmClearOfflineCacheOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={isClearingOfflineCache}
+              onClick={async () => {
+                setIsClearingOfflineCache(true);
+                try {
+                  await clearQueryPersistence(queryClient);
+                  showToast('Offline query cache cleared successfully', 'success');
+                } catch (err: any) {
+                  showToast('Failed to clear offline cache', 'error', err?.message);
+                } finally {
+                  setIsClearingOfflineCache(false);
+                  setConfirmClearOfflineCacheOpen(false);
+                }
+              }}
+              className="gap-2"
+            >
+              <Trash2 className="size-4" />
+              <span>Clear Offline Cache</span>
             </Button>
           </DialogFooter>
         </DialogContent>

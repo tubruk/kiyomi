@@ -26,6 +26,9 @@ BeforeAll(async function () {
   const headless = process.env.E2E_HEADLESS !== '0' && !process.argv.includes('--headed');
   _world.browser = await chromium.launch({ headless });
   _world.context = await _world.browser.newContext({ hasTouch: true });
+  await _world.context.addInitScript(() => {
+    (window as any).__playwright = true;
+  });
 
   // Initialize GOCOVERDIR for backend coverage
   const coverDir = path.resolve(__dirname, '../test-results/coverage-go');
