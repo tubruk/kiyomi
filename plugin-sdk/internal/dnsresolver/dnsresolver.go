@@ -181,6 +181,19 @@ func formatSpec(s Spec) string {
 // to resolve hostnames. Used by pkg/provider/sdk for back-compat with
 // the existing ProviderConfig.DNSResolvers []string field.
 func DialFunc(specs []Spec) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	type runner struct {
+		spec Spec
+		doh  *dohResolver
+	}
+	runners := make([]runner, len(specs))
+	for i, spec := range specs {
+		r := runner{spec: spec}
+		if spec.Scheme == "https" {
+			r.doh = newDoHResolver(spec.Host, spec.Port, spec.Path, spec.Bootstrap)
+		}
+		runners[i] = r
+	}
+
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, portStr, err := net.SplitHostPort(addr)
 		if err != nil {
@@ -188,8 +201,16 @@ func DialFunc(specs []Spec) func(ctx context.Context, network, addr string) (net
 		}
 
 		// Try each spec in order; first one that resolves wins.
-		for _, spec := range specs {
-			ip, err := resolveWithSpec(ctx, spec, host)
+		for _, r := range runners {
+			var (
+				ip  net.IP
+				err error
+			)
+			if r.doh != nil {
+				ip, err = r.doh.lookup(ctx, host)
+			} else {
+				ip, err = resolveWithSpec(ctx, r.spec, host)
+			}
 			if err != nil {
 				continue
 			}

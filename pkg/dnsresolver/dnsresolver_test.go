@@ -293,13 +293,13 @@ func handleDotConn(c net.Conn) {
 	defer c.Close()
 	// Read length prefix.
 	lenBuf := make([]byte, 2)
-	_, err := c.Read(lenBuf)
+	_, err := io.ReadFull(c, lenBuf)
 	if err != nil {
 		return
 	}
 	msgLen := int(lenBuf[0])<<8 | int(lenBuf[1])
 	buf := make([]byte, msgLen)
-	_, err = c.Read(buf)
+	_, err = io.ReadFull(c, buf)
 	if err != nil {
 		return
 	}
@@ -414,6 +414,65 @@ func TestNewResolver(t *testing.T) {
 	resolver := NewResolver(specs)
 	require.NotNil(t, resolver)
 	assert.True(t, resolver.PreferGo)
+}
+
+func TestDoHResolver_ConnectionReuse(t *testing.T) {
+	requestCount := 0
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var wire []byte
+		var err error
+
+		if r.Method == "GET" {
+			dnsParam := r.URL.Query().Get("dns")
+			wire, err = base64.RawURLEncoding.DecodeString(dnsParam)
+		} else if r.Method == "POST" {
+			wire, err = io.ReadAll(r.Body)
+		} else {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		req := new(dns.Msg)
+		if err := req.Unpack(wire); err != nil {
+			http.Error(w, "bad dns msg", http.StatusBadRequest)
+			return
+		}
+
+		m := new(dns.Msg)
+		m.SetReply(req)
+		m.RecursionDesired = true
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			A:   net.ParseIP("127.0.0.1"),
+		})
+
+		respWire, _ := m.Pack()
+		w.Header().Set("Content-Type", "application/dns-message")
+		w.Write(respWire)
+	})
+
+	server := httptest.NewTLSServer(handler)
+	defer server.Close()
+
+	serverAddr := server.Listener.Addr().(*net.TCPAddr)
+	host := serverAddr.IP.String()
+	port := serverAddr.Port
+
+	r := newDoHResolver(host, port, "/", []string{host})
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		ip, err := r.lookup(ctx, "example.com.")
+		require.NoError(t, err)
+		assert.Equal(t, "127.0.0.1", ip.String())
+	}
+	assert.Equal(t, 5, requestCount)
 }
 
 // --- helper ---

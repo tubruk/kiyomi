@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -97,13 +98,13 @@ func lookupDoT(ctx context.Context, hostname, server string, port int, bootstrap
 
 	// Read response length prefix.
 	respLenBuf := make([]byte, 2)
-	if _, err := tlsConn.Read(respLenBuf); err != nil {
+	if _, err := io.ReadFull(tlsConn, respLenBuf); err != nil {
 		tlsConn.Close()
 		return nil, fmt.Errorf("dnsresolver: read DoT response length: %w", err)
 	}
 	respLen := int(respLenBuf[0])<<8 | int(respLenBuf[1])
 	respBuf := make([]byte, respLen)
-	if _, err := tlsConn.Read(respBuf); err != nil {
+	if _, err := io.ReadFull(tlsConn, respBuf); err != nil {
 		tlsConn.Close()
 		return nil, fmt.Errorf("dnsresolver: read DoT response: %w", err)
 	}

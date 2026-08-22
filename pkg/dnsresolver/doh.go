@@ -14,37 +14,66 @@ import (
 	"github.com/miekg/dns"
 )
 
-// lookupDoH performs a DNS-over-HTTPS lookup (RFC 8484).
-//
-// Uses net/http HTTP/2 client. Encodes query as base64url wire format.
-// Supports both GET (?dns=...) and POST (with wire format body).
-// Default path is /dns-query. Same bootstrap rules as DoT.
-func lookupDoH(ctx context.Context, hostname, server string, port int, path string, bootstrap []string) (net.IP, error) {
-	// Determine the actual server address to dial.
-	dialAddr := net.JoinHostPort(server, fmt.Sprintf("%d", port))
+// dohResolver executes DNS-over-HTTPS queries (RFC 8484) using a reusable http.Client.
+type dohResolver struct {
+	baseURL string
+	client  *http.Client
+}
 
-	if net.ParseIP(server) != nil {
-		// IP literal: keep using HTTPS.
-	} else if len(bootstrap) == 0 {
-		// Hostname without bootstrap: resolve via system resolver first.
-		systemIP, err := net.DefaultResolver.LookupIP(ctx, "ip", server)
-		if err != nil {
-			return nil, fmt.Errorf("dnsresolver: resolve DoH server %s: %w", server, err)
-		}
-		if len(systemIP) == 0 {
-			return nil, fmt.Errorf("dnsresolver: no addresses for DoH server %s", server)
-		}
-		bootstrap = []string{systemIP[0].String()}
-		dialAddr = net.JoinHostPort(bootstrap[0], fmt.Sprintf("%d", port))
-	} else {
-		// Hostname with bootstrap: dial the bootstrap IP.
-		dialAddr = net.JoinHostPort(bootstrap[0], fmt.Sprintf("%d", port))
-	}
-
+// newDoHResolver creates a dohResolver with a configured http.Client and Transport
+// to reuse TCP/TLS connections across lookups.
+func newDoHResolver(server string, port int, path string, bootstrap []string) *dohResolver {
 	if path == "" {
 		path = defaultDoHPath
 	}
 
+	dialAddr := net.JoinHostPort(server, fmt.Sprintf("%d", port))
+	if len(bootstrap) > 0 {
+		dialAddr = net.JoinHostPort(bootstrap[0], fmt.Sprintf("%d", port))
+	}
+
+	tlsConfig := &tls.Config{
+		ServerName: server,
+	}
+	if len(bootstrap) > 0 && tlsConfig.RootCAs == nil {
+		tlsConfig.InsecureSkipVerify = true
+	}
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dialer := &net.Dialer{
+					Timeout: 5 * time.Second,
+				}
+				targetAddr := dialAddr
+				if net.ParseIP(server) == nil && len(bootstrap) == 0 {
+					systemIP, err := net.DefaultResolver.LookupIP(ctx, "ip", server)
+					if err != nil {
+						return nil, fmt.Errorf("dnsresolver: resolve DoH server %s: %w", server, err)
+					}
+					if len(systemIP) == 0 {
+						return nil, fmt.Errorf("dnsresolver: no addresses for DoH server %s", server)
+					}
+					targetAddr = net.JoinHostPort(systemIP[0].String(), fmt.Sprintf("%d", port))
+				}
+				return dialer.DialContext(ctx, network, targetAddr)
+			},
+			TLSClientConfig: tlsConfig,
+			// Explicitly use HTTP/1.1 to avoid HTTP/2 upgrade issues in tests.
+			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		},
+	}
+
+	return &dohResolver{
+		baseURL: fmt.Sprintf("https://%s:%d%s", server, port, path),
+		client:  client,
+	}
+}
+
+// lookup performs a DNS-over-HTTPS lookup (RFC 8484).
+// Supports both GET (?dns=...) and POST (with wire format body).
+func (r *dohResolver) lookup(ctx context.Context, hostname string) (net.IP, error) {
 	// Build the DNS query message.
 	m := &dns.Msg{}
 	m.SetQuestion(dns.Fqdn(hostname), dns.TypeA)
@@ -59,58 +88,35 @@ func lookupDoH(ctx context.Context, hostname, server string, port int, path stri
 	base64.RawURLEncoding.Encode(enc, wire)
 	queryStr := string(enc)
 
-	baseURL := fmt.Sprintf("https://%s:%d%s", server, port, path)
-
-	tlsConfig := &tls.Config{
-		ServerName: server,
-	}
-	if len(bootstrap) > 0 && tlsConfig.RootCAs == nil {
-		tlsConfig.InsecureSkipVerify = true
-	}
-
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				dialer := &net.Dialer{
-					Timeout: 5 * time.Second,
-				}
-				return dialer.DialContext(ctx, network, dialAddr)
-			},
-			TLSClientConfig: tlsConfig,
-			// Explicitly use HTTP/1.1 to avoid HTTP/2 upgrade issues in tests.
-			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
-		},
-	}
-
 	// Try GET first.
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s?dns=%s", baseURL, queryStr), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s?dns=%s", r.baseURL, queryStr), nil)
 	if err != nil {
 		return nil, fmt.Errorf("dnsresolver: create DoH GET request: %w", err)
 	}
 	req.Header.Set("Accept", "application/dns-message")
 
-	resp, err := httpClient.Do(req)
+	resp, err := r.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("dnsresolver: DoH GET: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Fall back to POST.
-		resp.Body.Close()
-		req, err := http.NewRequestWithContext(ctx, "POST", baseURL, bytes.NewReader(wire))
+		// Drain and close before retrying with POST.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.baseURL, bytes.NewReader(wire))
 		if err != nil {
 			return nil, fmt.Errorf("dnsresolver: create DoH POST request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/dns-message")
 		req.Header.Set("Accept", "application/dns-message")
-		resp, err = httpClient.Do(req)
+		resp, err = r.client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("dnsresolver: DoH POST: %w", err)
 		}
-		defer resp.Body.Close()
 	}
+	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -130,4 +136,14 @@ func lookupDoH(ctx context.Context, hostname, server string, port int, path stri
 		}
 	}
 	return nil, fmt.Errorf("dnsresolver: no A record for %s", hostname)
+}
+
+// lookupDoH performs a DNS-over-HTTPS lookup (RFC 8484).
+//
+// Uses net/http client. Encodes query as base64url wire format.
+// Supports both GET (?dns=...) and POST (with wire format body).
+// Default path is /dns-query. Same bootstrap rules as DoT.
+func lookupDoH(ctx context.Context, hostname, server string, port int, path string, bootstrap []string) (net.IP, error) {
+	r := newDoHResolver(server, port, path, bootstrap)
+	return r.lookup(ctx, hostname)
 }
