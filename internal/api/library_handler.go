@@ -239,9 +239,25 @@ func (h *Handler) refreshChaptersFromContent(ctx context.Context, mangaID string
 			saveErr error
 		)
 
+	loop:
 		for _, ch := range toAdd {
+			if ctx.Err() != nil {
+				errOnce.Do(func() {
+					saveErr = ctx.Err()
+				})
+				break loop
+			}
+
+			select {
+			case <-ctx.Done():
+				errOnce.Do(func() {
+					saveErr = ctx.Err()
+				})
+				break loop
+			case sem <- struct{}{}:
+			}
+
 			wg.Add(1)
-			sem <- struct{}{}
 			go func(ch sdk.Chapter) {
 				defer wg.Done()
 				defer func() { <-sem }()
@@ -271,6 +287,10 @@ func (h *Handler) refreshChaptersFromContent(ctx context.Context, mangaID string
 		if saveErr != nil {
 			return int(added), saveErr
 		}
+	}
+
+	if ctx.Err() != nil {
+		return int(added), ctx.Err()
 	}
 
 	meta.Content.LastSyncedAt = now

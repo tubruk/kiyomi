@@ -975,5 +975,81 @@ func TestHasContentProvider(t *testing.T) {
 	}
 }
 
+func TestLibrary_ConcurrentReadWrite(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-rw-race-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+
+	const numManga = 10
+	for i := 0; i < numManga; i++ {
+		mangaID := fmt.Sprintf("manga-%d", i)
+		if err := lib.SaveManga(mangaID, &MangaMeta{Title: fmt.Sprintf("Title %d", i)}); err != nil {
+			t.Fatalf("failed to save manga: %v", err)
+		}
+		for j := 0; j < 5; j++ {
+			chID := fmt.Sprintf("ch-%d", j)
+			if err := lib.SaveChapter(mangaID, chID, &ChapterMeta{Title: fmt.Sprintf("Ch %d", j), Number: float32(j)}); err != nil {
+				t.Fatalf("failed to save chapter: %v", err)
+			}
+		}
+	}
+
+	var wg sync.WaitGroup
+	// Launch manga list readers
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for k := 0; k < 20; k++ {
+				_, _ = lib.ListManga()
+			}
+		}()
+	}
+
+	// Launch chapter and manga readers
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			mangaID := fmt.Sprintf("manga-%d", idx%numManga)
+			for k := 0; k < 20; k++ {
+				_, _ = lib.ListChapters(mangaID)
+				_, _ = lib.GetManga(mangaID)
+				_, _ = lib.GetChapter(mangaID, "ch-0")
+			}
+		}(i)
+	}
+
+	// Launch writers updating progress
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			mangaID := fmt.Sprintf("manga-%d", idx%numManga)
+			for k := 0; k < 20; k++ {
+				_, _ = lib.UpdateChapterProgress(mangaID, "ch-0", true, k)
+			}
+		}(i)
+	}
+
+	// Launch writers updating pages
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			mangaID := fmt.Sprintf("manga-%d", idx%numManga)
+			for k := 0; k < 20; k++ {
+				_ = lib.SaveChapterPages(mangaID, "ch-0", []PageItem{{Index: 0, URL: "http://example.com/p0.jpg"}})
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
 
 

@@ -153,6 +153,7 @@ type ChapterInfo struct {
 // Library handles direct filesystem operations on the manga library directory.
 type Library struct {
 	root string
+	mu   sync.RWMutex
 }
 
 // NewLibrary initializes a new Library manager pointing to the given root directory.
@@ -176,6 +177,9 @@ func sanitizeID(id string) string {
 
 // ListManga walks the library directory and lists all manga with their meta.json content.
 func (l *Library) ListManga() ([]MangaInfo, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
 	entries, err := os.ReadDir(l.root)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -217,7 +221,7 @@ func (l *Library) ListManga() ([]MangaInfo, error) {
 		go func() {
 			defer wg.Done()
 			for id := range jobs {
-				meta, err := l.GetManga(id)
+				meta, err := l.getManga(id)
 				if err != nil {
 					// Skip invalid/corrupted directories
 					continue
@@ -243,6 +247,12 @@ func (l *Library) ListManga() ([]MangaInfo, error) {
 
 // GetManga reads and parses library/<manga_id>/meta.json.
 func (l *Library) GetManga(id string) (*MangaMeta, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.getManga(id)
+}
+
+func (l *Library) getManga(id string) (*MangaMeta, error) {
 	id = sanitizeID(id)
 	path := filepath.Join(l.root, id, "meta.json")
 	bytes, err := os.ReadFile(path)
@@ -258,8 +268,14 @@ func (l *Library) GetManga(id string) (*MangaMeta, error) {
 	return &meta, nil
 }
 
-// SaveManga writes or updates library/<manga_id>/meta.json.
+// SaveManga writes or updates library/<manga_id>/meta.json atomically.
 func (l *Library) SaveManga(id string, meta *MangaMeta) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.saveManga(id, meta)
+}
+
+func (l *Library) saveManga(id string, meta *MangaMeta) error {
 	id = sanitizeID(id)
 	dir := filepath.Join(l.root, id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -276,9 +292,26 @@ func (l *Library) SaveManga(id string, meta *MangaMeta) error {
 		return fmt.Errorf("save manga %s: marshal error: %w", id, err)
 	}
 
-	path := filepath.Join(dir, "meta.json")
-	if err := os.WriteFile(path, bytes, 0o644); err != nil {
-		return fmt.Errorf("save manga %s: write file: %w", id, err)
+	tmpFile, err := os.CreateTemp(dir, "meta.json.tmp.*")
+	if err != nil {
+		return fmt.Errorf("save manga %s: create temp file: %w", id, err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if _, err := tmpFile.Write(bytes); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("save manga %s: write temp file: %w", id, err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("save manga %s: close temp file: %w", id, err)
+	}
+
+	targetFile := filepath.Join(dir, "meta.json")
+	if err := os.Rename(tmpPath, targetFile); err != nil {
+		return fmt.Errorf("save manga %s: rename temp file: %w", id, err)
 	}
 
 	return nil
@@ -286,6 +319,12 @@ func (l *Library) SaveManga(id string, meta *MangaMeta) error {
 
 // DeleteManga removes the library/<manga_id> directory and all its contents.
 func (l *Library) DeleteManga(id string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.deleteManga(id)
+}
+
+func (l *Library) deleteManga(id string) error {
 	id = sanitizeID(id)
 	dir := filepath.Join(l.root, id)
 	if err := os.RemoveAll(dir); err != nil {
@@ -296,6 +335,9 @@ func (l *Library) DeleteManga(id string) error {
 
 // ListChapters lists all chapters for a manga by reading directories containing meta.json.
 func (l *Library) ListChapters(mangaID string) ([]ChapterInfo, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
 	mangaID = sanitizeID(mangaID)
 	mangaDir := filepath.Join(l.root, mangaID)
 
@@ -340,7 +382,7 @@ func (l *Library) ListChapters(mangaID string) ([]ChapterInfo, error) {
 		go func() {
 			defer wg.Done()
 			for chapterID := range jobs {
-				meta, err := l.GetChapter(mangaID, chapterID)
+				meta, err := l.getChapter(mangaID, chapterID)
 				if err != nil {
 					// Skip invalid subdirectories
 					continue
@@ -367,7 +409,14 @@ func (l *Library) ListChapters(mangaID string) ([]ChapterInfo, error) {
 
 // GetChapter reads library/<manga_id>/<chapter_id>/meta.json.
 func (l *Library) GetChapter(mangaID, chapterID string) (*ChapterMeta, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.getChapter(mangaID, chapterID)
+}
+
+func (l *Library) getChapter(mangaID, chapterID string) (*ChapterMeta, error) {
 	mangaID = sanitizeID(mangaID)
+	chapterID = sanitizeID(chapterID)
 	path := filepath.Join(l.root, mangaID, chapterID, "meta.json")
 	bytes, err := os.ReadFile(path)
 	if err != nil {
@@ -382,8 +431,14 @@ func (l *Library) GetChapter(mangaID, chapterID string) (*ChapterMeta, error) {
 	return &meta, nil
 }
 
-// SaveChapter writes or updates library/<manga_id>/<chapter_id>/meta.json.
+// SaveChapter writes or updates library/<manga_id>/<chapter_id>/meta.json atomically.
 func (l *Library) SaveChapter(mangaID, chapterID string, meta *ChapterMeta) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.saveChapter(mangaID, chapterID, meta)
+}
+
+func (l *Library) saveChapter(mangaID, chapterID string, meta *ChapterMeta) error {
 	mangaID = sanitizeID(mangaID)
 	dir := filepath.Join(l.root, mangaID, chapterID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -395,9 +450,26 @@ func (l *Library) SaveChapter(mangaID, chapterID string, meta *ChapterMeta) erro
 		return fmt.Errorf("save chapter %s/%s: marshal error: %w", mangaID, chapterID, err)
 	}
 
-	path := filepath.Join(dir, "meta.json")
-	if err := os.WriteFile(path, bytes, 0o644); err != nil {
-		return fmt.Errorf("save chapter %s/%s: write file: %w", mangaID, chapterID, err)
+	tmpFile, err := os.CreateTemp(dir, "meta.json.tmp.*")
+	if err != nil {
+		return fmt.Errorf("save chapter %s/%s: create temp file: %w", mangaID, chapterID, err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if _, err := tmpFile.Write(bytes); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("save chapter %s/%s: write temp file: %w", mangaID, chapterID, err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("save chapter %s/%s: close temp file: %w", mangaID, chapterID, err)
+	}
+
+	targetFile := filepath.Join(dir, "meta.json")
+	if err := os.Rename(tmpPath, targetFile); err != nil {
+		return fmt.Errorf("save chapter %s/%s: rename temp file: %w", mangaID, chapterID, err)
 	}
 
 	return nil
@@ -405,6 +477,12 @@ func (l *Library) SaveChapter(mangaID, chapterID string, meta *ChapterMeta) erro
 
 // DeleteChapter deletes the chapter directory library/<manga_id>/<chapter_id>.
 func (l *Library) DeleteChapter(mangaID, chapterID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.deleteChapter(mangaID, chapterID)
+}
+
+func (l *Library) deleteChapter(mangaID, chapterID string) error {
 	mangaID = sanitizeID(mangaID)
 	dir := filepath.Join(l.root, mangaID, chapterID)
 	if err := os.RemoveAll(dir); err != nil {
@@ -416,6 +494,12 @@ func (l *Library) DeleteChapter(mangaID, chapterID string) error {
 // DeleteAllChapters removes every chapter subdirectory under library/<mangaID>/.
 // Manga meta.json is preserved. Safe no-op if no chapters exist.
 func (l *Library) DeleteAllChapters(mangaID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.deleteAllChapters(mangaID)
+}
+
+func (l *Library) deleteAllChapters(mangaID string) error {
 	mangaID = sanitizeID(mangaID)
 	mangaDir := filepath.Join(l.root, mangaID)
 	entries, err := os.ReadDir(mangaDir)
@@ -439,10 +523,13 @@ func (l *Library) DeleteAllChapters(mangaID string) error {
 
 // UpdateChapterProgress updates the reading progress for a chapter and updates the parent manga's last read metadata.
 func (l *Library) UpdateChapterProgress(mangaID, chapterID string, isRead bool, lastReadPage int) (*ChapterInfo, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	mangaID = sanitizeID(mangaID)
 	chapterID = sanitizeID(chapterID)
 
-	chMeta, err := l.GetChapter(mangaID, chapterID)
+	chMeta, err := l.getChapter(mangaID, chapterID)
 	if err != nil {
 		return nil, fmt.Errorf("update chapter progress %s/%s: %w", mangaID, chapterID, err)
 	}
@@ -452,11 +539,11 @@ func (l *Library) UpdateChapterProgress(mangaID, chapterID string, isRead bool, 
 	chMeta.LastReadPage = lastReadPage
 	chMeta.LastReadAt = now
 
-	if err := l.SaveChapter(mangaID, chapterID, chMeta); err != nil {
+	if err := l.saveChapter(mangaID, chapterID, chMeta); err != nil {
 		return nil, fmt.Errorf("update chapter progress %s/%s: save chapter: %w", mangaID, chapterID, err)
 	}
 
-	mangaMeta, err := l.GetManga(mangaID)
+	mangaMeta, err := l.getManga(mangaID)
 	if err != nil {
 		return nil, fmt.Errorf("update chapter progress %s/%s: get manga: %w", mangaID, chapterID, err)
 	}
@@ -464,7 +551,7 @@ func (l *Library) UpdateChapterProgress(mangaID, chapterID string, isRead bool, 
 	mangaMeta.LastReadChapterID = chapterID
 	mangaMeta.LastReadAt = now
 
-	if err := l.SaveManga(mangaID, mangaMeta); err != nil {
+	if err := l.saveManga(mangaID, mangaMeta); err != nil {
 		return nil, fmt.Errorf("update chapter progress %s/%s: save manga: %w", mangaID, chapterID, err)
 	}
 
@@ -479,6 +566,12 @@ func (l *Library) UpdateChapterProgress(mangaID, chapterID string, isRead bool, 
 // If mangaID is non-empty, pages are read from library/<manga_id>/<chapter_id>/pages.json.
 // If mangaID is empty, pages are read from library/_pages/<chapter_id>.json.
 func (l *Library) GetChapterPages(mangaID, chapterID string) ([]PageItem, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.getChapterPages(mangaID, chapterID)
+}
+
+func (l *Library) getChapterPages(mangaID, chapterID string) ([]PageItem, error) {
 	if mangaID != "" {
 		mangaID = sanitizeID(mangaID)
 	}
@@ -509,6 +602,12 @@ func (l *Library) GetChapterPages(mangaID, chapterID string) ([]PageItem, error)
 // and if meta.json exists, its page_count is updated.
 // If mangaID is empty, pages are written to library/_pages/<chapter_id>.json.
 func (l *Library) SaveChapterPages(mangaID, chapterID string, pages []PageItem) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.saveChapterPages(mangaID, chapterID, pages)
+}
+
+func (l *Library) saveChapterPages(mangaID, chapterID string, pages []PageItem) error {
 	if len(pages) == 0 {
 		return fmt.Errorf("save chapter pages: empty page list")
 	}
@@ -560,12 +659,12 @@ func (l *Library) SaveChapterPages(mangaID, chapterID string, pages []PageItem) 
 	if mangaID != "" {
 		metaPath := filepath.Join(l.root, mangaID, chapterID, "meta.json")
 		if _, err := os.Stat(metaPath); err == nil {
-			chMeta, err := l.GetChapter(mangaID, chapterID)
+			chMeta, err := l.getChapter(mangaID, chapterID)
 			if err != nil {
 				return fmt.Errorf("save chapter pages: get chapter meta: %w", err)
 			}
 			chMeta.PageCount = len(pages)
-			if err := l.SaveChapter(mangaID, chapterID, chMeta); err != nil {
+			if err := l.saveChapter(mangaID, chapterID, chMeta); err != nil {
 				return fmt.Errorf("save chapter pages: update chapter meta: %w", err)
 			}
 		}
@@ -576,8 +675,11 @@ func (l *Library) SaveChapterPages(mangaID, chapterID string, pages []PageItem) 
 
 // AddProvider appends a provider binding to manga. Dedup by (provider_id, provider_manga_id).
 func (l *Library) AddProvider(mangaID string, ref ProviderRef) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	mangaID = sanitizeID(mangaID)
-	meta, err := l.GetManga(mangaID)
+	meta, err := l.getManga(mangaID)
 	if err != nil {
 		return fmt.Errorf("add provider: %w", err)
 	}
@@ -590,7 +692,7 @@ func (l *Library) AddProvider(mangaID string, ref ProviderRef) error {
 	}
 
 	meta.Providers = append(meta.Providers, ref)
-	if err := l.SaveManga(mangaID, meta); err != nil {
+	if err := l.saveManga(mangaID, meta); err != nil {
 		return fmt.Errorf("add provider: save manga: %w", err)
 	}
 	return nil
@@ -599,8 +701,11 @@ func (l *Library) AddProvider(mangaID string, ref ProviderRef) error {
 // RemoveProvider removes the (provider_id, provider_manga_id) entry.
 // Returns error if it would leave no Content-capable provider.
 func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID string, capabilityLookup func(providerID string) []string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	mangaID = sanitizeID(mangaID)
-	meta, err := l.GetManga(mangaID)
+	meta, err := l.getManga(mangaID)
 	if err != nil {
 		return fmt.Errorf("remove provider: %w", err)
 	}
@@ -644,7 +749,7 @@ func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID str
 	}
 
 	meta.Providers = newProviders
-	if err := l.SaveManga(mangaID, meta); err != nil {
+	if err := l.saveManga(mangaID, meta); err != nil {
 		return fmt.Errorf("remove provider: save manga: %w", err)
 	}
 	return nil
@@ -653,8 +758,11 @@ func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID str
 // SwitchContentProvider sets content provider and re-correlates chapters.
 // If provider not in providers[], add it first.
 func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMangaID string, mangaTitle string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	mangaID = sanitizeID(mangaID)
-	meta, err := l.GetManga(mangaID)
+	meta, err := l.getManga(mangaID)
 	if err != nil {
 		return fmt.Errorf("switch content provider: %w", err)
 	}
@@ -688,7 +796,7 @@ func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMang
 	meta.Content.ProviderID = providerID
 	meta.Content.ProviderMangaID = providerMangaID
 
-	if err := l.SaveManga(mangaID, meta); err != nil {
+	if err := l.saveManga(mangaID, meta); err != nil {
 		return fmt.Errorf("switch content provider: save manga: %w", err)
 	}
 	return nil
@@ -696,8 +804,11 @@ func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMang
 
 // HasContentProvider returns true if any provider in providers[] (excluding the given pair) has Content capability.
 func (l *Library) HasContentProvider(mangaID string, excludingProviderID, excludingMangaID string, capabilityLookup func(providerID string) []string) (bool, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
 	mangaID = sanitizeID(mangaID)
-	meta, err := l.GetManga(mangaID)
+	meta, err := l.getManga(mangaID)
 	if err != nil {
 		return false, fmt.Errorf("has content provider: %w", err)
 	}
@@ -715,4 +826,3 @@ func (l *Library) HasContentProvider(mangaID string, excludingProviderID, exclud
 	}
 	return false, nil
 }
-

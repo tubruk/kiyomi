@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -1157,6 +1159,45 @@ func TestLibraryHandler_SwitchContentProvider_CapabilityValidation(t *testing.T)
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request for switch to non-content, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRefreshChapters_ContextCanceled(t *testing.T) {
+	h, _ := setupTestHandler(t)
+
+	mockP := &mockMultiChapterProvider{
+		mockProvider: mockProvider{id: "cancelprov", name: "Cancel Provider"},
+	}
+	for i := 1; i <= 20; i++ {
+		mockP.chapters = append(mockP.chapters, sdk.Chapter{
+			ID:          fmt.Sprintf("cancel-ch-%d", i),
+			Name:        fmt.Sprintf("Chapter %d", i),
+			Number:      float32(i),
+			SourceOrder: i,
+		})
+	}
+	h.registry.Register(mockP)
+
+	mangaID := "cancel-manga"
+	if err := h.lib.SaveManga(mangaID, &library.MangaMeta{
+		Title: "Cancel Manga",
+		Content: &library.ContentSource{
+			ProviderID:      "cancelprov",
+			ProviderMangaID: "cancel-remote",
+		},
+	}); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	_, err := h.refreshChaptersFromContent(ctx, mangaID)
+	if err == nil {
+		t.Fatalf("expected context cancellation error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("expected context canceled error, got %v", err)
 	}
 }
 
