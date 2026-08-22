@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -331,4 +332,91 @@ func TestGetJSON_AndGetDocument(t *testing.T) {
 	// Test Clone
 	cloned := client.Clone(WithUserAgent("Cloned-Agent/1.0"))
 	assert.Equal(t, "Cloned-Agent/1.0", cloned.config.userAgent)
+}
+
+func TestWithDNSResolvers_Option(t *testing.T) {
+	urls := []string{"dns://1.1.1.1", "tls://1.1.1.1"}
+	client := NewClient(WithDNSResolvers(urls))
+	assert.Equal(t, urls, client.config.dnsResolvers)
+}
+
+func TestWithDNSResolver_Option(t *testing.T) {
+	customDial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return nil, nil
+	}
+	client := NewClient(WithDNSResolver(customDial))
+	assert.True(t, client.config.customDialContext != nil, "customDialContext should be set")
+}
+
+func TestWithGlobalHttpConfig_DNSResolvers(t *testing.T) {
+	// Test protobuf v1.GlobalHttpConfig
+	globalCfg := &v1.GlobalHttpConfig{
+		UserAgent:      "Test-Agent/1.0",
+		TimeoutSeconds: 20,
+		ProxyUrl:       "http://proxy.example:8080",
+		DnsResolvers:   []string{"dns://8.8.8.8", "https://dns.google/dns-query"},
+	}
+	v1Client := NewClient(WithGlobalHttpConfig(globalCfg))
+	assert.Equal(t, "Test-Agent/1.0", v1Client.config.userAgent)
+	assert.Equal(t, 20*time.Second, v1Client.config.timeout)
+	assert.Equal(t, "http://proxy.example:8080", v1Client.config.proxyURL)
+	assert.Equal(t, []string{"dns://8.8.8.8", "https://dns.google/dns-query"}, v1Client.config.dnsResolvers)
+
+	// Test SDK GlobalHttpConfig
+	sdkClient := NewClient(WithSDKGlobalHttpConfig(sdk.GlobalHttpConfig{
+		UserAgent:      "SDK-Agent/2.0",
+		TimeoutSeconds: 30,
+		DNSResolvers:   []string{"tls://1.1.1.1"},
+	}))
+	assert.Equal(t, "SDK-Agent/2.0", sdkClient.config.userAgent)
+	assert.Equal(t, 30*time.Second, sdkClient.config.timeout)
+	assert.Equal(t, []string{"tls://1.1.1.1"}, sdkClient.config.dnsResolvers)
+}
+
+func TestNewClient_DNSResolvers_EnvFallback(t *testing.T) {
+	// Clear any existing env; use t.Setenv to ensure isolation
+	t.Setenv("KIYOMI_DNS_RESOLVERS", "dns://1.1.1.1,tls://1.0.0.1")
+
+	client := NewClient()
+	// Env should have been auto-loaded since no explicit option was set
+	assert.Equal(t, []string{"dns://1.1.1.1:53", "tls://1.0.0.1:853"}, client.config.dnsResolvers)
+}
+
+func TestNewClient_DNSResolvers_Precedence(t *testing.T) {
+	// Precedence: Option (WithDNSResolvers) > GlobalHttpConfig > env
+	t.Setenv("KIYOMI_DNS_RESOLVERS", "dns://env-resolver")
+
+	// WithDNSResolvers wins over GlobalHttpConfig
+	clientWithOption := NewClient(
+		WithSDKGlobalHttpConfig(sdk.GlobalHttpConfig{
+			DNSResolvers: []string{"dns://wire-resolver"},
+		}),
+		WithDNSResolvers([]string{"dns://option-resolver"}),
+	)
+	assert.Equal(t, []string{"dns://option-resolver"}, clientWithOption.config.dnsResolvers,
+		"WithDNSResolvers Option should beat GlobalHttpConfig")
+
+	// GlobalHttpConfig wins over env (env not set on this client)
+	clientWithConfig := NewClient(
+		WithGlobalHttpConfig(&v1.GlobalHttpConfig{
+			DnsResolvers: []string{"dns://wire-resolver"},
+		}),
+	)
+	assert.Equal(t, []string{"dns://wire-resolver"}, clientWithConfig.config.dnsResolvers,
+		"GlobalHttpConfig should beat env")
+
+	// Env used when neither option nor config provided
+	clientEnvOnly := NewClient()
+	assert.Equal(t, []string{"dns://env-resolver:53"}, clientEnvOnly.config.dnsResolvers, "env should be used when no explicit DNS source set")
+
+	// WithDNSResolver (custom dial) wins over WithDNSResolvers list
+	customDial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return nil, nil
+	}
+	clientWithDial := NewClient(
+		WithDNSResolvers([]string{"dns://option-resolver"}),
+		WithDNSResolver(customDial),
+	)
+	assert.True(t, clientWithDial.config.customDialContext != nil,
+		"WithDNSResolver should win over WithDNSResolvers")
 }

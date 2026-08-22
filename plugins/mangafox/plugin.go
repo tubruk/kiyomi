@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sdk "github.com/tubruk/kiyomi/plugin-sdk"
+	sdkhttp "github.com/tubruk/kiyomi/plugin-sdk/http"
 	sdklogger "github.com/tubruk/kiyomi/plugin-sdk/logger"
 )
 
@@ -88,13 +89,6 @@ func (p *MangaFoxPlugin) Init(ctx context.Context, config sdk.PluginConfig) erro
 		timeout = time.Duration(config.HTTPConfig.TimeoutSeconds) * time.Second
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if config.HTTPConfig.ProxyURL != "" {
-		if proxyURL, err := url.Parse(config.HTTPConfig.ProxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(proxyURL)
-		}
-	}
-
 	jar, _ := cookiejar.New(nil)
 	u1, _ := url.Parse("https://fanfox.net")
 	u2, _ := url.Parse("https://m.fanfox.net")
@@ -107,11 +101,13 @@ func (p *MangaFoxPlugin) Init(ctx context.Context, config sdk.PluginConfig) erro
 		}
 	}
 
-	p.client = &http.Client{
-		Transport: transport,
-		Jar:       jar,
-		Timeout:   timeout,
-	}
+	httpClient := sdkhttp.NewClient(
+		sdkhttp.WithSDKGlobalHttpConfig(config.HTTPConfig),
+		sdkhttp.WithTimeout(timeout),
+	).StandardClient()
+	httpClient.Jar = jar
+
+	p.client = httpClient
 
 	if config.HTTPConfig.UserAgent != "" {
 		p.userAgent = config.HTTPConfig.UserAgent

@@ -11,11 +11,35 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/tubruk/kiyomi/pkg/dnsresolver"
 	"github.com/tubruk/kiyomi/pkg/fingerprint"
 )
+
+var (
+	globalDNSResolvers   []string
+	globalDNSResolversMu sync.RWMutex
+)
+
+// SetGlobalDNSResolvers sets the process-wide fallback DNS resolver list.
+// Call once at startup from cmd/kiyomi/main.go after config.Load().
+// The list is consumed by HttpSource.BuildTransport() when the per-provider
+// ProviderConfig.DNSResolvers is empty.
+func SetGlobalDNSResolvers(urls []string) {
+	globalDNSResolversMu.Lock()
+	defer globalDNSResolversMu.Unlock()
+	globalDNSResolvers = append([]string(nil), urls...)
+}
+
+// GetGlobalDNSResolvers returns a snapshot of the global resolver list.
+func GetGlobalDNSResolvers() []string {
+	globalDNSResolversMu.RLock()
+	defer globalDNSResolversMu.RUnlock()
+	return append([]string(nil), globalDNSResolvers...)
+}
 
 // HttpSource provides HTTP communication, header defaults, cookie management, and URL resolution for providers.
 type HttpSource struct {
@@ -208,15 +232,22 @@ func (h *HttpSource) SetTransport(tr http.RoundTripper) {
 // with fingerprint TLS profile resolution, provider DNS resolvers, and proxy URL.
 func buildOutboundTransport(cfg ProviderConfig, resolve fingerprint.ProfileResolver) *http.Transport {
 	t := fingerprint.NewTransport(resolve)
-	if len(cfg.DNSResolvers) > 0 {
-		dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-		dialer.Resolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-				return dialUpstream(ctx, cfg.DNSResolvers)
-			},
+
+	// Merge global + per-provider resolvers. Per-provider wins if non-empty.
+	merged := cfg.DNSResolvers
+	if len(merged) == 0 {
+		merged = GetGlobalDNSResolvers()
+	}
+	if len(merged) > 0 {
+
+		dialFn, err := dnsresolver.DialFuncFromURLs(merged)
+		if err != nil {
+			slog.Warn("sdk: invalid dns resolver urls, falling back to system resolver",
+				slog.String("error", err.Error()),
+			)
+		} else if dialFn != nil {
+			t.DialContext = dialFn
 		}
-		t.DialContext = dialer.DialContext
 	}
 	if cfg.ProxyURL != "" {
 		if u, err := url.Parse(cfg.ProxyURL); err == nil {

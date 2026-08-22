@@ -470,6 +470,7 @@ type GlobalHttpConfig struct {
 	ProxyUrl       string                 `protobuf:"bytes,1,opt,name=proxy_url,json=proxyUrl,proto3" json:"proxy_url,omitempty"`
 	UserAgent      string                 `protobuf:"bytes,2,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
 	TimeoutSeconds int32                  `protobuf:"varint,3,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
+	DnsResolvers   []string               `protobuf:"bytes,4,rep,name=dns_resolvers,json=dnsResolvers,proto3" json:"dns_resolvers,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -523,6 +524,13 @@ func (x *GlobalHttpConfig) GetTimeoutSeconds() int32 {
 		return x.TimeoutSeconds
 	}
 	return 0
+}
+
+func (x *GlobalHttpConfig) GetDnsResolvers() []string {
+	if x != nil {
+		return x.DnsResolvers
+	}
+	return nil
 }
 
 type InitResponse struct {
@@ -2596,12 +2604,13 @@ const file_plugin_proto_rawDesc = "" +
 	"\bsettings\x18\x01 \x03(\v21.kiyomi.plugin.v1.ProviderConfigMap.SettingsEntryR\bsettings\x1a;\n" +
 	"\rSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"w\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9c\x01\n" +
 	"\x10GlobalHttpConfig\x12\x1b\n" +
 	"\tproxy_url\x18\x01 \x01(\tR\bproxyUrl\x12\x1d\n" +
 	"\n" +
 	"user_agent\x18\x02 \x01(\tR\tuserAgent\x12'\n" +
-	"\x0ftimeout_seconds\x18\x03 \x01(\x05R\x0etimeoutSeconds\"M\n" +
+	"\x0ftimeout_seconds\x18\x03 \x01(\x05R\x0etimeoutSeconds\x12#\n" +
+	"\rdns_resolvers\x18\x04 \x03(\tR\fdnsResolvers\"M\n" +
 	"\fInitResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xae\x01\n" +

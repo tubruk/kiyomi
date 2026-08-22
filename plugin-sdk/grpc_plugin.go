@@ -93,6 +93,7 @@ func (s *GRPCPluginServer) Init(ctx context.Context, req *v1.InitRequest) (*v1.I
 			ProxyURL:       h.GetProxyUrl(),
 			UserAgent:      h.GetUserAgent(),
 			TimeoutSeconds: int(h.GetTimeoutSeconds()),
+			DNSResolvers:   h.GetDnsResolvers(),
 		}
 	}
 
@@ -153,6 +154,7 @@ func (c *GRPCPluginClient) Init(ctx context.Context, config PluginConfig) error 
 			ProxyUrl:       config.HTTPConfig.ProxyURL,
 			UserAgent:      config.HTTPConfig.UserAgent,
 			TimeoutSeconds: int32(config.HTTPConfig.TimeoutSeconds),
+			DnsResolvers:   config.HTTPConfig.DNSResolvers,
 		},
 	}
 

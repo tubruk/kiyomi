@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -12,9 +13,11 @@ import (
 	"github.com/tubruk/kiyomi/internal/config"
 	"github.com/tubruk/kiyomi/internal/library"
 	"github.com/tubruk/kiyomi/internal/plugin/host"
+	"github.com/tubruk/kiyomi/pkg/dnsresolver"
 	"github.com/tubruk/kiyomi/pkg/fingerprint"
 	"github.com/tubruk/kiyomi/pkg/provider"
 	"github.com/tubruk/kiyomi/pkg/provider/sdk"
+	plugin_sdk "github.com/tubruk/kiyomi/plugin-sdk"
 )
 
 // Handler handles API requests.
@@ -37,6 +40,17 @@ func NewHandler(cfg *config.Config, lib *library.Library) *Handler {
 	transport := fingerprint.NewTransport(func() (fingerprint.TLSProfile, bool) {
 		return fingerprint.TLSProfileDefault, false
 	})
+
+	// Apply DNS override if configured. Preserves the fingerprint chain.
+	if cfg != nil && len(cfg.DNSResolvers) > 0 {
+		if specs, _, err := dnsresolver.ParseList(strings.Join(cfg.DNSResolvers, ",")); err == nil {
+			transport.DialContext = dnsresolver.DialFunc(specs)
+		} else {
+			slog.Warn("api: invalid dns resolver urls, falling back to system resolver",
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 
 	jar, _ := cookiejar.New(nil)
 
@@ -65,6 +79,12 @@ func NewHandler(cfg *config.Config, lib *library.Library) *Handler {
 		pm = host.NewPluginManager(host.ManagerOptions{
 			PluginDir: cfg.PluginDir,
 			Registry:  reg,
+			HTTPConfig: plugin_sdk.GlobalHttpConfig{
+				ProxyURL:       "", // future: KIYOMI_PROXY
+				UserAgent:      "",
+				TimeoutSeconds: 0,
+				DNSResolvers:   cfg.DNSResolvers,
+			},
 		})
 	}
 
@@ -115,7 +135,6 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	// System Cache
 	v1.GET("/system/cache", h.getCacheStats)
 	v1.POST("/system/cache/clear", h.clearCache)
-
 
 	// Content Providers
 	v1.GET("/providers", h.listContentProviders)

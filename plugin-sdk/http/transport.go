@@ -10,6 +10,7 @@ import (
 	"time"
 
 	utls "github.com/refraction-networking/utls"
+	"github.com/tubruk/kiyomi/plugin-sdk/internal/dnsresolver"
 )
 
 // TLSProfile selects which browser's TLS Client Hello to emulate for outbound HTTPS connections.
@@ -116,6 +117,18 @@ func buildBaseTransport(cfg *clientConfig) http.RoundTripper {
 	if cfg.proxyURL != "" {
 		if u, err := url.Parse(cfg.proxyURL); err == nil {
 			t.Proxy = http.ProxyURL(u)
+		}
+	}
+
+	// Apply DNS override if a resolver list or custom dialer is configured.
+	if cfg.customDialContext != nil {
+		t.DialContext = cfg.customDialContext
+	} else if len(cfg.dnsResolvers) > 0 {
+		dialFn, err := dnsresolver.DialFuncFromURLs(cfg.dnsResolvers)
+		if err != nil || dialFn == nil {
+			// Already logged elsewhere; fall through to system resolver.
+		} else {
+			t.DialContext = dialFn
 		}
 	}
 

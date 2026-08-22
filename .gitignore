@@ -32,3 +32,5 @@ plugins-dev/
 *-plugin
 *-plugin.exe
 
+plugins/*/mangadex
+plugins/*/mangafox

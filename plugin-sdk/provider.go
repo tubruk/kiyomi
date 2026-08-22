@@ -140,9 +140,10 @@ type PluginDescriptor struct {
 
 // GlobalHttpConfig configures host HTTP settings for a plugin.
 type GlobalHttpConfig struct {
-	ProxyURL       string `json:"proxyUrl,omitempty"`
-	UserAgent      string `json:"userAgent,omitempty"`
-	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
+	ProxyURL       string   `json:"proxyUrl,omitempty"`
+	UserAgent      string   `json:"userAgent,omitempty"`
+	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
+	DNSResolvers   []string `json:"dnsResolvers,omitempty"`
 }
 
 // PluginConfig holds initialized settings passed from host to plugin during Init.

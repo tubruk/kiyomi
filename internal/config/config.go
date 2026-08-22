@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // Environment variable names used to override defaults.
@@ -36,6 +38,10 @@ const (
 	EnvCacheMaxBytes    = "KIYOMI_CACHE_MAX_BYTES"
 	EnvLogLevel         = "KIYOMI_LOG_LEVEL"
 	EnvLogFormat        = "KIYOMI_LOG_FORMAT"
+
+	// EnvDNSResolvers overrides the system DNS resolver for all outbound HTTP.
+	// Comma-separated list of URLs: dns://, tls://, https://. Empty = system resolver.
+	EnvDNSResolvers = "KIYOMI_DNS_RESOLVERS"
 )
 
 // Config holds all static, process-wide paths and runtime knobs for the
@@ -99,6 +105,9 @@ type Config struct {
 	LogLevel string
 	// LogFormat specifies output style ("pretty", "json", "text"). Defaults to "pretty".
 	LogFormat string
+	// DNSResolvers is the parsed value of KIYOMI_DNS_RESOLVERS.
+	// Empty means "use system resolver".
+	DNSResolvers []string
 }
 
 // Load builds a Config from the process environment. It never returns an
@@ -106,6 +115,7 @@ type Config struct {
 // server always starts. Failures are surfaced through the returned Config
 // (with safe defaults) AND logged so operators can see what changed.
 func Load() *Config {
+	_ = godotenv.Load()
 	cfg := &Config{Port: "8080", GlobalConcurrency: 4, ProviderConcurrency: 2}
 
 	cfg.LogLevel = strings.TrimSpace(os.Getenv(EnvLogLevel))
@@ -216,6 +226,14 @@ func Load() *Config {
 	cfg.CacheImageTTL = parseDuration(EnvCacheImageTTL, 720*time.Hour)
 	cfg.CacheSearchTTL = parseDuration(EnvCacheSearchTTL, 1*time.Hour)
 	cfg.CacheMaxBytes = parsePositiveInt64(EnvCacheMaxBytes, 2*1024*1024*1024)
+
+	if raw := strings.TrimSpace(os.Getenv(EnvDNSResolvers)); raw != "" {
+		cfg.DNSResolvers = splitNonEmpty(raw, ",")
+		slog.Info("config: dns resolvers overridden by env",
+			slog.String("env", EnvDNSResolvers),
+			slog.Int("count", len(cfg.DNSResolvers)),
+		)
+	}
 
 	return cfg
 }
@@ -367,6 +385,17 @@ func (c *Config) String() string {
 		"home=%s download_dir=%s cache_dir=%s library_dir=%s web_dist=%s port=%s global_concurrency=%d provider_concurrency=%d provider_config=%s plugin_dir=%s cache_max_bytes=%d",
 		c.Home, c.DownloadDir, c.CacheDir, c.LibraryDir, c.WebDist, c.Port, c.GlobalConcurrency, c.ProviderConcurrency, c.ProviderConfigPath, c.PluginDir, c.CacheMaxBytes,
 	)
+}
+
+func splitNonEmpty(s, sep string) []string {
+	parts := strings.Split(s, sep)
+	out := parts[:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // configSource tags how a derived value was obtained. Used internally for

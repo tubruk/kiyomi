@@ -15,6 +15,7 @@ import (
 	"github.com/tubruk/kiyomi/internal/config"
 	"github.com/tubruk/kiyomi/internal/library"
 	"github.com/tubruk/kiyomi/pkg/logger"
+	"github.com/tubruk/kiyomi/pkg/provider/sdk"
 	"github.com/tubruk/kiyomi/pkg/webui"
 )
 
@@ -29,6 +30,11 @@ var (
 func main() {
 	// Load config
 	cfg := config.Load()
+
+	// Seed process-wide DNS resolver list from config (env var or config file).
+	if len(cfg.DNSResolvers) > 0 {
+		sdk.SetGlobalDNSResolvers(cfg.DNSResolvers)
+	}
 
 	// Setup shared structured logger with pretty colored format by default
 	logger.Setup(logger.Options{

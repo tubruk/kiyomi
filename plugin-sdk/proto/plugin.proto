@@ -85,6 +85,7 @@ message GlobalHttpConfig {
   string proxy_url = 1;
   string user_agent = 2;
   int32 timeout_seconds = 3;
+  repeated string dns_resolvers = 4;
 }
 
 message InitResponse {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	utls "github.com/refraction-networking/utls"
 	sdk "github.com/tubruk/kiyomi/plugin-sdk"
+	"github.com/tubruk/kiyomi/plugin-sdk/internal/dnsresolver"
 	v1 "github.com/tubruk/kiyomi/plugin-sdk/proto/v1"
 )
 
@@ -36,6 +38,8 @@ type clientConfig struct {
 	defaultHeaders   map[string]string
 	clientHints      *ClientHints
 	customTransport  http.RoundTripper
+	dnsResolvers     []string
+	customDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // Option configures a Client during creation.
@@ -192,6 +196,22 @@ func WithTransport(rt http.RoundTripper) Option {
 	}
 }
 
+// WithDNSResolvers sets the URL list used by the SDK's default DNS loader.
+// Highest priority among auto-loaded sources. Empty disables the SDK default
+// and falls through to GlobalHttpConfig or env.
+func WithDNSResolvers(urls []string) Option {
+	return func(c *clientConfig) {
+		c.dnsResolvers = urls
+	}
+}
+
+// WithDNSResolver sets a custom DialContext. Wins over WithDNSResolvers.
+func WithDNSResolver(fn func(ctx context.Context, network, addr string) (net.Conn, error)) Option {
+	return func(c *clientConfig) {
+		c.customDialContext = fn
+	}
+}
+
 // WithGlobalHttpConfig auto-wires proxy, User-Agent, and timeout from protobuf GlobalHttpConfig.
 func WithGlobalHttpConfig(cfg *v1.GlobalHttpConfig) Option {
 	return func(c *clientConfig) {
@@ -207,6 +227,9 @@ func WithGlobalHttpConfig(cfg *v1.GlobalHttpConfig) Option {
 		if cfg.TimeoutSeconds > 0 {
 			c.timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
 		}
+		if len(cfg.DnsResolvers) > 0 {
+			c.dnsResolvers = cfg.DnsResolvers
+		}
 	}
 }
 
@@ -221,6 +244,9 @@ func WithSDKGlobalHttpConfig(cfg sdk.GlobalHttpConfig) Option {
 		}
 		if cfg.TimeoutSeconds > 0 {
 			c.timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
+		}
+		if len(cfg.DNSResolvers) > 0 {
+			c.dnsResolvers = cfg.DNSResolvers
 		}
 	}
 }
@@ -246,6 +272,13 @@ func NewClient(opts ...Option) *Client {
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
+		}
+	}
+
+	// Auto-load from env if no DNS source was set explicitly.
+	if len(cfg.dnsResolvers) == 0 && cfg.customDialContext == nil {
+		if envList := dnsresolver.LoadFromEnv("KIYOMI_DNS_RESOLVERS"); len(envList) > 0 {
+			cfg.dnsResolvers = envList
 		}
 	}
 

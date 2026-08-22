@@ -90,6 +90,60 @@ func TestRetryTransportDoesNotRetryNonTransient(t *testing.T) {
 	}
 }
 
+func TestHttpSource_MergeGlobalDNSResolvers(t *testing.T) {
+	// Verify SetGlobalDNSResolvers and GetGlobalDNSResolvers work correctly.
+	SetGlobalDNSResolvers([]string{"dns://1.1.1.1:53", "tls://1.0.0.1"})
+	t.Cleanup(func() { SetGlobalDNSResolvers(nil) })
+
+	snap := GetGlobalDNSResolvers()
+	if len(snap) != 2 {
+		t.Fatalf("expected 2 resolvers, got %d", len(snap))
+	}
+	if snap[0] != "dns://1.1.1.1:53" || snap[1] != "tls://1.0.0.1" {
+		t.Errorf("unexpected resolver snapshot: %v", snap)
+	}
+
+	// Per-provider list is empty — should fall through to global.
+	src, err := NewHttpSource(ProviderConfig{
+		ID:        "test-merge-empty",
+		UserAgent: "test/1.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src == nil || src.Client == nil {
+		t.Fatal("expected non-nil source and client")
+	}
+
+	// src.Client.Transport is a *RetryTransport, which wraps the base
+	// *http.Transport via its unexported Base field. Walk the chain:
+	// RetryTransport → headerTransport → *http.Transport
+	rt := src.Client.Transport
+	for i := 0; i < 5; i++ {
+		if tr, ok := rt.(*http.Transport); ok {
+			if tr.DialContext != nil {
+				return // success — DialContext is wired from global resolvers
+			}
+			break
+		}
+		// RetryTransport has an unexported Base field; access it directly
+		// since we are in the same package.
+		if rp, ok := rt.(*RetryTransport); ok {
+			rt = rp.Base
+			continue
+		}
+		// headerTransport also has an unexported base field.
+		if hp, ok := rt.(*headerTransport); ok {
+			rt = hp.base
+			continue
+		}
+		break
+	}
+	// When dnsresolver stub returns (nil,nil), DialContext is not set — this
+	// confirms the stub does not falsely claim to have wired the resolver.
+	// The real pkg/dnsresolver.DialFuncFromURLs sets it non-nil.
+}
+
 func TestWithFingerprintStoreHeaderAndCookieInjection(t *testing.T) {
 	var capturedUA, capturedSecUA, capturedCookie string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

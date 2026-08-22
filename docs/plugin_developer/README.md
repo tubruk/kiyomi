@@ -154,4 +154,5 @@ To install the plugin:
 
 * [Design Spec: Plugin Architecture](../design/provider_plugin_architecture.md)
 * [Design Spec: Providers & SDK Contract](../design/providers.md)
+* [DNS Overrides](./dns-overrides.md) — opt-in/opt-out DNS resolver override via env var or wire config
 * [First-Party Examples](../../plugins)
