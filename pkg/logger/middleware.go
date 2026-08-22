@@ -11,9 +11,12 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+const errorLoggedContextKey = "_error_logged"
+
 // EchoErrorLogger returns an Echo middleware that intercepts HTTP responses and logs
 // failed requests (status >= 400 or err != nil) via slog.Error or slog.Warn.
 // Requests with status < 400 and err == nil are not logged.
+// If an error was already logged for this request, it avoids duplicate logging.
 func EchoErrorLogger() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -31,7 +34,8 @@ func EchoErrorLogger() echo.MiddlewareFunc {
 				}
 			}
 
-			if status >= 400 || err != nil {
+			if (status >= 400 || err != nil) && c.Get(errorLoggedContextKey) != true {
+				c.Set(errorLoggedContextKey, true)
 				req := c.Request()
 				uri := req.RequestURI
 				if uri == "" && req.URL != nil {
@@ -88,6 +92,7 @@ func EchoPanicRecovery() echo.MiddlewareFunc {
 						slog.String("stack", string(stack)),
 					)
 
+					c.Set(errorLoggedContextKey, true)
 					c.Error(echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error"))
 				}
 			}()
@@ -97,7 +102,7 @@ func EchoPanicRecovery() echo.MiddlewareFunc {
 }
 
 // EchoHTTPErrorHandler is a custom HTTP error handler for Echo that logs server-side (5xx)
-// errors using structured slog.Error logging.
+// errors using structured slog.Error logging if not already logged.
 func EchoHTTPErrorHandler(err error, c echo.Context) {
 	if c.Response().Committed {
 		return
@@ -109,7 +114,8 @@ func EchoHTTPErrorHandler(err error, c echo.Context) {
 		code = he.Code
 	}
 
-	if code >= 500 {
+	if code >= 500 && c.Get(errorLoggedContextKey) != true {
+		c.Set(errorLoggedContextKey, true)
 		slog.Error("HTTP server error",
 			slog.String("method", c.Request().Method),
 			slog.String("uri", c.Request().RequestURI),

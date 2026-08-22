@@ -443,22 +443,12 @@ func (h *Handler) patchChapterProgress(c echo.Context) error {
 		LastReadPage *int  `json:"last_read_page"`
 	}
 	if err := c.Bind(&req); err != nil {
-		slog.Error("failed to bind chapter progress request",
-			slog.String("error", err.Error()),
-			slog.String("manga_id", mangaID),
-			slog.String("chapter_id", chapterID),
-		)
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
 	existing, err := h.lib.GetChapter(mangaID, chapterID)
 	if err != nil {
-		slog.Error("chapter not found for progress update",
-			slog.String("error", err.Error()),
-			slog.String("manga_id", mangaID),
-			slog.String("chapter_id", chapterID),
-		)
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
 	}
@@ -475,11 +465,6 @@ func (h *Handler) patchChapterProgress(c echo.Context) error {
 
 	info, err := h.lib.UpdateChapterProgress(mangaID, chapterID, isRead, lastReadPage)
 	if err != nil {
-		slog.Error("failed to update chapter progress",
-			slog.String("error", err.Error()),
-			slog.String("manga_id", mangaID),
-			slog.String("chapter_id", chapterID),
-		)
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
@@ -590,11 +575,6 @@ func (h *Handler) refreshChapterPages(c echo.Context) error {
 	}
 
 	if err := h.lib.SaveChapterPages(mangaID, chapterID, pageItems); err != nil {
-		slog.Error("failed to save refreshed chapter pages",
-			slog.String("error", err.Error()),
-			slog.String("manga_id", mangaID),
-			slog.String("chapter_id", chapterID),
-		)
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
@@ -709,7 +689,7 @@ func (h *Handler) addProvider(c echo.Context) error {
 	added := 0
 	if body.SetAsContent {
 		if err := h.lib.DeleteAllChapters(mangaID); err != nil {
-			slog.Warn("delete all chapters before refresh", "manga_id", mangaID, "error", err)
+			slog.Warn("delete all chapters before refresh", slog.String("manga_id", mangaID), slog.String("error", err.Error()))
 		}
 		var refreshErr error
 		added, refreshErr = h.refreshChaptersFromContent(c.Request().Context(), mangaID)
@@ -792,7 +772,7 @@ func (h *Handler) switchContentProvider(c echo.Context) error {
 	added := 0
 	var refreshErr error
 	if err := h.lib.DeleteAllChapters(mangaID); err != nil {
-		slog.Warn("delete all chapters before refresh", "manga_id", mangaID, "error", err)
+		slog.Warn("delete all chapters before refresh", slog.String("manga_id", mangaID), slog.String("error", err.Error()))
 	}
 	added, refreshErr = h.refreshChaptersFromContent(c.Request().Context(), mangaID)
 	if refreshErr != nil {

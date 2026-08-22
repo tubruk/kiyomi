@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -111,11 +110,7 @@ func (h *Handler) reloadPlugins(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	if err := h.pluginManager.ReloadAll(ctx); err != nil {
-		slog.Error("failed to reload plugins",
-			slog.String("route", "/api/v1/plugins/reload"),
-			slog.Int("status", http.StatusInternalServerError),
-			slog.String("error", err.Error()),
-		)
+		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error":   "failed to reload plugins",
 			"details": err.Error(),
@@ -193,12 +188,7 @@ func (h *Handler) updatePluginConfig(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	if err := h.pluginManager.UpdatePluginConfig(ctx, pluginID, req.GlobalConfig, req.ProviderConfigs); err != nil {
-		slog.Error("failed to update plugin config",
-			slog.String("route", "/api/v1/plugins/"+pluginID+"/config"),
-			slog.String("plugin_id", pluginID),
-			slog.Int("status", http.StatusInternalServerError),
-			slog.String("error", err.Error()),
-		)
+		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error":   "failed to update plugin config",
 			"details": err.Error(),

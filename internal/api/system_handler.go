@@ -1,7 +1,6 @@
 package api
 
 import (
-	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -30,7 +29,6 @@ func (h *Handler) getCacheStats(c echo.Context) error {
 	sizeBytes, itemCount, err := h.imageCache.Stats()
 	if err != nil {
 		c.Set("handler_error", err.Error())
-		slog.Error("api: failed to retrieve cache stats", slog.String("error", err.Error()))
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to retrieve cache stats"})
 	}
 
@@ -50,7 +48,6 @@ func (h *Handler) clearCache(c echo.Context) error {
 
 	if err := h.imageCache.Clear(); err != nil {
 		c.Set("handler_error", err.Error())
-		slog.Error("api: failed to clear cache", slog.String("error", err.Error()))
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to clear cache"})
 	}
 

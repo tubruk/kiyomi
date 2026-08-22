@@ -230,19 +230,26 @@ func (e *ProviderError) Log() {
 	}
 }
 
-// LogProviderError classifies and logs any error returned from a provider operation.
-func LogProviderError(providerID string, err error) *ProviderError {
+// ClassifyError classifies any error returned from a provider operation without logging.
+func ClassifyError(providerID string, err error) *ProviderError {
 	if err == nil {
 		return nil
 	}
 	var pe *ProviderError
 	if errors.As(err, &pe) {
-		pe.Log()
 		return pe
 	}
 
 	kind, retryAfter := DefaultClassifier(err)
-	pe = NewProviderError(kind, providerID, err.Error(), err).WithRetryAfter(retryAfter)
+	return NewProviderError(kind, providerID, err.Error(), err).WithRetryAfter(retryAfter)
+}
+
+// LogProviderError classifies and logs any error returned from a provider operation.
+func LogProviderError(providerID string, err error) *ProviderError {
+	if err == nil {
+		return nil
+	}
+	pe := ClassifyError(providerID, err)
 	pe.Log()
 	return pe
 }

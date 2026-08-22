@@ -447,7 +447,7 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 }
 
 func handleProviderError(c echo.Context, providerID string, err error) error {
-	pe := sdk.LogProviderError(providerID, err)
+	pe := sdk.ClassifyError(providerID, err)
 	status := pe.HTTPStatus()
 	uri := c.Request().RequestURI
 	if uri == "" && c.Request().URL != nil {

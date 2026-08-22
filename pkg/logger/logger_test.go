@@ -291,3 +291,85 @@ func TestEchoErrorLogger_HandlerErrorContext(t *testing.T) {
 	}
 }
 
+func TestEchoNoDoubleLoggingOn5xx(t *testing.T) {
+	buf := &bytes.Buffer{}
+	logger.Setup(logger.Options{
+		Level:   "debug",
+		Format:  "pretty",
+		NoColor: true,
+		Writer:  buf,
+	})
+
+	e := echo.New()
+	e.Use(logger.EchoPanicRecovery())
+	e.Use(logger.EchoErrorLogger())
+	e.HTTPErrorHandler = logger.EchoHTTPErrorHandler
+
+	e.GET("/server-error", func(c echo.Context) error {
+		return echo.NewHTTPError(http.StatusInternalServerError, "database crashed")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/server-error", nil)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rec.Code)
+	}
+
+	out := buf.String()
+	// Count occurrences of [ERROR]
+	errCount := strings.Count(out, "[ERROR]")
+	if errCount != 1 {
+		t.Errorf("expected exactly 1 [ERROR] log entry, got %d. Output:\n%s", errCount, out)
+	}
+	if !strings.Contains(out, "HTTP request error") {
+		t.Errorf("expected 'HTTP request error' in log, got: %s", out)
+	}
+	if strings.Contains(out, "HTTP server error") {
+		t.Errorf("did not expect duplicate 'HTTP server error' in log, got: %s", out)
+	}
+}
+
+func TestEchoNoDoubleLoggingOnPanic(t *testing.T) {
+	buf := &bytes.Buffer{}
+	logger.Setup(logger.Options{
+		Level:   "debug",
+		Format:  "pretty",
+		NoColor: true,
+		Writer:  buf,
+	})
+
+	e := echo.New()
+	e.Use(logger.EchoPanicRecovery())
+	e.Use(logger.EchoErrorLogger())
+	e.HTTPErrorHandler = logger.EchoHTTPErrorHandler
+
+	e.GET("/panic", func(c echo.Context) error {
+		panic("nil pointer dereference")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rec.Code)
+	}
+
+	out := buf.String()
+	// Count occurrences of [ERROR]
+	errCount := strings.Count(out, "[ERROR]")
+	if errCount != 1 {
+		t.Errorf("expected exactly 1 [ERROR] log entry for panic, got %d. Output:\n%s", errCount, out)
+	}
+	if !strings.Contains(out, "HTTP handler panic recovered") {
+		t.Errorf("expected 'HTTP handler panic recovered' in log, got: %s", out)
+	}
+	if strings.Contains(out, "HTTP server error") {
+		t.Errorf("did not expect duplicate 'HTTP server error' in log, got: %s", out)
+	}
+}
+
