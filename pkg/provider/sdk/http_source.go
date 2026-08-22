@@ -251,7 +251,7 @@ func buildOutboundTransport(cfg ProviderConfig, resolve fingerprint.ProfileResol
 	}
 	if cfg.ProxyURL != "" {
 		if u, err := url.Parse(cfg.ProxyURL); err == nil {
-			t.Proxy = http.ProxyURL(u)
+			fingerprint.SetProxy(t, u)
 		}
 	}
 	return t

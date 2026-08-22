@@ -1,11 +1,20 @@
 package fingerprint
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -256,5 +265,340 @@ func TestNewTransportReturnsUsableTransport(t *testing.T) {
 	if err == nil {
 		_ = resp.Body.Close()
 		t.Error("expected error from a fake server, got nil")
+	}
+}
+
+// newTestHTTPProxy starts a local HTTP CONNECT proxy server for testing.
+func newTestHTTPProxy(t *testing.T, expectedBasicAuth string) (string, *atomic.Int32, func()) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start test proxy listener: %v", err)
+	}
+	connectCount := &atomic.Int32{}
+	closed := make(chan struct{})
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				select {
+				case <-closed:
+					return
+				default:
+					return
+				}
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				br := bufio.NewReader(c)
+				req, err := http.ReadRequest(br)
+				if err != nil {
+					return
+				}
+				if req.Method == http.MethodConnect {
+					if expectedBasicAuth != "" && req.Header.Get("Proxy-Authorization") != expectedBasicAuth {
+						resp := "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 0\r\n\r\n"
+						_, _ = c.Write([]byte(resp))
+						return
+					}
+					connectCount.Add(1)
+					targetConn, err := net.DialTimeout("tcp", req.Host, 5*time.Second)
+					if err != nil {
+						resp := "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"
+						_, _ = c.Write([]byte(resp))
+						return
+					}
+					defer targetConn.Close()
+					_, _ = c.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+
+					var wg sync.WaitGroup
+					wg.Add(2)
+					go func() {
+						defer wg.Done()
+						_, _ = io.Copy(targetConn, br)
+					}()
+					go func() {
+						defer wg.Done()
+						_, _ = io.Copy(c, targetConn)
+					}()
+					wg.Wait()
+				} else {
+					resp := "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nproxy"
+					_, _ = c.Write([]byte(resp))
+				}
+			}(conn)
+		}
+	}()
+
+	cleanup := func() {
+		close(closed)
+		_ = ln.Close()
+	}
+	return ln.Addr().String(), connectCount, cleanup
+}
+
+func TestHTTPSOverProxyWithUTLSChrome(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello over chrome utls proxy"))
+	}))
+	defer ts.Close()
+
+	proxyAddr, connectCount, cleanupProxy := newTestHTTPProxy(t, "")
+	defer cleanupProxy()
+
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	tr := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileChrome, true
+	})
+	SetProxy(tr, proxyURL)
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("request failed over proxy: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "hello over chrome utls proxy" {
+		t.Errorf("unexpected body: %q", string(body))
+	}
+	if connectCount.Load() != 1 {
+		t.Errorf("expected 1 CONNECT request, got %d", connectCount.Load())
+	}
+}
+
+func TestHTTPSOverProxyWithUTLSFirefox(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello over firefox utls proxy"))
+	}))
+	defer ts.Close()
+
+	proxyAddr, connectCount, cleanupProxy := newTestHTTPProxy(t, "")
+	defer cleanupProxy()
+
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	tr := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileFirefox, true
+	})
+	SetProxy(tr, proxyURL)
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("request failed over proxy: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "hello over firefox utls proxy" {
+		t.Errorf("unexpected body: %q", string(body))
+	}
+	if connectCount.Load() != 1 {
+		t.Errorf("expected 1 CONNECT request, got %d", connectCount.Load())
+	}
+}
+
+func TestHTTPSOverProxyWithDefaultProfile(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello over native tls proxy"))
+	}))
+	defer ts.Close()
+
+	proxyAddr, connectCount, cleanupProxy := newTestHTTPProxy(t, "")
+	defer cleanupProxy()
+
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	tr := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileDefault, true
+	})
+	SetProxy(tr, proxyURL)
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("request failed over proxy: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "hello over native tls proxy" {
+		t.Errorf("unexpected body: %q", string(body))
+	}
+	if connectCount.Load() != 1 {
+		t.Errorf("expected 1 CONNECT request, got %d", connectCount.Load())
+	}
+}
+
+func TestHTTPSOverProxyWithAuthentication(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("authenticated proxy ok"))
+	}))
+	defer ts.Close()
+
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("user:secret123"))
+	proxyAddr, connectCount, cleanupProxy := newTestHTTPProxy(t, expectedAuth)
+	defer cleanupProxy()
+
+	// 1. Request with correct credentials
+	proxyURL, _ := url.Parse("http://user:secret123@" + proxyAddr)
+	tr := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileChrome, true
+	})
+	SetProxy(tr, proxyURL)
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "authenticated proxy ok" {
+		t.Errorf("unexpected body: %q", string(body))
+	}
+	if connectCount.Load() != 1 {
+		t.Errorf("expected 1 CONNECT request, got %d", connectCount.Load())
+	}
+
+	// 2. Request with invalid credentials should fail
+	badProxyURL, _ := url.Parse("http://user:wrong@" + proxyAddr)
+	trBad := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileChrome, true
+	})
+	SetProxy(trBad, badProxyURL)
+	trBad.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	clientBad := &http.Client{Transport: trBad, Timeout: 5 * time.Second}
+	_, badErr := clientBad.Get(ts.URL)
+	if badErr == nil {
+		t.Fatal("expected error due to 407 Proxy Authentication Required, got nil")
+	}
+	if !strings.Contains(badErr.Error(), "407") {
+		t.Errorf("expected error to mention 407, got: %v", badErr)
+	}
+}
+
+func TestHTTPSOverProxyConnectFailure(t *testing.T) {
+	proxyAddr, _, cleanupProxy := newTestHTTPProxy(t, "")
+	cleanupProxy() // immediately close proxy listener to cause connection failure
+
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	tr := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileChrome, true
+	})
+	SetProxy(tr, proxyURL)
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	client := &http.Client{Transport: tr, Timeout: 2 * time.Second}
+	_, err := client.Get("https://example.com:443")
+	if err == nil {
+		t.Fatal("expected error when proxy is unreachable, got nil")
+	}
+}
+
+func TestTransportRespectsTLSClientConfigInsecureSkipVerify(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	// With InsecureSkipVerify = false, self-signed test server should fail verification
+	trSecure := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileChrome, true
+	})
+	trSecure.TLSClientConfig = &tls.Config{InsecureSkipVerify: false}
+	clientSecure := &http.Client{Transport: trSecure, Timeout: 5 * time.Second}
+	_, err := clientSecure.Get(ts.URL)
+	if err == nil {
+		t.Error("expected cert verification error for self-signed cert, got nil")
+	}
+
+	// With InsecureSkipVerify = true, it should succeed
+	trInsecure := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileChrome, true
+	})
+	trInsecure.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	clientInsecure := &http.Client{Transport: trInsecure, Timeout: 5 * time.Second}
+	resp, err := clientInsecure.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("expected success with InsecureSkipVerify: true, got %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestTransportRespectsTLSClientConfigCustomRootCAs(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("custom root ca ok"))
+	}))
+	defer ts.Close()
+
+	certPool := x509.NewCertPool()
+	certPool.AddCert(ts.Certificate())
+
+	tr := NewTransport(func() (TLSProfile, bool) {
+		return TLSProfileChrome, true
+	})
+	tr.TLSClientConfig = &tls.Config{
+		RootCAs:            certPool,
+		InsecureSkipVerify: false,
+	}
+
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("expected success with custom RootCAs, got: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "custom root ca ok" {
+		t.Errorf("unexpected body: %q", string(body))
+	}
+}
+
+func TestSetProxyFuncAndProxyURL(t *testing.T) {
+	u, _ := url.Parse("http://127.0.0.1:8888")
+	tr := NewTransport(nil)
+
+	SetProxy(tr, u)
+	if tr.Proxy == nil {
+		t.Fatal("expected tr.Proxy to be set")
+	}
+
+	// HTTPS request should yield nil proxy to route through DialTLSContext
+	httpsReq, _ := http.NewRequest(http.MethodGet, "https://example.com/test", nil)
+	gotURL, err := tr.Proxy(httpsReq)
+	if err != nil || gotURL != nil {
+		t.Errorf("expected (nil, nil) for HTTPS request, got (%v, %v)", gotURL, err)
+	}
+
+	// HTTP request should yield the configured proxy URL
+	httpReq, _ := http.NewRequest(http.MethodGet, "http://example.com/test", nil)
+	gotHTTPURL, err := tr.Proxy(httpReq)
+	if err != nil || gotHTTPURL == nil || gotHTTPURL.String() != "http://127.0.0.1:8888" {
+		t.Errorf("expected proxy URL for HTTP request, got (%v, %v)", gotHTTPURL, err)
+	}
+
+	// Clearing proxy with nil
+	SetProxy(tr, nil)
+	gotCleared, err := tr.Proxy(httpReq)
+	if err != nil || gotCleared != nil {
+		t.Errorf("expected (nil, nil) after clearing proxy, got (%v, %v)", gotCleared, err)
 	}
 }
