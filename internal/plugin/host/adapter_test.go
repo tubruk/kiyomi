@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -318,4 +319,38 @@ func TestGRPCProviderAdapter_TrackingMethods(t *testing.T) {
 	assert.Equal(t, 10, prog.Score)
 
 	assert.True(t, adapter.IsAuthenticated())
+}
+
+func TestGRPCProviderAdapter_StreamReaderConcurrentClose(t *testing.T) {
+	conn, cleanup := setupBufconnClients(t)
+	defer cleanup()
+
+	metaClient := v1.NewMetadataProviderServiceClient(conn)
+	contentClient := v1.NewContentProviderServiceClient(conn)
+	trackClient := v1.NewTrackerServiceClient(conn)
+
+	desc := sdk.ProviderDescriptor{
+		ID:           "test-prov",
+		Name:         "Test Provider",
+		Capabilities: []string{"content"},
+	}
+
+	var activeCalls int64
+	adapter := host.NewGRPCProviderAdapter(desc, "test-plugin", "1.0.0", metaClient, contentClient, trackClient, &activeCalls)
+	ctx := context.Background()
+
+	rc, err := adapter.FetchPageStream(ctx, provsdk.Page{URL: "https://example.com/p1.jpg"})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = rc.Close()
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int64(0), activeCalls)
 }

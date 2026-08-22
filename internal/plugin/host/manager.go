@@ -185,7 +185,7 @@ func (m *PluginManager) startInstance(ctx context.Context, binaryPath string) (*
 	}
 
 	// Update interceptor plugin ID to the declared plugin ID
-	interceptor.pluginID = desc.PluginID
+	interceptor.SetPluginID(desc.PluginID)
 
 	// Check SDK version compatibility
 	if err := CheckSDKCompatibility(m.opts.HostSDKVersion, desc.SDKVersion); err != nil {
@@ -227,13 +227,6 @@ func (m *PluginManager) startInstance(ctx context.Context, binaryPath string) (*
 		}
 	}
 
-	var activeCalls int64
-	adapters := make(map[string]*GRPCProviderAdapter, len(desc.Providers))
-	for _, pDesc := range desc.Providers {
-		adapter := NewGRPCProviderAdapter(pDesc, desc.PluginID, desc.PluginVersion, metaClient, contentClient, trackClient, &activeCalls)
-		adapters[pDesc.ID] = adapter
-	}
-
 	pid := 0
 	if client.ReattachConfig() != nil {
 		pid = client.ReattachConfig().Pid
@@ -252,9 +245,15 @@ func (m *PluginManager) startInstance(ctx context.Context, binaryPath string) (*
 		RPCClient:      rpcClient,
 		PluginService:  plug,
 		Descriptor:     desc,
-		Adapters:       adapters,
 		LogBuffer:      buffer,
 	}
+
+	adapters := make(map[string]*GRPCProviderAdapter, len(desc.Providers))
+	for _, pDesc := range desc.Providers {
+		adapter := NewGRPCProviderAdapter(pDesc, desc.PluginID, desc.PluginVersion, metaClient, contentClient, trackClient, &inst.ActiveCalls)
+		adapters[pDesc.ID] = adapter
+	}
+	inst.Adapters = adapters
 
 	return inst, nil
 }
@@ -273,6 +272,9 @@ func (m *PluginManager) Stop(ctx context.Context, pluginID string) error {
 		m.opts.Registry.UnregisterPlugin(pluginID)
 	}
 
+	if !inst.Drain(5 * time.Second) {
+		slog.Warn("plugin instance did not drain in-flight calls before timeout", slog.String("plugin_id", pluginID))
+	}
 	_ = inst.Close()
 	delete(m.instances, pluginID)
 
@@ -508,6 +510,9 @@ func (m *PluginManager) Close() error {
 			m.opts.Registry.UnregisterPlugin(id)
 		}
 		if inst != nil {
+			if !inst.Drain(5 * time.Second) {
+				slog.Warn("plugin instance did not drain in-flight calls before timeout", slog.String("plugin_id", id))
+			}
 			_ = inst.Close()
 		}
 	}

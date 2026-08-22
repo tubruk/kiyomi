@@ -60,9 +60,13 @@ func (r *RingBuffer) Entries() []PluginLogEntry {
 
 // Lines returns formatted string representations of all log entries in chronological order.
 func (r *RingBuffer) Lines() []string {
-	entries := r.Entries()
-	lines := make([]string, len(entries))
-	for i, e := range entries {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	lines := make([]string, r.size)
+	for i := 0; i < r.size; i++ {
+		idx := (r.start + i) % r.capacity
+		e := r.entries[idx]
 		if e.Raw != "" {
 			lines[i] = e.Raw
 		} else {
@@ -83,6 +87,7 @@ func (r *RingBuffer) Len() int {
 func (r *RingBuffer) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	clear(r.entries)
 	r.start = 0
 	r.size = 0
 }

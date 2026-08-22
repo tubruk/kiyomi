@@ -33,6 +33,13 @@ func NewLogInterceptor(pluginID string, buffer *RingBuffer, logger *slog.Logger)
 	}
 }
 
+// SetPluginID updates the plugin ID associated with the interceptor in a thread-safe manner.
+func (i *LogInterceptor) SetPluginID(id string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.pluginID = id
+}
+
 // Write processes incoming byte stream from subprocess stdio, splitting into lines.
 func (i *LogInterceptor) Write(p []byte) (n int, err error) {
 	i.mu.Lock()

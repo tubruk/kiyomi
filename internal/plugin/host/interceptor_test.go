@@ -86,3 +86,17 @@ func TestLogInterceptor_TimestampParsing(t *testing.T) {
 	assert.Equal(t, time.August, entries[0].Timestamp.Month())
 	assert.Equal(t, float64(42), entries[0].Fields["count"])
 }
+
+func TestLogInterceptor_SetPluginID(t *testing.T) {
+	buf := host.NewRingBuffer(10)
+	var hostLogOut bytes.Buffer
+	hostLogger := slog.New(slog.NewJSONHandler(&hostLogOut, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	interceptor := host.NewLogInterceptor("temp-plugin", buf, hostLogger)
+	interceptor.SetPluginID("updated-plugin")
+
+	_, err := interceptor.Write([]byte("hello world\n"))
+	require.NoError(t, err)
+
+	assert.Contains(t, hostLogOut.String(), `"plugin_id":"updated-plugin"`)
+}

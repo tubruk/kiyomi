@@ -89,3 +89,28 @@ func TestRingBuffer_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 	assert.Equal(t, 50, buf.Len())
 }
+
+func TestRingBuffer_LinesFormatting(t *testing.T) {
+	buf := host.NewRingBuffer(3)
+	ts := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	buf.Push(host.PluginLogEntry{
+		Raw:       `{"time":"2026-08-22T12:00:00Z","level":"INFO","msg":"raw line"}`,
+		Message:   "raw line",
+		Level:     "INFO",
+		Timestamp: ts,
+	})
+	buf.Push(host.PluginLogEntry{
+		Message:   "formatted line",
+		Level:     "WARN",
+		Timestamp: ts,
+	})
+
+	lines := buf.Lines()
+	require.Len(t, lines, 2)
+	assert.Equal(t, `{"time":"2026-08-22T12:00:00Z","level":"INFO","msg":"raw line"}`, lines[0])
+	assert.Contains(t, lines[1], "[WARN] formatted line")
+
+	buf.Clear()
+	assert.Equal(t, 0, buf.Len())
+	assert.Empty(t, buf.Lines())
+}

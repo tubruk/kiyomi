@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -474,7 +475,7 @@ type adapterStreamReader struct {
 	cancel context.CancelFunc
 	done   func()
 	buf    []byte
-	closed bool
+	once   sync.Once
 }
 
 func (r *adapterStreamReader) Read(p []byte) (n int, err error) {
@@ -498,14 +499,13 @@ func (r *adapterStreamReader) Read(p []byte) (n int, err error) {
 }
 
 func (r *adapterStreamReader) Close() error {
-	if !r.closed {
-		r.closed = true
+	r.once.Do(func() {
 		if r.cancel != nil {
 			r.cancel()
 		}
 		if r.done != nil {
 			r.done()
 		}
-	}
+	})
 	return nil
 }
