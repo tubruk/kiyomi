@@ -51,4 +51,26 @@ func TestConfigLoadAndValidate(t *testing.T) {
 			t.Fatal("expected validation error for CacheMaxBytes=-100, got nil")
 		}
 	})
+
+	t.Run("queue env override", func(t *testing.T) {
+		os.Setenv(EnvQueueDriver, "machinery")
+		os.Setenv(EnvQueueDBPath, "/tmp/test_jobs.db")
+		os.Setenv(EnvQueueConcurrency, "10")
+		defer func() {
+			os.Unsetenv(EnvQueueDriver)
+			os.Unsetenv(EnvQueueDBPath)
+			os.Unsetenv(EnvQueueConcurrency)
+		}()
+
+		cfg := Load()
+		if cfg.QueueDriver != "machinery" {
+			t.Fatalf("expected QueueDriver=machinery, got %s", cfg.QueueDriver)
+		}
+		if cfg.QueueDBPath != "/tmp/test_jobs.db" {
+			t.Fatalf("expected QueueDBPath=/tmp/test_jobs.db, got %s", cfg.QueueDBPath)
+		}
+		if cfg.QueueConcurrency != 10 {
+			t.Fatalf("expected QueueConcurrency=10, got %d", cfg.QueueConcurrency)
+		}
+	})
 }

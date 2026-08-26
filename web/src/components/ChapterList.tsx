@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
-import { ArrowDown, ArrowUp, BookOpen, Search, MoreVertical, RefreshCw, Trash2, AlertCircle, Check } from 'lucide-react';
+import { ArrowDown, ArrowUp, BookOpen, Search, MoreVertical, RefreshCw, Trash2, AlertCircle, Check, Download } from 'lucide-react';
 import { Chapter } from '../types/api';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -38,7 +38,13 @@ interface ChapterListProps {
   remoteId?: string;
   onRefreshChapters?: () => void;
   isRefreshing?: boolean;
-  onRemoveChapter?: (chapterId: string) => void;
+  onPullAllChapters?: () => void;
+  isPullingAllChapters?: boolean;
+  onRemoveChapter?: (chapterId: string, providerId?: string) => void;
+  onDeleteFiles?: (chapterId: string, providerId: string) => void;
+  onPullChapter?: (chapterId: string, providerId: string) => void;
+  isDeletingFiles?: boolean;
+  isPullingChapter?: boolean;
 }
 
 export const ChapterList: React.FC<ChapterListProps> = ({
@@ -59,7 +65,13 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   remoteId,
   onRefreshChapters,
   isRefreshing = false,
+  onPullAllChapters,
+  isPullingAllChapters = false,
   onRemoveChapter,
+  onDeleteFiles,
+  onPullChapter,
+  isDeletingFiles = false,
+  isPullingChapter = false,
 }) => {
   const [filterQuery, setFilterQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -167,14 +179,28 @@ export const ChapterList: React.FC<ChapterListProps> = ({
               {isRefreshing ? 'Refreshing…' : 'Refresh'}
             </Button>
           )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
+          {onPullAllChapters && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onPullAllChapters}
+              disabled={isPullingAllChapters}
+              className="h-9 px-3 text-xs bg-card border-border gap-1.5 cursor-pointer"
+              title="Enqueue background jobs to pull all chapters and pages to local library"
+              aria-label="Pull all chapters to library"
+            >
+              <Download className={cn("size-3.5", isPullingAllChapters && "animate-pulse")} aria-hidden />
+              {isPullingAllChapters ? 'Pulling all chapters…' : 'Pull all chapters to library'}
+            </Button>
+          )}
           {resolvedProviderName && (
             <span className="text-xs text-muted-foreground">
               Provided by <span className="font-medium text-foreground">{resolvedProviderName}</span>
             </span>
           )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
           {/* Filter Input */}
           <div className="relative min-w-[180px] flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" aria-hidden />
@@ -242,13 +268,18 @@ export const ChapterList: React.FC<ChapterListProps> = ({
             const lastReadPage = c.meta?.last_read_page ?? (c as any).last_read_page ?? 0;
             const pageCount = c.meta?.page_count ?? (c as any).page_count ?? 0;
             const isInProgress = !isRead && lastReadPage > 1;
+            const isOrphaned = Boolean(c.meta?.orphaned ?? c.orphaned);
+            const chapterProviderId = c.providerId ?? c.provider_id ?? c.meta?.provider_id ?? '';
+            const isDownloaded = Boolean(c.meta?.downloaded_at);
+            const showChapterMenu = isInLibrary && (onRemoveChapter || (onDeleteFiles && chapterProviderId) || onPullChapter);
 
             return (
               <div
                 key={c.id}
                 className={cn(
                   "group flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-sm transition-colors hover:border-primary/50 hover:bg-accent/50",
-                  isRead && "opacity-60 bg-card/60"
+                  isRead && "opacity-60 bg-card/60",
+                  isOrphaned && "border-amber-500/30 bg-amber-500/5"
                 )}
               >
                 {!isInLibrary && providerId && remoteId ? (
@@ -310,13 +341,22 @@ export const ChapterList: React.FC<ChapterListProps> = ({
                 )}
 
                 <div className="flex items-center gap-3 shrink-0 ml-4">
+                  {isOrphaned && (
+                    <span
+                      className="inline-flex items-center rounded bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0"
+                      title="Chapter is no longer returned by the content provider but is retained locally."
+                    >
+                      Orphaned
+                    </span>
+                  )}
+
                   {dateStr && (
                     <span className="text-xs text-muted-foreground font-mono">
                       {dateStr}
                     </span>
                   )}
 
-                  {isInLibrary && onRemoveChapter && (
+                  {showChapterMenu && (
                     <DropdownMenu open={openMenuId === c.id} onOpenChange={(open) => setOpenMenuId(open ? c.id : null)}>
                       <DropdownMenuTrigger
                         className="inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground shrink-0 size-8 transition-colors cursor-pointer"
@@ -324,17 +364,46 @@ export const ChapterList: React.FC<ChapterListProps> = ({
                       >
                         <MoreVertical className="size-4" />
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44 p-1">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            onRemoveChapter(c.id);
-                            setOpenMenuId(null);
-                          }}
-                          className="w-full text-xs cursor-pointer justify-center font-medium h-8 text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="size-3.5 mr-1.5" />
-                          Remove Chapter
-                        </DropdownMenuItem>
+                      <DropdownMenuContent align="end" className="w-52 p-1">
+                        {onPullChapter && chapterProviderId && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              onPullChapter(c.id, chapterProviderId);
+                              setOpenMenuId(null);
+                            }}
+                            disabled={isPullingChapter}
+                            className="w-full text-xs cursor-pointer font-medium h-8"
+                          >
+                            <RefreshCw className="size-3.5 mr-1.5" />
+                            Pull chapter
+                          </DropdownMenuItem>
+                        )}
+                        {onDeleteFiles && chapterProviderId && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              onDeleteFiles(c.id, chapterProviderId);
+                              setOpenMenuId(null);
+                            }}
+                            disabled={isDeletingFiles || !isDownloaded}
+                            className="w-full text-xs cursor-pointer font-medium h-8"
+                            title={isDownloaded ? 'Remove on-disk page artifacts but keep the chapter entry' : 'No files to delete'}
+                          >
+                            <Trash2 className="size-3.5 mr-1.5" />
+                            Delete files
+                          </DropdownMenuItem>
+                        )}
+                        {onRemoveChapter && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              onRemoveChapter(c.id, chapterProviderId || undefined);
+                              setOpenMenuId(null);
+                            }}
+                            className="w-full text-xs cursor-pointer justify-center font-medium h-8 text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="size-3.5 mr-1.5" />
+                            Remove Chapter
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}

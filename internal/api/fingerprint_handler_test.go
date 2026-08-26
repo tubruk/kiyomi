@@ -23,7 +23,7 @@ func setupTestHandler(t *testing.T) (*Handler, *echo.Echo) {
 	}
 	lib := library.NewLibrary(tmpDir)
 
-	h := NewHandler(cfg, lib)
+	h := NewHandler(cfg, lib, nil, nil)
 	e := echo.New()
 	h.RegisterRoutes(e)
 	return h, e

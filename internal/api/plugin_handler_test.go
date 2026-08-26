@@ -43,7 +43,7 @@ func setupPluginTestHandler(t *testing.T) (*Handler, *echo.Echo, *host.PluginMan
 	}
 	lib := library.NewLibrary(tmpDir)
 
-	h := NewHandler(cfg, lib)
+	h := NewHandler(cfg, lib, nil, nil)
 	pm := host.NewPluginManager(host.ManagerOptions{
 		PluginDir: pluginDir,
 		Registry:  h.registry,

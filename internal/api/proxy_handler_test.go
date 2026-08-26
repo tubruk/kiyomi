@@ -24,7 +24,7 @@ func TestProviderClientIsolation(t *testing.T) {
 	}
 	lib := library.NewLibrary(tmpDir)
 
-	h := NewHandler(cfg, lib)
+	h := NewHandler(cfg, lib, nil, nil)
 	if h.httpClient == nil {
 		t.Fatal("expected handler httpClient to be non-nil")
 	}
@@ -156,7 +156,7 @@ func TestProxyHandlerRoutes(t *testing.T) {
 
 	// Save chapter to library first for proxyPageImage test
 	_ = h.lib.SaveManga("manga1", &library.MangaMeta{Title: "Manga 1"})
-	_ = h.lib.SaveChapter("manga1", "ch1", &library.ChapterMeta{Title: "Chapter 1"})
+	_ = h.lib.SaveChapter("manga1", library.LocalProviderID, "ch1", &library.ChapterMeta{Title: "Chapter 1"})
 
 	t.Run("GET /providers/:providerId/manga/:remoteId/chapters/:chapterId/pages", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/testprov/manga/mock-1/chapters/ch-1/pages", nil)
@@ -225,7 +225,7 @@ func TestGetChapterPages_ConcurrentFallbackSearch(t *testing.T) {
 	}
 
 	// Save target chapter in targetMangaID with ProviderID set
-	err := h.lib.SaveChapter(targetMangaID, targetChapterID, &library.ChapterMeta{
+	err := h.lib.SaveChapter(targetMangaID, "fallbackprov", targetChapterID, &library.ChapterMeta{
 		Title: "Target Chapter",
 		Content: &library.ContentSource{
 			ProviderID: "fallbackprov",
@@ -335,7 +335,7 @@ func TestProxyImageCaching_FallbackWhenCacheNil(t *testing.T) {
 	// CacheDir is empty, so imageCache is nil
 	cfg := &config.Config{LibraryDir: tmpDir}
 	lib := library.NewLibrary(tmpDir)
-	h := NewHandler(cfg, lib)
+	h := NewHandler(cfg, lib, nil, nil)
 	e := echo.New()
 	h.RegisterRoutes(e)
 
@@ -425,7 +425,7 @@ func TestGetChapterPages_LazyLoadingAndRefresh(t *testing.T) {
 			ProviderMangaID: mangaID,
 		},
 	})
-	_ = h.lib.SaveChapter(mangaID, chapterID, &library.ChapterMeta{
+	_ = h.lib.SaveChapter(mangaID, "countingprov", chapterID, &library.ChapterMeta{
 		Title: "Lazy Chapter",
 		Content: &library.ContentSource{
 			ProviderID: "countingprov",
@@ -465,7 +465,7 @@ func TestGetChapterPages_LazyLoadingAndRefresh(t *testing.T) {
 	}
 
 	// Verify library has saved pages
-	saved, err := h.lib.GetChapterPages(mangaID, chapterID)
+	saved, err := h.lib.GetChapterPages(mangaID, "countingprov", chapterID)
 	if err != nil {
 		t.Fatalf("expected chapter pages saved to library: %v", err)
 	}

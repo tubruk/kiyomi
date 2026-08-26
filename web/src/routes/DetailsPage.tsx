@@ -196,11 +196,12 @@ export const DetailsPage: React.FC = () => {
   const refreshChaptersMutation = useMutation({
     mutationFn: () => {
       if (!targetMangaId) throw new Error('No manga ID');
-      return api.refreshMangaChapters(targetMangaId);
+      return api.refreshLibraryManga(targetMangaId);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.library.refresh(targetMangaId) });
       if (data.added === 0) {
         showToast('Up to date', 'success');
       } else {
@@ -214,17 +215,89 @@ export const DetailsPage: React.FC = () => {
   });
 
   const removeChapterMutation = useMutation({
-    mutationFn: (chapterId: string) => {
+    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
       if (!targetMangaId) throw new Error('No manga ID');
-      return api.deleteChapter(targetMangaId, chapterId);
+      return api.deleteChapter(targetMangaId, chapterId, providerId);
     },
-    onSuccess: () => {
+    onSuccess: (_, { providerId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
+        });
+      }
       showToast('Chapter removed from library', 'success');
     },
     onError: (err: any) => {
       const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
       showToast(`Remove failed: ${err.message || 'An error occurred'}`, 'error', detail);
+    },
+  });
+
+  const deleteChapterFilesMutation = useMutation({
+    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
+      if (!targetMangaId) throw new Error('No manga ID');
+      return api.deleteChapterFiles(targetMangaId, providerId, chapterId);
+    },
+    onSuccess: (_, { providerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
+        });
+      }
+      showToast('Files deleted (chapter entry preserved)', 'success');
+    },
+    onError: (err: any) => {
+      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+      showToast(`Delete files failed: ${err.message || 'An error occurred'}`, 'error', detail);
+    },
+  });
+
+  const pullChapterMutation = useMutation({
+    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
+      if (!targetMangaId) throw new Error('No manga ID');
+      return api.pullChapter(targetMangaId, providerId, chapterId);
+    },
+    onSuccess: (_, { chapterId, providerId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.chapters.pages(chapterId, targetMangaId, providerId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+      showToast('Chapter pulled from provider', 'success');
+    },
+    onError: (err: any) => {
+      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+      showToast(`Pull failed: ${err.message || 'An error occurred'}`, 'error', detail);
+    },
+  });
+
+  const pullMangaMutation = useMutation({
+    mutationFn: ({ providerId, providerMangaId }: { providerId?: string; providerMangaId?: string } = {}) => {
+      if (!targetMangaId) throw new Error('No manga ID');
+      return api.pullManga(targetMangaId, providerId, providerMangaId);
+    },
+    onSuccess: (_, { providerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.library.pull(targetMangaId, providerId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+      showToast('Pull enqueued — fetching chapters in background', 'success');
+    },
+    onError: (err: any) => {
+      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+      showToast(`Pull failed: ${err.message || 'An error occurred'}`, 'error', detail);
     },
   });
 
@@ -249,10 +322,16 @@ export const DetailsPage: React.FC = () => {
       if (!targetMangaId) throw new Error('No manga ID');
       return api.switchContentProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
     },
-    onSuccess: () => {
+    onSuccess: (_, { provider }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (provider?.provider_id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, provider.provider_id),
+        });
+      }
       showToast('Switched content provider', 'success');
     },
     onError: (err: any) => {
@@ -905,7 +984,7 @@ export const DetailsPage: React.FC = () => {
                     }
                   }}
                   onSwitchTo={(provider) => {
-                    if (confirm('Switching content provider will discard cached chapters and reading progress for this manga. Continue?')) {
+                    if (confirm(`Switch the default content provider to "${provider.manga_title || provider.provider_id}"? Chapters from the previous provider remain accessible — nothing is deleted.`)) {
                       switchToMutation.mutate({ provider });
                     }
                   }}
@@ -944,7 +1023,18 @@ export const DetailsPage: React.FC = () => {
           isInLibrary={isInLibrary}
           onRefreshChapters={isInLibrary ? () => refreshChaptersMutation.mutate() : undefined}
           isRefreshing={refreshChaptersMutation.isPending}
-          onRemoveChapter={isInLibrary ? (chId) => removeChapterMutation.mutate(chId) : undefined}
+          onPullAllChapters={isInLibrary && activeContentProviderId ? () => {
+            const providerLabel = activeProvider?.name || activeContentProviderId || 'provider';
+            if (confirm(`Pull from ${providerLabel} to local library? This will enqueue a background job to fetch all chapters and pages.`)) {
+              pullMangaMutation.mutate({});
+            }
+          } : undefined}
+          isPullingAllChapters={pullMangaMutation.isPending}
+          onRemoveChapter={isInLibrary ? (chId, providerId) => providerId && removeChapterMutation.mutate({ chapterId: chId, providerId }) : undefined}
+          onDeleteFiles={isInLibrary ? (chId, providerId) => deleteChapterFilesMutation.mutate({ chapterId: chId, providerId }) : undefined}
+          onPullChapter={isInLibrary ? (chId, providerId) => pullChapterMutation.mutate({ chapterId: chId, providerId }) : undefined}
+          isDeletingFiles={deleteChapterFilesMutation.isPending}
+          isPullingChapter={pullChapterMutation.isPending}
         />
       )}
 

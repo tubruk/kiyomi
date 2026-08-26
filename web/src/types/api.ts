@@ -120,6 +120,8 @@ export interface ChapterMeta {
   is_read?: boolean;
   last_read_page?: number;
   last_read_at?: string;
+  orphaned?: boolean;
+  provider_id?: string;
 }
 
 export interface Chapter {
@@ -140,6 +142,9 @@ export interface Chapter {
   lastReadPage?: number;
   last_read_at?: string;
   lastReadAt?: string;
+  provider_id?: string;
+  providerId?: string;
+  orphaned?: boolean;
 }
 
 export interface Page {
@@ -243,3 +248,21 @@ export interface CacheStats {
   size_bytes: number;
   item_count: number;
 }
+
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
+export interface Job {
+  id: string;
+  type: string;
+  payload: string;
+  status: JobStatus;
+  retries: number;
+  max_retries: number;
+  concurrency_group: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  completed_at?: string;
+  metadata?: Record<string, string>;
+}
+

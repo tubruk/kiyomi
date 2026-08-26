@@ -62,11 +62,15 @@ export const useExploreCatalog = (
 
 export const useChapterList = (
   mangaId: string,
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean; providerId?: string }
 ) => {
+  const providerId = options?.providerId;
   return useQuery({
-    queryKey: queryKeys.chapters.list(mangaId),
-    queryFn: () => api.getMangaChapters(mangaId),
+    queryKey: providerId
+      ? queryKeys.chapters.providerList(mangaId, providerId)
+      : queryKeys.chapters.list(mangaId),
+    queryFn: () =>
+      providerId ? api.listChapters(mangaId, providerId) : api.getMangaChapters(mangaId),
     enabled: options?.enabled ?? Boolean(mangaId),
   });
 };
@@ -77,7 +81,7 @@ export const useProviderChapterList = (
   options?: { enabled?: boolean }
 ) => {
   return useQuery({
-    queryKey: queryKeys.chapters.providerList(providerId, remoteId),
+    queryKey: queryKeys.chapters.remoteList(providerId, remoteId),
     queryFn: () => api.getProviderMangaChapters(providerId, remoteId),
     enabled: options?.enabled ?? Boolean(providerId && remoteId),
   });
@@ -140,20 +144,106 @@ export const useDeleteChapterPagesCacheMutation = () => {
   });
 };
 
+export const useDeleteChapterFilesMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mangaId,
+      providerId,
+      chapterId,
+    }: {
+      mangaId: string;
+      providerId: string;
+      chapterId: string;
+    }) => api.deleteChapterFiles(mangaId, providerId, chapterId),
+    onSuccess: (_, { mangaId, providerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(mangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.providerList(mangaId, providerId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
+    },
+  });
+};
+
+export const usePullChapterMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mangaId,
+      providerId,
+      chapterId,
+    }: {
+      mangaId: string;
+      providerId: string;
+      chapterId: string;
+    }) => api.pullChapter(mangaId, providerId, chapterId),
+    onSuccess: (_, { mangaId, chapterId, providerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.pages(chapterId, mangaId, providerId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(mangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.providerList(mangaId, providerId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
+    },
+  });
+};
+
+export const usePullMangaMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mangaId,
+      providerId,
+      providerMangaId,
+    }: {
+      mangaId: string;
+      providerId?: string;
+      providerMangaId?: string;
+    }) => api.pullManga(mangaId, providerId, providerMangaId),
+    onSuccess: (_, { mangaId, providerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.library.pull(mangaId, providerId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(mangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(mangaId, providerId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+    },
+  });
+};
+
+export const useRefreshLibraryMangaMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (mangaId: string) => api.refreshLibraryManga(mangaId),
+    onSuccess: (_, mangaId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.library.refresh(mangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(mangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
+    },
+  });
+};
+
 export const useUpdateChapterProgressMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       mangaId,
       chapterId,
+      providerId,
       progress,
     }: {
       mangaId: string;
       chapterId: string;
+      providerId: string;
       progress: { is_read?: boolean; last_read_page?: number };
-    }) => api.updateChapterProgress(mangaId, chapterId, progress),
-    onSuccess: (_, { mangaId }) => {
+    }) => api.updateChapterProgress(mangaId, chapterId, providerId, progress),
+    onSuccess: (_, { mangaId, providerId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(mangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(mangaId, providerId),
+        });
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.mangas() });
     },

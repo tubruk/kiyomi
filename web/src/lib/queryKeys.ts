@@ -5,6 +5,10 @@ export const queryKeys = {
   library: {
     all: ['library'] as const,
     mangas: () => [...queryKeys.library.all, 'manga'] as const,
+    pull: (mangaId: string, providerId?: string) =>
+      [...queryKeys.library.all, 'pull', mangaId, providerId ?? ''] as const,
+    refresh: (mangaId: string) =>
+      [...queryKeys.library.all, 'refresh', mangaId] as const,
   },
   manga: {
     all: ['manga'] as const,
@@ -21,8 +25,10 @@ export const queryKeys = {
     all: ['chapters'] as const,
     list: (mangaId: string) =>
       [...queryKeys.chapters.all, mangaId] as const,
-    providerList: (providerId: string, remoteId: string) =>
-      ['chapters', 'provider', providerId, remoteId] as const,
+    providerList: (mangaId: string, providerId: string) =>
+      [...queryKeys.chapters.all, mangaId, 'provider', providerId] as const,
+    remoteList: (providerId: string, remoteId: string) =>
+      ['chapters', 'remote', providerId, remoteId] as const,
     pages: (chapterId: string, mangaId?: string, providerId?: string) =>
       [...queryKeys.chapters.all, 'pages', chapterId, mangaId ?? '', providerId ?? ''] as const,
   },
@@ -36,7 +42,9 @@ export const queryKeys = {
   system: {
     cache: ['system', 'cache'] as const,
   },
+  jobs: {
+    all: ['jobs'] as const,
+    list: (filter?: any) => ['jobs', 'list', filter] as const,
+  },
   info: ['info'] as const,
 };
-
-export const chapterKeys = queryKeys.chapters;

@@ -13,6 +13,8 @@ import (
 	"github.com/tubruk/kiyomi/internal/config"
 	"github.com/tubruk/kiyomi/internal/library"
 	"github.com/tubruk/kiyomi/internal/plugin/host"
+	"github.com/tubruk/kiyomi/internal/queue"
+	"github.com/tubruk/kiyomi/internal/upstream"
 	"github.com/tubruk/kiyomi/pkg/dnsresolver"
 	"github.com/tubruk/kiyomi/pkg/fingerprint"
 	"github.com/tubruk/kiyomi/pkg/provider"
@@ -29,11 +31,14 @@ type Handler struct {
 	pluginManager *host.PluginManager
 	fpStore       fingerprint.Store
 	imageCache    *cache.DiskCache
+	reqBuilder    *upstream.RequestBuilder
 	buildInfo     BuildInfo
+	jobStore      queue.JobStore
+	enqueuer      queue.Enqueuer
 }
 
 // NewHandler creates a new Handler instance with library and config.
-func NewHandler(cfg *config.Config, lib *library.Library) *Handler {
+func NewHandler(cfg *config.Config, lib *library.Library, jobStore queue.JobStore, enqueuer queue.Enqueuer) *Handler {
 	fpStore := fingerprint.NewMemoryStore()
 
 	// Create an HTTP client configured with TLS fingerprinting transport and transient retry
@@ -88,6 +93,8 @@ func NewHandler(cfg *config.Config, lib *library.Library) *Handler {
 		})
 	}
 
+	reqBuilder := upstream.NewRequestBuilder(fpStore, reg, client)
+
 	return &Handler{
 		cfg:           cfg,
 		lib:           lib,
@@ -96,6 +103,9 @@ func NewHandler(cfg *config.Config, lib *library.Library) *Handler {
 		pluginManager: pm,
 		fpStore:       fpStore,
 		imageCache:    ic,
+		reqBuilder:    reqBuilder,
+		jobStore:      jobStore,
+		enqueuer:      enqueuer,
 	}
 }
 
@@ -117,6 +127,23 @@ func (h *Handler) PluginManager() *host.PluginManager {
 // Registry returns the provider registry instance.
 func (h *Handler) Registry() *provider.Registry {
 	return h.registry
+}
+
+// FingerprintStore returns the configured fingerprint store.
+func (h *Handler) FingerprintStore() fingerprint.Store {
+	return h.fpStore
+}
+
+// RequestBuilder returns the upstream request builder instance.
+func (h *Handler) RequestBuilder() *upstream.RequestBuilder {
+	return h.reqBuilder
+}
+
+// HTTPClient returns the configured HTTP client used by the handler. Useful
+// for sharing the same transport/TLS-fingerprint/retry chain with background
+// workers (e.g. download handlers).
+func (h *Handler) HTTPClient() *http.Client {
+	return h.httpClient
 }
 
 // SetBuildInfo sets the build metadata on the handler.
@@ -165,6 +192,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	v1.POST("/library/manga", h.createLibraryManga)
 	v1.POST("/library/manga/import", h.importProviderManga)
 	v1.POST("/library/manga/:mangaId/refresh", h.refreshLibraryManga)
+	v1.POST("/library/manga/:mangaId/pull", h.pullManga)
 	v1.PUT("/library/manga/:mangaId", h.updateLibraryManga)
 	v1.PATCH("/library/manga/:mangaId", h.patchLibraryManga)
 	v1.DELETE("/library/manga/:mangaId", h.deleteLibraryManga)
@@ -172,20 +200,25 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	// Provider Bindings
 	v1.GET("/library/manga/:mangaId/providers", h.listProviders)
 	v1.POST("/library/manga/:mangaId/providers", h.addProvider)
-	v1.DELETE("/library/manga/:mangaId/providers/:providerId/:providerMangaID", h.removeProvider)
+	v1.DELETE("/library/manga/:mangaId/providers/:providerId/:providerMangaId", h.removeProvider)
 	v1.PATCH("/library/manga/:mangaId/content", h.switchContentProvider)
 
 	// Chapters & Pages
 	v1.GET("/library/manga/:mangaId/chapters", h.listChapters)
-	v1.GET("/library/manga/:mangaId/chapters/:chapterId", h.getChapter)
-	v1.POST("/library/manga/:mangaId/chapters/:chapterId", h.saveChapter)
-	v1.PATCH("/library/manga/:id/chapters/:ch/progress", h.patchChapterProgress)
-	v1.DELETE("/library/manga/:mangaId/chapters/:chapterId", h.deleteChapter)
+	v1.GET("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId", h.getChapter)
+	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId", h.saveChapter)
+	v1.PATCH("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId/progress", h.patchChapterProgress)
+	v1.DELETE("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId", h.deleteChapter)
+	v1.DELETE("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId/files", h.deleteChapterFiles)
 	v1.GET("/chapters/:chapterId/pages", h.getChapterPages)
-	v1.POST("/library/manga/:mangaId/chapters/:chapterId/pages/refresh", h.refreshChapterPages)
-	v1.POST("/chapters/:chapterId/pages/refresh", h.refreshChapterPages)
+	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId/pull", h.pullChapter)
 
 	// Fingerprinted Page Image Reverse Proxy
 	v1.GET("/library/manga/:mangaId/chapters/:chapterId/pages/:pageIndex", h.proxyPageImage)
 	v1.GET("/proxy/image", h.proxyImageDirect)
+
+	// Background Jobs
+	v1.GET("/jobs", h.listJobs)
+	v1.POST("/jobs", h.enqueueJob)
+	v1.DELETE("/jobs/:id", h.cancelJob)
 }

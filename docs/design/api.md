@@ -48,7 +48,7 @@ API resources map to library concepts:
 | Provider search | `/providers/{id}/search` | Provider |
 | Provider metadata | `/providers/{id}/manga/{rid}` | Provider |
 | Explore | `/explore` | Provider |
-| Downloads | `/downloads` | Workers |
+| Pulls | `/pulls` | Workers |
 | Jobs | `/jobs` | Workers |
 | Cache | `/cache` | Cache |
 
@@ -219,10 +219,10 @@ ETag: <hash>               (for conditional GET)
 
 ## Long-Running Operations
 
-Downloads, library scans, refresh operations are async. API returns immediately:
+Pulls, library scans, sync operations are async. API returns immediately:
 
 ```
-POST /downloads
+POST /pulls
 → 202 Accepted
   Location: /jobs/<job_id>
   body: { job_id, status: "pending" }
@@ -282,7 +282,7 @@ Current API in `internal/api/handler.go` and `docs/developer/api.md`:
 - URI patterns largely compatible with new design
 - Response shapes need consolidation (current uses mixed envelopes)
 - Error handling needs standardization (current ad-hoc)
-- OpenAPI spec to be authored during Phase 1 of API redesign
+- OpenAPI spec to be authored during the API redesign
 
 ## Open Questions
 

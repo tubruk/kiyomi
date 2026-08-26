@@ -123,6 +123,7 @@ export const ReaderPage: React.FC = () => {
     enabled: Boolean(!effectiveMangaId && providerId && remoteId),
   });
   const manga = effectiveMangaId ? localManga : remoteManga;
+  const chapterProviderId = manga?.contentProviderId || manga?.meta?.content?.provider_id || providerId || '';
 
   // Fetch chapter pages
   const {
@@ -131,7 +132,7 @@ export const ReaderPage: React.FC = () => {
     isError: isPagesError,
   } = useChapterPages(chapterId, {
     mangaId: effectiveMangaId || remoteId || undefined,
-    providerId: manga?.contentProviderId || manga?.meta?.content?.provider_id || providerId,
+    providerId: chapterProviderId || undefined,
     enabled: Boolean(chapterId),
   });
 
@@ -327,6 +328,7 @@ export const ReaderPage: React.FC = () => {
         updateProgressMutation.mutate({
           mangaId: effectiveMangaId,
           chapterId,
+          providerId: chapterProviderId,
           progress: { is_read: true, last_read_page: currentPage },
         });
 
@@ -353,6 +355,7 @@ export const ReaderPage: React.FC = () => {
       updateProgressMutation.mutate({
         mangaId: effectiveMangaId,
         chapterId,
+        providerId: chapterProviderId,
         progress: { last_read_page: currentPage },
       });
     }, 1500);
@@ -402,13 +405,14 @@ export const ReaderPage: React.FC = () => {
       updateProgressMutation.mutate({
         mangaId: effectiveMangaId,
         chapterId,
+        providerId: chapterProviderId,
         progress: { is_read: true },
       });
     }
     if (hasNextChapter && nextChapter) {
       handleSelectChapter(nextChapter.id);
     }
-  }, [effectiveMangaId, chapterId, hasNextChapter, nextChapter, handleSelectChapter, updateProgressMutation]);
+  }, [effectiveMangaId, chapterId, hasNextChapter, nextChapter, handleSelectChapter, updateProgressMutation, chapterProviderId]);
 
   // Directional Paged Navigation Handlers
   const goToNextPage = useCallback(() => {
@@ -435,6 +439,7 @@ export const ReaderPage: React.FC = () => {
         updateProgressMutation.mutate({
           mangaId: effectiveMangaId,
           chapterId,
+          providerId: chapterProviderId,
           progress: { is_read: true, last_read_page: pages.length },
         });
       }

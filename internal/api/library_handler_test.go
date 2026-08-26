@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -204,7 +205,7 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 	mockP := &mockProvider{id: "mockprov", name: "Mock Provider"}
 	h.registry.Register(mockP)
 
-	// 1. Refresh non-existent manga -> 404 Not Found
+	// 1. Sync non-existent manga -> 404 Not Found
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/non-existent/refresh", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -212,7 +213,7 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 		t.Fatalf("expected 404 Not Found for non-existent manga, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 2. Refresh manga without connected provider -> 400 Bad Request
+	// 2. Sync manga without connected provider -> 400 Bad Request
 	noProvManga := map[string]interface{}{
 		"id": "no-provider-manga",
 		"meta": map[string]interface{}{
@@ -235,7 +236,7 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 		t.Fatalf("expected 400 Bad Request for manga with no provider, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. Refresh valid manga with mock provider -> 200 OK with added chapters
+	// 3. Sync valid manga with mock provider -> 200 OK with added chapters
 	validManga := map[string]interface{}{
 		"id": "refresh-manga-1",
 		"meta": map[string]interface{}{
@@ -259,7 +260,7 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on refresh, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 OK on sync, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var refreshResp struct {
@@ -269,7 +270,7 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 		MangaID    string `json:"manga_id"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &refreshResp); err != nil {
-		t.Fatalf("failed to decode refresh response: %v", err)
+		t.Fatalf("failed to decode sync response: %v", err)
 	}
 
 	if refreshResp.Added != 1 {
@@ -323,12 +324,12 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 		t.Errorf("expected uploadDate '2023-11-14T22:13:20Z', got %v", listResp.Chapters[0]["uploadDate"])
 	}
 
-	// 4. Refreshing again skips already existing chapters -> added=0
+	// 4. Syncing again skips already existing chapters -> added=0
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/refresh-manga-1/refresh", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on second refresh, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 OK on second sync, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var refreshResp2 struct {
@@ -336,7 +337,7 @@ func TestLibraryHandler_RefreshLibraryManga(t *testing.T) {
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &refreshResp2)
 	if refreshResp2.Added != 0 {
-		t.Errorf("expected added=0 on second refresh, got %d", refreshResp2.Added)
+		t.Errorf("expected added=0 on second sync, got %d", refreshResp2.Added)
 	}
 }
 
@@ -358,7 +359,7 @@ func TestLibraryHandler_PatchChapterProgress(t *testing.T) {
 		Title:  "Chapter 1",
 		Number: 1.0,
 	}
-	if err := h.lib.SaveChapter(mangaID, chapterID, chMeta); err != nil {
+	if err := h.lib.SaveChapter(mangaID, library.LocalProviderID, chapterID, chMeta); err != nil {
 		t.Fatalf("failed to save chapter: %v", err)
 	}
 
@@ -368,7 +369,7 @@ func TestLibraryHandler_PatchChapterProgress(t *testing.T) {
 		"last_read_page": 5,
 	}
 	b1Bytes, _ := json.Marshal(body1)
-	req := httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/chapters/"+chapterID+"/progress", bytes.NewReader(b1Bytes))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/providers/local/chapters/"+chapterID+"/progress", bytes.NewReader(b1Bytes))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -413,7 +414,7 @@ func TestLibraryHandler_PatchChapterProgress(t *testing.T) {
 		"last_read_page": 12,
 	}
 	b2Bytes, _ := json.Marshal(body2)
-	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/chapters/"+chapterID+"/progress", bytes.NewReader(b2Bytes))
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/providers/local/chapters/"+chapterID+"/progress", bytes.NewReader(b2Bytes))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -435,7 +436,7 @@ func TestLibraryHandler_PatchChapterProgress(t *testing.T) {
 		"is_read": false,
 	}
 	b3Bytes, _ := json.Marshal(body3)
-	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/chapters/"+chapterID+"/progress", bytes.NewReader(b3Bytes))
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/providers/local/chapters/"+chapterID+"/progress", bytes.NewReader(b3Bytes))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -453,7 +454,7 @@ func TestLibraryHandler_PatchChapterProgress(t *testing.T) {
 	}
 
 	// 4. Non-existent chapter -> 404
-	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/chapters/non-existent-ch/progress", bytes.NewReader(b1Bytes))
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/providers/local/chapters/non-existent-ch/progress", bytes.NewReader(b1Bytes))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -462,7 +463,7 @@ func TestLibraryHandler_PatchChapterProgress(t *testing.T) {
 	}
 
 	// 5. Non-existent manga -> 404
-	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/non-existent-manga/chapters/"+chapterID+"/progress", bytes.NewReader(b1Bytes))
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/non-existent-manga/providers/local/chapters/"+chapterID+"/progress", bytes.NewReader(b1Bytes))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -471,7 +472,7 @@ func TestLibraryHandler_PatchChapterProgress(t *testing.T) {
 	}
 
 	// 6. Invalid JSON payload -> 400
-	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/chapters/"+chapterID+"/progress", bytes.NewReader([]byte("{invalid-json")))
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/library/manga/"+mangaID+"/providers/local/chapters/"+chapterID+"/progress", bytes.NewReader([]byte("{invalid-json")))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -627,14 +628,14 @@ func TestLibraryHandler_RefreshLibraryManga_ConcurrentBatch(t *testing.T) {
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on refresh, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 OK on sync, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var refreshResp struct {
 		Added int `json:"added"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &refreshResp); err != nil {
-		t.Fatalf("failed to decode refresh response: %v", err)
+		t.Fatalf("failed to decode sync response: %v", err)
 	}
 	if refreshResp.Added != totalChapters {
 		t.Errorf("expected added=%d, got %d", totalChapters, refreshResp.Added)
@@ -648,12 +649,12 @@ func TestLibraryHandler_RefreshLibraryManga_ConcurrentBatch(t *testing.T) {
 		t.Fatalf("expected %d chapters saved, got %d", totalChapters, len(chapters))
 	}
 
-	// Second refresh: all chapters already exist -> added should be 0
+	// Second sync: all chapters already exist -> added should be 0
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/batch-refresh-manga-1/refresh", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on second refresh, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 OK on second sync, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var refreshResp2 struct {
@@ -661,7 +662,7 @@ func TestLibraryHandler_RefreshLibraryManga_ConcurrentBatch(t *testing.T) {
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &refreshResp2)
 	if refreshResp2.Added != 0 {
-		t.Errorf("expected added=0 on second refresh, got %d", refreshResp2.Added)
+		t.Errorf("expected added=0 on second sync, got %d", refreshResp2.Added)
 	}
 }
 
@@ -686,11 +687,11 @@ func (m *mockRefreshPagesProvider) FetchPages(ctx context.Context, mangaRef, cha
 	return pages, nil
 }
 
-func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
+func TestLibraryHandler_PullChapter(t *testing.T) {
 	h, e := setupTestHandler(t)
 
 	mockP := &mockRefreshPagesProvider{
-		mockProvider: mockProvider{id: "refreshpagesprov", name: "Refresh Pages Provider"},
+		mockProvider: mockProvider{id: "pullpagesprov", name: "Refresh Pages Provider"},
 		pageUrls: []string{
 			"https://example.com/fresh_p1.jpg",
 			"https://example.com/fresh_p2.jpg",
@@ -705,14 +706,14 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 	_ = h.lib.SaveManga(mangaID, &library.MangaMeta{
 		Title: "Refresh Manga",
 		Content: &library.ContentSource{
-			ProviderID:      "refreshpagesprov",
+			ProviderID:      "pullpagesprov",
 			ProviderMangaID: "remote-manga-1",
 		},
 	})
-	_ = h.lib.SaveChapter(mangaID, chapterID, &library.ChapterMeta{
+	_ = h.lib.SaveChapter(mangaID, "pullpagesprov", chapterID, &library.ChapterMeta{
 		Title: "Refresh Chapter",
 		Content: &library.ContentSource{
-			ProviderID: "refreshpagesprov",
+			ProviderID: "pullpagesprov",
 			ChapterRef: "remote-ch-1",
 		},
 	})
@@ -721,16 +722,16 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 	oldPages := []library.PageItem{
 		{Index: 1, URL: "https://example.com/old_p1.jpg", Source: "library"},
 	}
-	_ = h.lib.SaveChapterPages(mangaID, chapterID, oldPages)
+	_ = h.lib.SaveChapterPages(mangaID, "pullpagesprov", chapterID, oldPages)
 
 	// Verify old pages exist
-	stored, err := h.lib.GetChapterPages(mangaID, chapterID)
+	stored, err := h.lib.GetChapterPages(mangaID, "pullpagesprov", chapterID)
 	if err != nil || len(stored) != 1 || stored[0].URL != "https://example.com/old_p1.jpg" {
 		t.Fatalf("expected old pages in library, got %v", stored)
 	}
 
-	// 1. Refresh via /library/manga/:mangaId/chapters/:chapterId/pages/refresh
-	req1 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/library/manga/%s/chapters/%s/pages/refresh", mangaID, chapterID), nil)
+	// 1. Pull via /library/manga/:mangaId/providers/:providerId/chapters/:chapterId/pull
+	req1 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/library/manga/%s/providers/pullpagesprov/chapters/%s/pull", mangaID, chapterID), nil)
 	rec1 := httptest.NewRecorder()
 	e.ServeHTTP(rec1, req1)
 
@@ -739,18 +740,15 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 	}
 
 	var resp1 struct {
-		Message string `json:"message"`
-		Pages   []struct {
+		Pages []struct {
 			Index  int    `json:"index"`
 			URL    string `json:"url"`
 			Source string `json:"source"`
 		} `json:"pages"`
+		JobIDs []string `json:"job_ids"`
 	}
 	if err := json.Unmarshal(rec1.Body.Bytes(), &resp1); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
-	}
-	if resp1.Message != "chapter pages refreshed successfully" {
-		t.Errorf("expected message 'chapter pages refreshed successfully', got %q", resp1.Message)
 	}
 	if len(resp1.Pages) != 2 {
 		t.Fatalf("expected 2 pages, got %d", len(resp1.Pages))
@@ -763,7 +761,7 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 	}
 
 	// Verify pages updated in library storage
-	updatedStored, err := h.lib.GetChapterPages(mangaID, chapterID)
+	updatedStored, err := h.lib.GetChapterPages(mangaID, "pullpagesprov", chapterID)
 	if err != nil {
 		t.Fatalf("failed to get updated pages: %v", err)
 	}
@@ -771,24 +769,23 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 		t.Fatalf("expected updated pages in library, got %v", updatedStored)
 	}
 
-	// 2. Refresh via alias route /chapters/:chapterId/pages/refresh
+	// 2. Pull again with different page set
 	mockP.pageUrls = []string{
 		"https://example.com/fresh_v2_p1.jpg",
 		"https://example.com/fresh_v2_p2.jpg",
 		"https://example.com/fresh_v2_p3.jpg",
 	}
 
-	req2 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/chapters/%s/pages/refresh", chapterID), nil)
+	req2 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/library/manga/%s/providers/pullpagesprov/chapters/%s/pull", mangaID, chapterID), nil)
 	rec2 := httptest.NewRecorder()
 	e.ServeHTTP(rec2, req2)
 
 	if rec2.Code != http.StatusOK {
-		t.Fatalf("alias refresh expected 200 OK, got %d: %s", rec2.Code, rec2.Body.String())
+		t.Fatalf("second pull expected 200 OK, got %d: %s", rec2.Code, rec2.Body.String())
 	}
 
 	var resp2 struct {
-		Message string `json:"message"`
-		Pages   []struct {
+		Pages []struct {
 			Index  int    `json:"index"`
 			URL    string `json:"url"`
 			Source string `json:"source"`
@@ -805,12 +802,83 @@ func TestLibraryHandler_RefreshChapterPages(t *testing.T) {
 	}
 
 	// Verify library updated again
-	v2Stored, err := h.lib.GetChapterPages(mangaID, chapterID)
+	v2Stored, err := h.lib.GetChapterPages(mangaID, "pullpagesprov", chapterID)
 	if err != nil {
 		t.Fatalf("failed to get v2 updated pages: %v", err)
 	}
 	if len(v2Stored) != 3 {
 		t.Fatalf("expected 3 stored pages, got %d", len(v2Stored))
+	}
+}
+
+func TestLibraryHandler_PullChapter_PageJobMetadata(t *testing.T) {
+	h, e, store := setupJobTestHandler(t)
+
+	mockP := &mockRefreshPagesProvider{
+		mockProvider: mockProvider{id: "jobmetaprov", name: "Job Meta Provider"},
+		pageUrls: []string{
+			"https://example.com/p0.jpg",
+			"https://example.com/p1.jpg",
+		},
+	}
+	h.registry.Register(mockP)
+
+	mangaID := "manga-meta-1"
+	chapterID := "ch-meta-1"
+
+	_ = h.lib.SaveManga(mangaID, &library.MangaMeta{
+		Title: "Meta Test Manga",
+		Content: &library.ContentSource{
+			ProviderID:      "jobmetaprov",
+			ProviderMangaID: "remote-manga-meta",
+		},
+	})
+	_ = h.lib.SaveChapter(mangaID, "jobmetaprov", chapterID, &library.ChapterMeta{
+		Title: "Meta Test Chapter",
+		Content: &library.ContentSource{
+			ProviderID: "jobmetaprov",
+			ChapterRef: "remote-ch-meta",
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/library/manga/%s/providers/jobmetaprov/chapters/%s/pull", mangaID, chapterID), nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		JobIDs []string `json:"job_ids"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode resp: %v", err)
+	}
+	if len(resp.JobIDs) != 2 {
+		t.Fatalf("expected 2 job IDs, got %d", len(resp.JobIDs))
+	}
+
+	for i, jobID := range resp.JobIDs {
+		job, err := store.GetJob(context.Background(), jobID)
+		if err != nil {
+			t.Fatalf("get job %s: %v", jobID, err)
+		}
+		if job.Metadata["manga_id"] != mangaID {
+			t.Errorf("job %d: expected manga_id %q, got %q", i, mangaID, job.Metadata["manga_id"])
+		}
+		if job.Metadata["provider_id"] != "jobmetaprov" {
+			t.Errorf("job %d: expected provider_id 'jobmetaprov', got %q", i, job.Metadata["provider_id"])
+		}
+		if job.Metadata["chapter_id"] != chapterID {
+			t.Errorf("job %d: expected chapter_id %q, got %q", i, chapterID, job.Metadata["chapter_id"])
+		}
+		if job.Metadata["page_index"] != strconv.Itoa(i+1) {
+			t.Errorf("job %d: expected page_index %q, got %q", i, strconv.Itoa(i+1), job.Metadata["page_index"])
+		}
+		if _, ok := job.Metadata["page_url"]; ok {
+			t.Errorf("job %d: metadata must not contain page_url", i)
+		}
 	}
 }
 
@@ -1162,7 +1230,7 @@ func TestLibraryHandler_SwitchContentProvider_CapabilityValidation(t *testing.T)
 	}
 }
 
-func TestRefreshChapters_ContextCanceled(t *testing.T) {
+func TestSyncChapters_ContextCanceled(t *testing.T) {
 	h, _ := setupTestHandler(t)
 
 	mockP := &mockMultiChapterProvider{
@@ -1192,7 +1260,7 @@ func TestRefreshChapters_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	_, err := h.refreshChaptersFromContent(ctx, mangaID)
+	_, _, err := h.refreshChaptersFromContent(ctx, "cancelprov", mangaID)
 	if err == nil {
 		t.Fatalf("expected context cancellation error, got nil")
 	}

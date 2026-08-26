@@ -5,6 +5,7 @@ import {
   ProviderRef,
   ExploreResponse,
   ChapterListResponse,
+  Chapter,
   PageListResponse,
   PluginItem,
   PluginLogEntry,
@@ -12,6 +13,7 @@ import {
   ReloadPluginsResponse,
   AppInfo,
   CacheStats,
+  Job,
 } from '../types/api';
 
 const API_BASE = '/api/v1';
@@ -174,9 +176,25 @@ export const api = {
   },
 
   // Chapters & Pages
+  listChapters: (mangaId: string, providerId?: string): Promise<ChapterListResponse> => {
+    let path = `/library/manga/${encodeURIComponent(mangaId)}/chapters`;
+    if (providerId) {
+      const query = new URLSearchParams();
+      query.set('provider_id', providerId);
+      path += `?${query.toString()}`;
+    }
+    return fetchAPI<ChapterListResponse>(path);
+  },
+
   getMangaChapters: (mangaId: string): Promise<ChapterListResponse> => {
     return fetchAPI<ChapterListResponse>(
       `/library/manga/${encodeURIComponent(mangaId)}/chapters`
+    );
+  },
+
+  getChapter: (mangaId: string, chapterId: string, providerId: string): Promise<Chapter> => {
+    return fetchAPI<Chapter>(
+      `/library/manga/${encodeURIComponent(mangaId)}/providers/${encodeURIComponent(providerId)}/chapters/${encodeURIComponent(chapterId)}`
     );
   },
 
@@ -189,20 +207,48 @@ export const api = {
     return fetchAPI<PageListResponse>(path);
   },
 
+  pullChapter: (
+    mangaId: string,
+    providerId: string,
+    chapterId: string
+  ): Promise<{ pages: any[]; job_ids: string[] }> => {
+    return fetchAPI<{ pages: any[]; job_ids: string[] }>(
+      `/library/manga/${encodeURIComponent(mangaId)}/providers/${encodeURIComponent(providerId)}/chapters/${encodeURIComponent(chapterId)}/pull`,
+      { method: 'POST' }
+    );
+  },
+
   deleteChapterPagesCache: (chapterId: string): Promise<void> => {
     return fetchAPI<void>(`/chapters/${encodeURIComponent(chapterId)}/pages`, { method: 'DELETE' });
   },
 
-  // Library Refresh & Chapter Operations
-  refreshMangaChapters: (mangaId: string): Promise<{ added: number; updated: number; providerId: string; mangaId: string }> => {
+  // Library Refresh & Pull Operations
+  refreshLibraryManga: (mangaId: string): Promise<{ added: number; orphaned: number; provider_id: string }> => {
     return fetchAPI(`/library/manga/${encodeURIComponent(mangaId)}/refresh`, {
       method: 'POST',
     });
   },
 
-  deleteChapter: (mangaId: string, chapterId: string): Promise<void> => {
+  pullManga: (mangaId: string, providerId?: string, providerMangaId?: string): Promise<void> => {
+    let path = `/library/manga/${encodeURIComponent(mangaId)}/pull`;
+    const query = new URLSearchParams();
+    if (providerId) query.set('provider_id', providerId);
+    if (providerMangaId) query.set('provider_manga_id', providerMangaId);
+    const queryString = query.toString();
+    if (queryString) path += `?${queryString}`;
+    return fetchAPI<void>(path, { method: 'POST' });
+  },
+
+  deleteChapter: (mangaId: string, chapterId: string, providerId: string): Promise<void> => {
     return fetchAPI<void>(
-      `/library/manga/${encodeURIComponent(mangaId)}/chapters/${encodeURIComponent(chapterId)}`,
+      `/library/manga/${encodeURIComponent(mangaId)}/providers/${encodeURIComponent(providerId)}/chapters/${encodeURIComponent(chapterId)}`,
+      { method: 'DELETE' }
+    );
+  },
+
+  deleteChapterFiles: (mangaId: string, providerId: string, chapterId: string): Promise<void> => {
+    return fetchAPI<void>(
+      `/library/manga/${encodeURIComponent(mangaId)}/providers/${encodeURIComponent(providerId)}/chapters/${encodeURIComponent(chapterId)}/files`,
       { method: 'DELETE' }
     );
   },
@@ -210,16 +256,15 @@ export const api = {
   updateChapterProgress: (
     mangaId: string,
     chapterId: string,
+    providerId: string,
     progress: { is_read?: boolean; last_read_page?: number }
   ): Promise<{ id: string; manga_id: string; meta: any }> => {
-    return fetchAPI<{ id: string; manga_id: string; meta: any }>(
-      `/library/manga/${encodeURIComponent(mangaId)}/chapters/${encodeURIComponent(chapterId)}/progress`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(progress),
-      }
-    );
+    const path = `/library/manga/${encodeURIComponent(mangaId)}/providers/${encodeURIComponent(providerId)}/chapters/${encodeURIComponent(chapterId)}/progress`;
+    return fetchAPI<{ id: string; manga_id: string; meta: any }>(path, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(progress),
+    });
   },
   // Plugins Management & Diagnostics
   getPlugins: (): Promise<PluginItem[]> => {
@@ -276,6 +321,34 @@ export const api = {
   clearCache: (): Promise<{ status: string }> => {
     return fetchAPI<{ status: string }>('/system/cache/clear', {
       method: 'POST',
+    });
+  },
+
+  // Job Management
+  getJobs: (filter?: { status?: string; type?: string; [key: string]: any }): Promise<Job[]> => {
+    let path = '/jobs';
+    if (filter) {
+      const query = new URLSearchParams();
+      Object.entries(filter).forEach(([key, val]) => {
+        if (val !== undefined && val !== null && val !== '') {
+          if (key === 'status' || key === 'type') {
+            query.set(key, String(val));
+          } else {
+            query.set(`metadata.${key}`, String(val));
+          }
+        }
+      });
+      const queryString = query.toString();
+      if (queryString) {
+        path += `?${queryString}`;
+      }
+    }
+    return fetchAPI<Job[]>(path);
+  },
+
+  cancelJob: (id: string): Promise<void> => {
+    return fetchAPI<void>(`/jobs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     });
   },
 };

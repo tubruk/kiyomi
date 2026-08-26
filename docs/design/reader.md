@@ -44,9 +44,9 @@ The reading mode is normalized per-manga in `manga.content.reading_mode`. If omi
 
 ## Page Resolution
 
-In **Phase 1**, since the library is metadata-only (no downloaded page files in `library/` folders yet), page images are resolved live by streaming from the remote provider through the Kiyomi backend reverse proxy (`/api/v1/library/manga/{id}/chapters/{ch}/pages/{n}`). The backend uses the TLS fingerprinting engine (`pkg/fingerprint`) to fetch remote page streams securely.
+In the initial implementation, since the library is metadata-only (no pulled page files in `library/` folders yet), page images are resolved live by streaming from the remote provider through the Kiyomi backend reverse proxy (`/api/v1/library/manga/{id}/chapters/{ch}/pages/{n}`). The backend uses the TLS fingerprinting engine (`pkg/fingerprint`) to fetch remote page streams securely.
 
-*Full Fallback Chain (Phase 2+)*:
+*Full Fallback Chain*:
 ```
 Page resolution order:
   1. Disk (library)  — library/<manga_id>/<chapter_id>/<index>.<ext>
@@ -61,9 +61,9 @@ Each page carries a `Source ∈ {disk, cache, provider}` state, determined at re
 **UI surfaces per-page source:**
 - Disk pages: no action needed
 - Cache pages: "Save to library" action available
-- Provider pages: "Download" action available
+- Provider pages: "Pull (to library)" action available
 
-Both actions enqueue `DownloadPageArgs` targeting the library path. The reader **never blocks on download** — it reads whatever source is currently available and re-observes state on the next page visit.
+Both actions enqueue `pull_page` jobs targeting the library path. The reader **never blocks on pull** — it reads whatever source is currently available and re-observes state on the next page visit.
 
 **Source derivation (no DB change):**
 - `disk` — `stat(library/<manga_id>/<chapter_id>/<index>.<ext>)` succeeds
@@ -121,7 +121,7 @@ Preload keeps transitions snappy. No full chapter prefetch (bandwidth + memory c
 
 ## Offline Behavior
 
-When all pages of a chapter are downloaded locally, reader runs fully offline:
+When all pages of a chapter are pulled locally, reader runs fully offline:
 
 ```
 Network state: offline
@@ -151,7 +151,7 @@ CBZ handling — open `.cbz` file, unzip in browser or via WASM unzip module, tr
 | Page (filesystem) | No (read directly) | n/a |
 | Thumbnail | Yes | 30 days |
 
-Cache invalidation tied to library events: when a chapter is downloaded (filesystem copy), cache entries can be evicted. When removed from library, cache purges.
+Cache invalidation tied to library events: when a chapter is pulled (filesystem copy), cache entries can be evicted. When removed from library, cache purges.
 
 ## Memory & Performance
 
@@ -211,7 +211,7 @@ Migrating existing libraries to filesystem-first model requires:
 
 1. Webtoon (long strip) reader for vertical mode — same component or separate?
 2. Two-page spread mode for tablet/landscape?
-3. Image preprocessing pipeline (resize, format conversion) at download time?
+3. Image preprocessing pipeline (resize, format conversion) at pull time?
 4. Reading statistics (time spent, pages per session)? Adds tracking, defer.
 5. Cloud sync of progress across devices — via tracking providers, separate from library.
 
@@ -219,6 +219,6 @@ Migrating existing libraries to filesystem-first model requires:
 
 - `docs/design/library.md` — page file layout, `meta.json` schema, page source model
 - `docs/design/cache.md` — page cache (middle tier of fallback chain)
-- `docs/design/workers.md` — download worker, `DownloadPageArgs`
+- `docs/design/workers.md` — pull worker, `pull_page` jobs
 - `docs/design/providers.md` — remote page fallback
 - `docs/developer/design.md` — current UI design system, reader toolbar specs

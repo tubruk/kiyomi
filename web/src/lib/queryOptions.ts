@@ -76,3 +76,16 @@ export const cacheStatsQueryOptions = () =>
     queryKey: queryKeys.system.cache,
     queryFn: api.getCacheStats,
   });
+
+export const jobsQueryOptions = (filter?: any) =>
+  queryOptions({
+    queryKey: queryKeys.jobs.list(filter),
+    queryFn: () => api.getJobs(filter),
+    refetchInterval: (query) => {
+      const jobs = query.state.data;
+      if (Array.isArray(jobs) && jobs.some((job) => job.status === 'running' || job.status === 'pending')) {
+        return 3000;
+      }
+      return false;
+    },
+  });
