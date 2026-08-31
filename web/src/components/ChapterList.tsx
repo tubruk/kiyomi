@@ -363,11 +363,22 @@ export const ChapterList: React.FC<ChapterListProps> = ({
             Chapters ({chapters.length})
           </h2>
           {isInLibrary && chapters.length > 0 && downloadedCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            <span
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+              title={`${downloadedCount} of ${chapters.length} chapters downloaded`}
+            >
               <HardDrive className="size-3 text-emerald-500" />
-              {downloadedCount}/{chapters.length} downloaded
+              {downloadedCount}/{chapters.length}
             </span>
           )}
+          {resolvedProviderName && (
+            <span className="text-xs text-muted-foreground">
+              Provided by <span className="font-medium text-foreground">{resolvedProviderName}</span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
           {onRefreshChapters && (
             <Button
               variant="outline"
@@ -382,14 +393,7 @@ export const ChapterList: React.FC<ChapterListProps> = ({
               {isRefreshing ? 'Refreshing…' : 'Refresh'}
             </Button>
           )}
-          {resolvedProviderName && (
-            <span className="text-xs text-muted-foreground">
-              Provided by <span className="font-medium text-foreground">{resolvedProviderName}</span>
-            </span>
-          )}
-        </div>
 
-        <div className="flex flex-wrap items-center gap-3">
           {/* Select Mode Button (when in library and has chapters) */}
           {isInLibrary && chapters.length > 0 && !isSelectionMode && (
             <Button

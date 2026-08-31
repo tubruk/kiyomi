@@ -2,9 +2,10 @@ import React from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Check,
+  Download,
+  FileX,
   Loader2,
   MoreVertical,
-  RefreshCw,
   Trash2,
 } from 'lucide-react';
 import { Chapter } from '../../types/api';
@@ -100,10 +101,12 @@ const ChapterRowComponent: React.FC<ChapterRowProps> = ({
   const percent =
     pageCount > 0 ? Math.round((downloadedPages / pageCount) * 100) : null;
 
+  const hasFiles = isDownloaded || downloadedPages > 0;
+
   const showChapterMenu =
     isInLibrary &&
     (Boolean(onRemoveChapter) ||
-      Boolean(onDeleteFiles && chapterProviderId) ||
+      Boolean(onDeleteFiles && chapterProviderId && hasFiles) ||
       Boolean(onPullChapter));
 
   return (
@@ -321,29 +324,25 @@ const ChapterRowComponent: React.FC<ChapterRowProps> = ({
                     {isPulling ? (
                       <Loader2 className="size-3.5 mr-1.5 animate-spin" />
                     ) : (
-                      <RefreshCw className="size-3.5 mr-1.5" />
+                      <Download className="size-3.5 mr-1.5" />
                     )}
-                    Pull chapter
+                    Pull files
                   </DropdownMenuItem>
                 )}
-                {onDeleteFiles && chapterProviderId && (
+                {onDeleteFiles && chapterProviderId && hasFiles && (
                   <DropdownMenuItem
                     onClick={() => {
                       onDeleteFiles(chapter.id, chapterProviderId);
                       onOpenMenuChange(null);
                     }}
-                    disabled={isProcessing || (!isDownloaded && downloadedPages === 0)}
+                    disabled={isProcessing}
                     className="w-full text-xs cursor-pointer font-medium h-8"
-                    title={
-                      isDownloaded || downloadedPages > 0
-                        ? `Remove on-disk page artifacts${downloadedPages > 0 ? ` (${downloadedPages} pages)` : ''} but keep the chapter entry`
-                        : 'No files to delete'
-                    }
+                    title={`Remove on-disk page artifacts${downloadedPages > 0 ? ` (${downloadedPages} pages)` : ''} but keep the chapter entry`}
                   >
                     {isDeletingFiles ? (
                       <Loader2 className="size-3.5 mr-1.5 animate-spin" />
                     ) : (
-                      <Trash2 className="size-3.5 mr-1.5" />
+                      <FileX className="size-3.5 mr-1.5" />
                     )}
                     Delete files
                   </DropdownMenuItem>
@@ -355,7 +354,7 @@ const ChapterRowComponent: React.FC<ChapterRowProps> = ({
                       onOpenMenuChange(null);
                     }}
                     disabled={isProcessing}
-                    className="w-full text-xs cursor-pointer justify-center font-medium h-8 text-destructive focus:text-destructive"
+                    className="w-full text-xs cursor-pointer font-medium h-8 text-destructive focus:text-destructive"
                   >
                     {isRemoving ? (
                       <Loader2 className="size-3.5 mr-1.5 animate-spin" />
