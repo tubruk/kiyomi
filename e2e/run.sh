@@ -63,14 +63,16 @@ else
 fi
 
 echo "==> Post-processing E2E coverage"
-if [ -d "test-results/coverage-go" ] && [ "$(ls -A test-results/coverage-go)" ]; then
+cd ..
+
+if [ -d "e2e/test-results/coverage-go" ] && [ "$(ls -A e2e/test-results/coverage-go)" ]; then
   echo "==> Formatting Backend E2E Coverage"
-  go tool covdata textfmt -i=test-results/coverage-go -o ../coverage-backend-e2e.out
+  go tool covdata textfmt -i=e2e/test-results/coverage-go -o coverage-backend-e2e.out
 fi
 
-if [ -d "test-results/coverage-frontend-v8" ] && [ "$(ls -A test-results/coverage-frontend-v8)" ]; then
+if [ -d "e2e/test-results/coverage-frontend-v8" ] && [ "$(ls -A e2e/test-results/coverage-frontend-v8)" ]; then
   echo "==> Formatting Frontend E2E Coverage"
-  bunx c8 report --temp-directory test-results/coverage-frontend-v8 --reporter lcov --reports-dir ../web/coverage --exclude-after-remap true
+  bunx c8 report --temp-directory e2e/test-results/coverage-frontend-v8 --reporter lcov --reports-dir web/coverage --exclude-after-remap true
 fi
 
 exit $EXIT_CODE
