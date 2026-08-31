@@ -5,4 +5,5 @@ use (
 	./plugin-sdk
 	./plugins/mangadex
 	./plugins/mangafox
+	./plugins/myanimelist
 )
