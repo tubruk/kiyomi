@@ -51,6 +51,7 @@ func (m *mockProvider) Search(ctx context.Context, query string, opts sdk.Search
 			RemoteID:     "mock-1",
 			Title:        "Mock Manga 1",
 			CoverURL:     "https://example.com/cover1.jpg",
+			URL:          "https://example.com/manga/mock-1",
 			Availability: sdk.AvailabilityAvailable,
 		},
 	}, nil
@@ -66,6 +67,7 @@ func (m *mockProvider) Details(ctx context.Context, remoteID string) (sdk.MangaM
 		Genres:       []string{"Action", "Fantasy"},
 		ReadingMode:  sdk.ReadingModeLongstrip,
 		Availability: sdk.AvailabilityAvailable,
+		URL:          "https://example.com/manga/" + remoteID,
 	}, nil
 }
 
@@ -174,6 +176,9 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		if firstManga["availability"] != "available" {
 			t.Errorf("expected availability 'available', got %v", firstManga["availability"])
 		}
+		if firstManga["url"] != "https://example.com/manga/mock-1" {
+			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
+		}
 		if page, ok := resp["page"].(float64); !ok || page != 1 {
 			t.Errorf("expected page 1, got %v", resp["page"])
 		}
@@ -207,6 +212,9 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		if firstManga["availability"] != "available" {
 			t.Errorf("expected availability 'available', got %v", firstManga["availability"])
 		}
+		if firstManga["url"] != "https://example.com/manga/mock-1" {
+			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
+		}
 	})
 
 	t.Run("GET /providers/testprov/popular", func(t *testing.T) {
@@ -226,6 +234,9 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		firstManga := mangas[0].(map[string]interface{})
 		if firstManga["availability"] != "available" {
 			t.Errorf("expected availability 'available', got %v", firstManga["availability"])
+		}
+		if firstManga["url"] != "https://example.com/manga/mock-1" {
+			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
 		}
 	})
 
@@ -247,6 +258,9 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		if firstManga["availability"] != "available" {
 			t.Errorf("expected availability 'available', got %v", firstManga["availability"])
 		}
+		if firstManga["url"] != "https://example.com/manga/mock-1" {
+			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
+		}
 	})
 
 	t.Run("GET /providers/testprov/search", func(t *testing.T) {
@@ -266,6 +280,9 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		firstManga := mangas[0].(map[string]interface{})
 		if firstManga["availability"] != "available" {
 			t.Errorf("expected availability 'available', got %v", firstManga["availability"])
+		}
+		if firstManga["url"] != "https://example.com/manga/mock-1" {
+			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
 		}
 	})
 
@@ -287,6 +304,9 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		}
 		if details["reading_mode"] != "longstrip" {
 			t.Errorf("expected reading_mode 'longstrip', got %v", details["reading_mode"])
+		}
+		if details["url"] != "https://example.com/manga/mock-1" {
+			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", details["url"])
 		}
 	})
 
@@ -408,6 +428,12 @@ func TestImportProviderManga_PreservesChapterMeta(t *testing.T) {
 	if importResp.Meta.Content == nil || importResp.Meta.Content.ReadingMode != "longstrip" {
 		t.Errorf("expected import response Content.ReadingMode 'longstrip', got %+v", importResp.Meta.Content)
 	}
+	if len(importResp.Meta.ExternalLinks) != 1 {
+		t.Fatalf("expected 1 external link in import response, got %d", len(importResp.Meta.ExternalLinks))
+	}
+	if importResp.Meta.ExternalLinks[0].Provider != "testprov" || importResp.Meta.ExternalLinks[0].Label != "Test Provider" || importResp.Meta.ExternalLinks[0].URL != "https://example.com/manga/mock-1" {
+		t.Errorf("unexpected external link in import response: %+v", importResp.Meta.ExternalLinks[0])
+	}
 
 	// Verify manga endpoint returns reading_mode
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/mock-1", nil)
@@ -420,6 +446,26 @@ func TestImportProviderManga_PreservesChapterMeta(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &getMangaResp)
 	if getMangaResp["reading_mode"] != "longstrip" {
 		t.Errorf("expected getManga reading_mode 'longstrip', got %v", getMangaResp["reading_mode"])
+	}
+	topExtLinks, ok := getMangaResp["external_links"].([]interface{})
+	if !ok || len(topExtLinks) != 1 {
+		t.Fatalf("expected 1 top-level external_links in getMangaResp, got %v", getMangaResp["external_links"])
+	}
+	topExtLinksCamel, ok := getMangaResp["externalLinks"].([]interface{})
+	if !ok || len(topExtLinksCamel) != 1 {
+		t.Fatalf("expected 1 top-level externalLinks in getMangaResp, got %v", getMangaResp["externalLinks"])
+	}
+	metaMap, ok := getMangaResp["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected meta map in getMangaResp, got %v", getMangaResp)
+	}
+	extLinks, ok := metaMap["external_links"].([]interface{})
+	if !ok || len(extLinks) != 1 {
+		t.Fatalf("expected 1 external_link in meta, got %v", metaMap["external_links"])
+	}
+	extLinkMap := extLinks[0].(map[string]interface{})
+	if extLinkMap["provider"] != "testprov" || extLinkMap["label"] != "Test Provider" || extLinkMap["url"] != "https://example.com/manga/mock-1" {
+		t.Errorf("unexpected external_link: %+v", extLinkMap)
 	}
 
 	// Verify chapter list endpoint returns sourceOrder and uploadDate
@@ -642,5 +688,108 @@ func TestImportProviderManga_ConcurrentBatch(t *testing.T) {
 		t.Fatalf("expected %d chapters, got %d", totalChapters, len(chapters))
 	}
 }
+
+type mockNoURLProvider struct {
+	mockProvider
+}
+
+func (m *mockNoURLProvider) Details(ctx context.Context, remoteID string) (sdk.MangaMetadata, error) {
+	meta, err := m.mockProvider.Details(ctx, remoteID)
+	if err != nil {
+		return meta, err
+	}
+	meta.URL = ""
+	return meta, nil
+}
+
+func TestImportProviderManga_ExternalLinks(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockP := &mockProvider{id: "testprov", name: "Test Provider"}
+	h.registry.Register(mockP)
+
+	mockNoURL := &mockNoURLProvider{mockProvider: mockProvider{id: "nourlprov", name: "No URL Provider"}}
+	h.registry.Register(mockNoURL)
+
+	t.Run("with URL", func(t *testing.T) {
+		body := map[string]string{
+			"provider_id": "testprov",
+			"remote_id":   "mock-with-url",
+		}
+		bodyBytes, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/import", bytes.NewReader(bodyBytes))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 Created on import, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var importResp struct {
+			ID   string            `json:"id"`
+			Meta library.MangaMeta `json:"meta"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &importResp); err != nil {
+			t.Fatalf("failed to decode import response: %v", err)
+		}
+
+		if len(importResp.Meta.ExternalLinks) != 1 {
+			t.Fatalf("expected 1 external link, got %d", len(importResp.Meta.ExternalLinks))
+		}
+		link := importResp.Meta.ExternalLinks[0]
+		if link.Provider != "testprov" || link.Label != "Test Provider" || link.URL != "https://example.com/manga/mock-with-url" {
+			t.Errorf("unexpected external link: %+v", link)
+		}
+
+		stored, err := h.lib.GetManga("mock-with-url")
+		if err != nil {
+			t.Fatalf("GetManga failed: %v", err)
+		}
+		if len(stored.ExternalLinks) != 1 {
+			t.Fatalf("expected 1 stored external link, got %d", len(stored.ExternalLinks))
+		}
+		if stored.ExternalLinks[0].Provider != "testprov" || stored.ExternalLinks[0].Label != "Test Provider" || stored.ExternalLinks[0].URL != "https://example.com/manga/mock-with-url" {
+			t.Errorf("unexpected stored external link: %+v", stored.ExternalLinks[0])
+		}
+	})
+
+	t.Run("without URL", func(t *testing.T) {
+		body := map[string]string{
+			"provider_id": "nourlprov",
+			"remote_id":   "mock-without-url",
+		}
+		bodyBytes, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/import", bytes.NewReader(bodyBytes))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 Created on import, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var importResp struct {
+			ID   string            `json:"id"`
+			Meta library.MangaMeta `json:"meta"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &importResp); err != nil {
+			t.Fatalf("failed to decode import response: %v", err)
+		}
+
+		if len(importResp.Meta.ExternalLinks) != 0 {
+			t.Errorf("expected 0 external links, got %d", len(importResp.Meta.ExternalLinks))
+		}
+
+		stored, err := h.lib.GetManga("mock-without-url")
+		if err != nil {
+			t.Fatalf("GetManga failed: %v", err)
+		}
+		if len(stored.ExternalLinks) != 0 {
+			t.Errorf("expected 0 stored external links, got %d", len(stored.ExternalLinks))
+		}
+	})
+}
+
 
 

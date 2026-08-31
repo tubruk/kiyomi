@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Info, SwitchCamera } from 'lucide-react';
+import { Trash2, Info, SwitchCamera, Download } from 'lucide-react';
 import { ProviderRef, Source } from '../types/api';
 import { CapabilityBadge } from './CapabilityBadge';
 import {
@@ -17,6 +17,7 @@ interface ProviderListProps {
   sources: Source[];
   onRemove?: (provider: ProviderRef) => void;
   onSwitchTo?: (provider: ProviderRef) => void;
+  onImportMetadata?: (provider: ProviderRef) => void;
   isRemoving?: boolean;
   canRemoveProvider?: (provider: ProviderRef) => boolean;
   isContentUnavailable?: boolean;
@@ -29,6 +30,7 @@ export const ProviderList: React.FC<ProviderListProps> = ({
   sources,
   onRemove,
   onSwitchTo,
+  onImportMetadata,
   isRemoving = false,
   canRemoveProvider = () => true,
   isContentUnavailable = false,
@@ -112,6 +114,13 @@ export const ProviderList: React.FC<ProviderListProps> = ({
                 <span className="text-xs">•••</span>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onClick={() => onImportMetadata?.(provider)}
+                  className="text-xs cursor-pointer gap-2"
+                >
+                  <Download className="size-3" />
+                  Import metadata
+                </DropdownMenuItem>
                 {!active && hasContentCapability(provider.provider_id) && (
                   <DropdownMenuItem
                     onClick={() => onSwitchTo?.(provider)}

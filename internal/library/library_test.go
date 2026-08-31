@@ -30,6 +30,13 @@ func TestLibraryCRUD(t *testing.T) {
 		Authors:     []string{"Author 1"},
 		Artists:     []string{"Artist 1"},
 		Tags:        []string{"Action", "Fantasy"},
+		ExternalLinks: []ExternalLink{
+			{
+				Provider: "mangadex",
+				Label:    "MangaDex",
+				URL:      "https://mangadex.org/title/remote-manga-123",
+			},
+		},
 		UserStatus:   "reading",
 		UserRating:   9.0,
 		UserFavorite: true,
@@ -62,6 +69,9 @@ func TestLibraryCRUD(t *testing.T) {
 	}
 	if gotMeta.UserRating != mangaMeta.UserRating {
 		t.Errorf("expected user_rating %v, got %v", mangaMeta.UserRating, gotMeta.UserRating)
+	}
+	if len(gotMeta.ExternalLinks) != 1 || gotMeta.ExternalLinks[0].Provider != "mangadex" || gotMeta.ExternalLinks[0].Label != "MangaDex" || gotMeta.ExternalLinks[0].URL != "https://mangadex.org/title/remote-manga-123" {
+		t.Errorf("expected ExternalLinks %+v, got %+v", mangaMeta.ExternalLinks, gotMeta.ExternalLinks)
 	}
 	if gotMeta.Content == nil || gotMeta.Content.ProviderMangaID != mangaMeta.Content.ProviderMangaID {
 		t.Errorf("content binding mismatch: got %+v", gotMeta.Content)
@@ -822,9 +832,28 @@ func TestAddProvider(t *testing.T) {
 		t.Errorf("expected 2 providers, got %d", len(meta.Providers))
 	}
 
-	// Add duplicate should fail
-	if err := lib.AddProvider(mangaID, ref1); err == nil {
-		t.Errorf("expected error adding duplicate provider, got nil")
+	// Add duplicate should succeed and update title if provided (idempotent)
+	ref1Updated := ProviderRef{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Updated Manga Title"}
+	if err := lib.AddProvider(mangaID, ref1Updated); err != nil {
+		t.Fatalf("expected nil error on duplicate add provider, got: %v", err)
+	}
+
+	meta, _ = lib.GetManga(mangaID)
+	if len(meta.Providers) != 2 {
+		t.Errorf("expected 2 providers, got %d", len(meta.Providers))
+	}
+	if meta.Providers[0].MangaTitle != "Updated Manga Title" {
+		t.Errorf("expected updated title %q, got %q", "Updated Manga Title", meta.Providers[0].MangaTitle)
+	}
+
+	// Re-add duplicate with empty title should leave existing title unchanged
+	ref1NoTitle := ProviderRef{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: ""}
+	if err := lib.AddProvider(mangaID, ref1NoTitle); err != nil {
+		t.Fatalf("expected nil error on duplicate add provider with empty title, got: %v", err)
+	}
+	meta, _ = lib.GetManga(mangaID)
+	if meta.Providers[0].MangaTitle != "Updated Manga Title" {
+		t.Errorf("expected unchanged title %q, got %q", "Updated Manga Title", meta.Providers[0].MangaTitle)
 	}
 }
 
@@ -1586,3 +1615,45 @@ func TestLibrary_PathTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestLibrary_ExternalLinks(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+
+	meta := &MangaMeta{
+		Title: "External Links Test Manga",
+		ExternalLinks: []ExternalLink{
+			{
+				Provider: "mangadex",
+				Label:    "MangaDex",
+				URL:      "https://mangadex.org/title/manga-1",
+			},
+			{
+				Provider: "anilist",
+				Label:    "AniList",
+				URL:      "https://anilist.co/manga/1",
+			},
+		},
+	}
+
+	if err := lib.SaveManga("manga-links", meta); err != nil {
+		t.Fatalf("SaveManga failed: %v", err)
+	}
+
+	got, err := lib.GetManga("manga-links")
+	if err != nil {
+		t.Fatalf("GetManga failed: %v", err)
+	}
+
+	if len(got.ExternalLinks) != 2 {
+		t.Fatalf("expected 2 external links, got %d", len(got.ExternalLinks))
+	}
+
+	if got.ExternalLinks[0].Provider != "mangadex" || got.ExternalLinks[0].Label != "MangaDex" || got.ExternalLinks[0].URL != "https://mangadex.org/title/manga-1" {
+		t.Errorf("unexpected first external link: %+v", got.ExternalLinks[0])
+	}
+	if got.ExternalLinks[1].Provider != "anilist" || got.ExternalLinks[1].Label != "AniList" || got.ExternalLinks[1].URL != "https://anilist.co/manga/1" {
+		t.Errorf("unexpected second external link: %+v", got.ExternalLinks[1])
+	}
+}
+

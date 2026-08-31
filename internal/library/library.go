@@ -53,6 +53,13 @@ type ProviderRef struct {
 	MangaTitle      string `json:"manga_title,omitempty"`
 }
 
+// ExternalLink represents an external web link associated with a manga.
+type ExternalLink struct {
+	Provider string `json:"provider"`
+	Label    string `json:"label"`
+	URL      string `json:"url"`
+}
+
 // ContentSource represents the upstream primary content provider binding.
 type ContentSource struct {
 	ProviderID      string    `json:"provider_id"`
@@ -78,6 +85,7 @@ type MangaMeta struct {
 	EndDate           string         `json:"end_date"`
 	Country           string         `json:"country"`
 	CoverURL          string         `json:"cover_url,omitempty"`
+	ExternalLinks     []ExternalLink `json:"external_links,omitempty"`
 	Content           *ContentSource `json:"content,omitempty"`
 	Providers         []ProviderRef  `json:"providers,omitempty"`
 	UserStatus        string         `json:"user_status"`
@@ -1015,10 +1023,16 @@ func (l *Library) AddProvider(mangaID string, ref ProviderRef) error {
 		return fmt.Errorf("add provider: %w", err)
 	}
 
-	// Check for duplicate
-	for _, p := range meta.Providers {
+	// Check for existing provider binding (idempotent)
+	for i, p := range meta.Providers {
 		if p.ProviderID == ref.ProviderID && p.ProviderMangaID == ref.ProviderMangaID {
-			return fmt.Errorf("add provider: duplicate provider binding (%s, %s)", ref.ProviderID, ref.ProviderMangaID)
+			if ref.MangaTitle != "" {
+				meta.Providers[i].MangaTitle = ref.MangaTitle
+			}
+			if err := l.saveManga(mangaID, meta); err != nil {
+				return fmt.Errorf("add provider: save manga: %w", err)
+			}
+			return nil
 		}
 	}
 

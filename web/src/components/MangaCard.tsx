@@ -34,9 +34,11 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
             )}
             loading="lazy"
             onError={(e) => {
-              const fallback = manga.coverUrl || manga.cover;
-              if (fallback && e.currentTarget.src !== fallback) {
-                e.currentTarget.src = fallback;
+              const proxied = getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
+              if (manga.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
+                e.currentTarget.src = proxied;
+              } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
+                e.currentTarget.src = '/placeholder.jpg';
               }
             }}
           />
@@ -109,9 +111,11 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
           )}
           loading="lazy"
           onError={(e) => {
-            const fallback = manga.coverUrl || manga.cover;
-            if (fallback && e.currentTarget.src !== fallback) {
-              e.currentTarget.src = fallback;
+            const proxied = getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
+            if (manga.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
+              e.currentTarget.src = proxied;
+            } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
+              e.currentTarget.src = '/placeholder.jpg';
             }
           }}
         />

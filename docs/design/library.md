@@ -83,6 +83,13 @@ The manga manifest defines series metadata, provider bindings, and user tracking
   "end_date": "",
   "country": "JP",
   "cover_url": "https://uploads.mangadex.org/covers/abc/cover.jpg",
+  "external_links": [
+    {
+      "provider": "mangadex",
+      "label": "MangaDex",
+      "url": "https://mangadex.org/title/abc123"
+    }
+  ],
   "content": {
     "provider_id": "mangadex",
     "provider_manga_id": "abc123",
@@ -130,6 +137,10 @@ The manga manifest defines series metadata, provider bindings, and user tracking
 | `end_date` | string | Publication end date (`YYYY-MM-DD`) or empty if ongoing |
 | `country` | string | ISO country code of origin (`JP`, `KR`, `CN`, etc.) |
 | `cover_url` | string | Upstream remote URL for cover art fallback / refresh |
+| `external_links` | object[] | External links associated with the manga |
+| `external_links[].provider` | string | Provider or service identifier |
+| `external_links[].label` | string | Display label for the link |
+| `external_links[].url` | string | Target web URL |
 | `content` | object | Active content provider source configuration (optional) |
 | `content.provider_id` | string | Active content provider identifier |
 | `content.provider_manga_id` | string | Active provider series remote identifier |

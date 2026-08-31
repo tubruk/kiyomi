@@ -171,7 +171,29 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 		return handleProviderError(c, providerID, fmt.Errorf("provider not available: %s", providerID))
 	}
 
-	pages, err := contentProvider.FetchPages(c.Request().Context(), mangaRef, chapterRef)
+	remoteMangaID := mangaRef
+	remoteChapterRef := chapterRef
+	if mangaRef != "" {
+		if mangaMeta, err := h.lib.GetManga(mangaRef); err == nil {
+			if mangaMeta.Content != nil && mangaMeta.Content.ProviderID == providerID && mangaMeta.Content.ProviderMangaID != "" {
+				remoteMangaID = mangaMeta.Content.ProviderMangaID
+			} else {
+				for _, p := range mangaMeta.Providers {
+					if p.ProviderID == providerID && p.ProviderMangaID != "" {
+						remoteMangaID = p.ProviderMangaID
+						break
+					}
+				}
+			}
+			if chMeta, err := h.lib.GetChapter(mangaRef, providerID, chapterRef); err == nil {
+				if chMeta.Content != nil && chMeta.Content.ChapterRef != "" {
+					remoteChapterRef = chMeta.Content.ChapterRef
+				}
+			}
+		}
+	}
+
+	pages, err := contentProvider.FetchPages(c.Request().Context(), remoteMangaID, remoteChapterRef)
 	if err != nil {
 		return handleProviderError(c, providerID, err)
 	}

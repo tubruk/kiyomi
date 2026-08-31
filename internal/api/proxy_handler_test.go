@@ -713,3 +713,104 @@ func TestProxyPageImage_RetainProviderID(t *testing.T) {
 		t.Errorf("expected Referer from retained providerID 'https://fanfox.net/', got %q", receivedReferer)
 	}
 }
+
+type mockCapturePagesProvider struct {
+	mockProvider
+	lastMangaRef   string
+	lastChapterRef string
+}
+
+func (m *mockCapturePagesProvider) FetchPages(ctx context.Context, mangaRef, chapterRef string) ([]sdk.Page, error) {
+	m.lastMangaRef = mangaRef
+	m.lastChapterRef = chapterRef
+	return []sdk.Page{
+		{Index: 1, URL: "https://example.com/p1.jpg"},
+	}, nil
+}
+
+func TestGetChapterPages_ResolvesRemoteIDs(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockP := &mockCapturePagesProvider{
+		mockProvider: mockProvider{id: "remoteprov", name: "Remote Provider"},
+	}
+	h.registry.Register(mockP)
+
+	// Case 1: Primary provider content in mangaMeta.Content
+	localMangaID := "local-manga-1"
+	localChapterID := "local-ch-1"
+	remoteMangaID := "remote-manga-100"
+	remoteChapterRef := "remote-ch-200"
+
+	_ = h.lib.SaveManga(localMangaID, &library.MangaMeta{
+		Title: "Local Manga 1",
+		Content: &library.ContentSource{
+			ProviderID:      "remoteprov",
+			ProviderMangaID: remoteMangaID,
+		},
+	})
+	_ = h.lib.SaveChapter(localMangaID, "remoteprov", localChapterID, &library.ChapterMeta{
+		Title: "Local Chapter 1",
+		Content: &library.ContentSource{
+			ProviderID: "remoteprov",
+			ChapterRef: remoteChapterRef,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/chapters/%s/pages?providerId=remoteprov&mangaId=%s", localChapterID, localMangaID), nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if mockP.lastMangaRef != remoteMangaID {
+		t.Errorf("expected FetchPages mangaRef %q, got %q", remoteMangaID, mockP.lastMangaRef)
+	}
+	if mockP.lastChapterRef != remoteChapterRef {
+		t.Errorf("expected FetchPages chapterRef %q, got %q", remoteChapterRef, mockP.lastChapterRef)
+	}
+
+	// Verify pages saved under local manga and chapter IDs
+	saved, err := h.lib.GetChapterPages(localMangaID, "remoteprov", localChapterID)
+	if err != nil || len(saved) == 0 {
+		t.Fatalf("expected chapter pages saved to local library IDs: %v", err)
+	}
+
+	// Case 2: Multi-provider binding in mangaMeta.Providers
+	localMangaID2 := "local-manga-2"
+	localChapterID2 := "local-ch-2"
+	remoteMangaID2 := "remote-manga-300"
+	remoteChapterRef2 := "remote-ch-400"
+
+	_ = h.lib.SaveManga(localMangaID2, &library.MangaMeta{
+		Title: "Local Manga 2",
+		Providers: []library.ProviderRef{
+			{
+				ProviderID:      "remoteprov",
+				ProviderMangaID: remoteMangaID2,
+			},
+		},
+	})
+	_ = h.lib.SaveChapter(localMangaID2, "remoteprov", localChapterID2, &library.ChapterMeta{
+		Title: "Local Chapter 2",
+		Content: &library.ContentSource{
+			ProviderID: "remoteprov",
+			ChapterRef: remoteChapterRef2,
+		},
+	})
+
+	req2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/chapters/%s/pages?providerId=remoteprov&mangaId=%s", localChapterID2, localMangaID2), nil)
+	rec2 := httptest.NewRecorder()
+	e.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for case 2, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+	if mockP.lastMangaRef != remoteMangaID2 {
+		t.Errorf("expected FetchPages mangaRef %q, got %q", remoteMangaID2, mockP.lastMangaRef)
+	}
+	if mockP.lastChapterRef != remoteChapterRef2 {
+		t.Errorf("expected FetchPages chapterRef %q, got %q", remoteChapterRef2, mockP.lastChapterRef)
+	}
+}

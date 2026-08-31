@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Loader2, Check } from 'lucide-react';
+import { Plus, Loader2, Link as LinkIcon } from 'lucide-react';
 import { ProviderRef, Source, Manga } from '../types/api';
 import { api } from '../api/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -9,6 +9,7 @@ import { AliasCombobox } from './AliasCombobox';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { useToast } from '../context/ToastContext';
+import { getProxyImageUrl } from '../lib/utils';
 
 interface AddProviderDialogProps {
   mangaId: string;
@@ -158,8 +159,8 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                           <div className="flex items-center justify-between gap-2">
                             <span>{source.name}</span>
                             {boundCount > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                                <Check className="size-3" />
+                              <span className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-0.2 text-[10px] text-muted-foreground">
+                                <LinkIcon className="size-2.5 text-muted-foreground" />
                                 {boundCount === 1 ? 'Bound' : `Bound ×${boundCount}`}
                               </span>
                             )}
@@ -205,9 +206,12 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                         >
                           {manga.coverUrl || manga.cover ? (
                             <img
-                              src={manga.coverUrl || manga.cover}
+                              src={getProxyImageUrl(manga.coverUrl || manga.cover, manga.url)}
                               alt=""
                               className="size-12 rounded object-cover shrink-0"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
                             />
                           ) : (
                             <div className="size-12 rounded bg-muted shrink-0" />
@@ -244,9 +248,12 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                 <div className="flex items-start gap-3 rounded-lg border border-border p-3">
                   {selectedResult.coverUrl || selectedResult.cover ? (
                     <img
-                      src={selectedResult.coverUrl || selectedResult.cover}
+                      src={getProxyImageUrl(selectedResult.coverUrl || selectedResult.cover, selectedResult.url)}
                       alt=""
                       className="size-16 rounded object-cover shrink-0"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
                     />
                   ) : (
                     <div className="size-16 rounded bg-muted shrink-0" />

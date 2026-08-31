@@ -38,6 +38,8 @@ func (h *Handler) listLibraryManga(c echo.Context) error {
 			"cover":               m.Meta.CoverURL,
 			"content_provider_id": providerID,
 			"sourceId":            providerID,
+			"external_links":      m.Meta.ExternalLinks,
+			"externalLinks":       m.Meta.ExternalLinks,
 			"meta":                m.Meta,
 		}
 		if readingMode != "" {
@@ -72,6 +74,8 @@ func (h *Handler) getLibraryManga(c echo.Context) error {
 		"tags":                meta.Tags,
 		"content_provider_id": providerID,
 		"sourceId":            providerID,
+		"external_links":      meta.ExternalLinks,
+		"externalLinks":       meta.ExternalLinks,
 		"meta":                meta,
 	}
 	if readingMode != "" {

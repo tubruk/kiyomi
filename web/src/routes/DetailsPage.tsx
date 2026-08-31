@@ -16,6 +16,7 @@ import {
   Play,
   MoreVertical,
   Download,
+  ExternalLink,
 } from 'lucide-react';
 import { api } from '../api/client';
 import {
@@ -103,6 +104,8 @@ export const DetailsPage: React.FC = () => {
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
   const [isImportMetadataOpen, setIsImportMetadataOpen] = useState(false);
+  const [importMetadataProviderId, setImportMetadataProviderId] = useState<string | undefined>(undefined);
+  const [importMetadataRemoteId, setImportMetadataRemoteId] = useState<string | undefined>(undefined);
   const [isProvidersCollapsed, setIsProvidersCollapsed] = useState(true);
   const [optimisticPullIds, setOptimisticPullIds] = useState<Set<string>>(new Set());
 
@@ -816,9 +819,11 @@ export const DetailsPage: React.FC = () => {
                 alt={manga?.title || 'Manga Cover'}
                 className="aspect-[2/3] w-full object-cover"
                 onError={(e) => {
-                  const fallback = manga?.coverUrl || manga?.cover;
-                  if (fallback && e.currentTarget.src !== fallback) {
-                    e.currentTarget.src = fallback;
+                  const proxied = getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
+                  if (manga?.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
+                    e.currentTarget.src = proxied;
+                  } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
+                    e.currentTarget.src = '/placeholder.jpg';
                   }
                 }}
               />
@@ -1013,7 +1018,11 @@ export const DetailsPage: React.FC = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem
-                    onClick={() => setIsImportMetadataOpen(true)}
+                    onClick={() => {
+                      setImportMetadataProviderId(undefined);
+                      setImportMetadataRemoteId(undefined);
+                      setIsImportMetadataOpen(true);
+                    }}
                     className="text-xs cursor-pointer gap-2"
                   >
                     <Download className="size-4" />
@@ -1136,6 +1145,31 @@ export const DetailsPage: React.FC = () => {
                     <span className="font-medium text-foreground uppercase">{manga.country}</span>
                   </div>
                 )}
+                {(() => {
+                  const extLinks = (manga?.externalLinks && manga.externalLinks.length > 0)
+                    ? manga.externalLinks
+                    : (manga?.meta?.external_links || []);
+                  if (extLinks.length === 0) return null;
+                  return (
+                    <div className="col-span-2 sm:col-span-3 pt-1 border-t border-border/20">
+                      <span className="text-muted-foreground block text-[10px] uppercase font-bold mb-1.5">External Links</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {extLinks.map((link, idx) => (
+                          <a
+                            key={`${link.url}-${idx}`}
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline bg-primary/10 rounded px-2 py-0.5 font-medium transition-colors"
+                          >
+                            <ExternalLink className="size-3" />
+                            <span>{link.label || link.provider || link.url}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -1190,6 +1224,11 @@ export const DetailsPage: React.FC = () => {
                   contentProviderId={manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id}
                   contentProviderMangaId={manga.contentRemoteId || manga.meta?.content?.provider_manga_id}
                   sources={sources}
+                  onImportMetadata={(provider) => {
+                    setImportMetadataProviderId(provider.provider_id);
+                    setImportMetadataRemoteId(provider.provider_manga_id);
+                    setIsImportMetadataOpen(true);
+                  }}
                   onRemove={(provider) => {
                     if (confirm(`Remove "${provider.manga_title || provider.provider_id}" from this manga?`)) {
                       removeProviderMutation.mutate(provider);
@@ -1285,7 +1324,15 @@ export const DetailsPage: React.FC = () => {
           manga={manga}
           sources={sources}
           open={isImportMetadataOpen}
-          onOpenChange={setIsImportMetadataOpen}
+          onOpenChange={(open) => {
+            setIsImportMetadataOpen(open);
+            if (!open) {
+              setImportMetadataProviderId(undefined);
+              setImportMetadataRemoteId(undefined);
+            }
+          }}
+          initialProviderId={importMetadataProviderId}
+          initialRemoteId={importMetadataRemoteId}
         />
       )}
     </div>

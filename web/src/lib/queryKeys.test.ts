@@ -9,6 +9,7 @@ describe('queryKeys', () => {
   it('generates library keys', () => {
     expect(queryKeys.library.all).toEqual(['library']);
     expect(queryKeys.library.mangas()).toEqual(['library', 'manga']);
+    expect(queryKeys.library.providers('manga-1')).toEqual(['library', 'providers', 'manga-1']);
     expect(queryKeys.library.pull('manga-1')).toEqual(['library', 'pull', 'manga-1']);
     expect(queryKeys.library.pull('manga-1', 'prov-1')).toEqual(['library', 'pull', 'manga-1', 'prov-1']);
     expect(queryKeys.library.refresh('manga-1')).toEqual(['library', 'refresh', 'manga-1']);

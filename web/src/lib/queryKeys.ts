@@ -5,6 +5,7 @@ export const queryKeys = {
   library: {
     all: ['library'] as const,
     mangas: () => [...queryKeys.library.all, 'manga'] as const,
+    providers: (mangaId: string) => [...queryKeys.library.all, 'providers', mangaId] as const,
     pull: (mangaId: string, providerId?: string) =>
       [...queryKeys.library.all, 'pull', mangaId, ...(providerId ? [providerId] : [])] as const,
     refresh: (mangaId: string) =>

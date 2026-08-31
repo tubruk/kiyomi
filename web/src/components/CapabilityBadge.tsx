@@ -22,7 +22,7 @@ export const CapabilityBadge: React.FC<CapabilityBadgeProps> = ({ capability, cl
   if (!label) return null;
 
   const isActive = active && !unavailable;
-  const isUnavailable = unavailable && !active;
+  const isUnavailable = Boolean(unavailable);
 
   const stateClass = isActive
     ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'

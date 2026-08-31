@@ -935,13 +935,29 @@ func TestLibraryHandler_ProviderBindings(t *testing.T) {
 		t.Errorf("expected 1 provider after add, got %d", len(addedProviders))
 	}
 
-	// 3. Add duplicate should return 409 Conflict
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/provider-test-manga/providers", bytes.NewReader(addBytes))
+	// 3. Add duplicate should succeed idempotently (201 Created) and update title
+	dupBody := map[string]interface{}{
+		"provider_id":       "mangadex",
+		"provider_manga_id": "md-123",
+		"manga_title":       "Provider Binding Test Updated",
+	}
+	dupBytes, _ := json.Marshal(dupBody)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/provider-test-manga/providers", bytes.NewReader(dupBytes))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409 Conflict for duplicate, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for duplicate add, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var dupResp map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &dupResp)
+	dupProviders := dupResp["providers"].([]interface{})
+	if len(dupProviders) != 1 {
+		t.Errorf("expected 1 provider after duplicate add, got %d", len(dupProviders))
+	}
+	firstProv := dupProviders[0].(map[string]interface{})
+	if firstProv["manga_title"] != "Provider Binding Test Updated" {
+		t.Errorf("expected updated title %q, got %q", "Provider Binding Test Updated", firstProv["manga_title"])
 	}
 
 	// 4. Add another provider
@@ -2092,3 +2108,90 @@ func TestPullChaptersBatch_MangaNotFound(t *testing.T) {
 		t.Errorf("expected 404 Not Found for nonexistent manga, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestLibraryHandler_ExternalLinksResponse(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mangaID := "ext-links-manga-1"
+	links := []library.ExternalLink{
+		{
+			Provider: "mangadex",
+			Label:    "MangaDex",
+			URL:      "https://mangadex.org/title/12345",
+		},
+		{
+			Provider: "anilist",
+			Label:    "AniList",
+			URL:      "https://anilist.co/manga/67890",
+		},
+	}
+	mangaMeta := &library.MangaMeta{
+		Title:         "External Links Test Manga",
+		ExternalLinks: links,
+	}
+	if err := h.lib.SaveManga(mangaID, mangaMeta); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	// 1. GET /api/v1/library/manga/:mangaId
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/"+mangaID, nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var getResp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("failed to parse get manga response: %v", err)
+	}
+
+	for _, key := range []string{"external_links", "externalLinks"} {
+		rawLinks, ok := getResp[key].([]interface{})
+		if !ok || len(rawLinks) != 2 {
+			t.Fatalf("expected 2 items in %s, got %v", key, getResp[key])
+		}
+		firstLink, ok := rawLinks[0].(map[string]interface{})
+		if !ok || firstLink["provider"] != "mangadex" || firstLink["label"] != "MangaDex" || firstLink["url"] != "https://mangadex.org/title/12345" {
+			t.Errorf("unexpected first link in %s: %v", key, firstLink)
+		}
+	}
+
+	// 2. GET /api/v1/library/manga (list)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/library/manga", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var listResp []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("failed to parse list manga response: %v", err)
+	}
+
+	var foundItem map[string]interface{}
+	for _, item := range listResp {
+		if item["id"] == mangaID {
+			foundItem = item
+			break
+		}
+	}
+	if foundItem == nil {
+		t.Fatalf("manga %s not found in list response", mangaID)
+	}
+
+	for _, key := range []string{"external_links", "externalLinks"} {
+		rawLinks, ok := foundItem[key].([]interface{})
+		if !ok || len(rawLinks) != 2 {
+			t.Fatalf("expected 2 items in list %s, got %v", key, foundItem[key])
+		}
+		firstLink, ok := rawLinks[0].(map[string]interface{})
+		if !ok || firstLink["provider"] != "mangadex" || firstLink["label"] != "MangaDex" || firstLink["url"] != "https://mangadex.org/title/12345" {
+			t.Errorf("unexpected first link in list %s: %v", key, firstLink)
+		}
+	}
+}
+

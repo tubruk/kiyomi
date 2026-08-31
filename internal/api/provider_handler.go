@@ -107,6 +107,9 @@ func (h *Handler) getProviderMangaCatalog(c echo.Context) error {
 			"cover":    res.CoverURL,
 			"provider": providerID,
 		}
+		if res.URL != "" {
+			manga["url"] = res.URL
+		}
 		if res.Availability != "" {
 			manga["availability"] = res.Availability
 		}
@@ -150,6 +153,9 @@ func (h *Handler) getPopularManga(c echo.Context) error {
 			"title":    res.Title,
 			"cover":    res.CoverURL,
 			"provider": providerID,
+		}
+		if res.URL != "" {
+			manga["url"] = res.URL
 		}
 		if res.Availability != "" {
 			manga["availability"] = res.Availability
@@ -195,6 +201,9 @@ func (h *Handler) getLatestManga(c echo.Context) error {
 			"cover":    res.CoverURL,
 			"provider": providerID,
 		}
+		if res.URL != "" {
+			manga["url"] = res.URL
+		}
 		if res.Availability != "" {
 			manga["availability"] = res.Availability
 		}
@@ -229,6 +238,9 @@ func (h *Handler) searchManga(c echo.Context) error {
 			"title":    res.Title,
 			"cover":    res.CoverURL,
 			"provider": providerID,
+		}
+		if res.URL != "" {
+			manga["url"] = res.URL
 		}
 		if res.Availability != "" {
 			manga["availability"] = res.Availability
@@ -268,6 +280,7 @@ func (h *Handler) getProviderMangaDetails(c echo.Context) error {
 		"artists":       []string{meta.Artist},
 		"tags":          meta.Genres,
 		"totalChapters": meta.TotalChapters,
+		"url":           meta.URL,
 	}
 	if meta.ReadingMode != "" {
 		details["reading_mode"] = meta.ReadingMode
@@ -358,15 +371,32 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		artists = append(artists, meta.Artist)
 	}
 
+	providerName := body.ProviderID
+	if metaProvider != nil && metaProvider.Name() != "" {
+		providerName = metaProvider.Name()
+	}
+
+	var externalLinks []library.ExternalLink
+	if meta.URL != "" {
+		externalLinks = []library.ExternalLink{
+			{
+				Provider: body.ProviderID,
+				Label:    providerName,
+				URL:      meta.URL,
+			},
+		}
+	}
+
 	mangaMeta := &library.MangaMeta{
-		Title:       meta.Title,
-		Aliases:     meta.Aliases,
-		Description: meta.Synopsis,
-		Authors:     authors,
-		Artists:     artists,
-		Tags:        meta.Genres,
-		CoverURL:    meta.CoverURL,
-		UserStatus:  body.UserStatus,
+		Title:         meta.Title,
+		Aliases:       meta.Aliases,
+		Description:   meta.Synopsis,
+		Authors:       authors,
+		Artists:       artists,
+		Tags:          meta.Genres,
+		CoverURL:      meta.CoverURL,
+		ExternalLinks: externalLinks,
+		UserStatus:    body.UserStatus,
 		Content: &library.ContentSource{
 			ProviderID:      body.ProviderID,
 			ProviderMangaID: body.RemoteID,

@@ -46,6 +46,9 @@ export interface MangaMeta {
   content_rating?: string;
   publisher?: string;
   release_year?: number;
+  country?: string;
+  cover_url?: string;
+  external_links?: ExternalLink[];
   providers?: ProviderRef[];
   content?: ContentSource;
   user_status?: UserStatus | string;

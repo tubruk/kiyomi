@@ -47,9 +47,11 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
             onError={(e) => {
-              const fallback = manga.coverUrl || manga.cover;
-              if (fallback && e.currentTarget.src !== fallback) {
-                e.currentTarget.src = fallback;
+              const proxied = getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
+              if (manga.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
+                e.currentTarget.src = proxied;
+              } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
+                e.currentTarget.src = '/placeholder.jpg';
               }
             }}
           />
