@@ -56,12 +56,3 @@ jobs:
           name: backend-e2e-coverage
           fail_ci_if_error: false
 
-      - name: Upload Frontend E2E Coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./web/coverage/lcov.info
-          flags: frontend
-          name: frontend-coverage
-          fail_ci_if_error: false
