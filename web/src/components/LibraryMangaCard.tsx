@@ -10,12 +10,14 @@ interface LibraryMangaCardProps {
   manga: Manga;
   onDelete?: (mangaId: string) => void;
   isDeleting?: boolean;
+  unreadCount?: number;
 }
 
 export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
   manga,
   onDelete,
   isDeleting,
+  unreadCount: unreadCountProp,
 }) => {
   const coverSrc = manga.coverAssetUrl || getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
   const authorDisplay = (manga.authors || (manga.author ? [manga.author] : [])).slice(0, 2).join(', ');
@@ -25,17 +27,21 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
   const userRating = manga.userRating || manga.user_rating || manga.meta?.user_rating;
   const providerId = manga.sourceId || manga.contentProviderId || manga.meta?.content?.provider_id;
 
-  const { data: chaptersData } = useChapterList(manga.id);
+  const { data: chaptersData } = useChapterList(manga.id, {
+    enabled: unreadCountProp === undefined,
+  });
   const chapters = chaptersData?.chapters || [];
 
-  const { unreadCount } = useMemo(() => {
-    if (chapters.length === 0) return { unreadCount: 0 };
+  const unreadCount = useMemo(() => {
+    if (unreadCountProp !== undefined) return unreadCountProp;
+    if (chapters.length === 0) return 0;
     const readCount = chapters.filter((c) => Boolean(c.meta?.is_read ?? (c as any).is_read)).length;
-    const unread = chapters.length - readCount;
-    return {
-      unreadCount: unread,
-    };
-  }, [chapters]);
+    return chapters.length - readCount;
+  }, [chapters, unreadCountProp]);
+
+  const hasBadgeSection = unreadCountProp !== undefined
+    ? (unreadCountProp > 0 || userStatus === 'completed')
+    : chapters.length > 0;
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-all duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-md">
@@ -65,7 +71,7 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
               </Badge>
             </div>
           )}
-          {chapters.length > 0 && (
+          {hasBadgeSection && (
             <div className="absolute bottom-2 left-2 z-10">
               {userStatus === 'completed' ? (
                 <Badge

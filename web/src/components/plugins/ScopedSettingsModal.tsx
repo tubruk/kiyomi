@@ -26,7 +26,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys';
 import { ErrorDetailsModal } from '../ErrorDetailsModal';
 
-interface ScopedSettingsModalProps {
+export interface ScopedSettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   plugin: PluginItem | null;
@@ -132,6 +132,7 @@ export const ScopedSettingsModal: React.FC<ScopedSettingsModalProps> = ({
       setErrorTitle(`Failed to configure ${plugin.pluginName}`);
       setErrorMessage(msg);
       setErrorDetails(details);
+      setErrorModalOpen(true);
     } finally {
       setIsSaving(false);
     }
@@ -371,3 +372,7 @@ export const ScopedSettingsModal: React.FC<ScopedSettingsModalProps> = ({
     </>
   );
 };
+
+export const PluginSettingsModal = ScopedSettingsModal;
+export type PluginSettingsModalProps = ScopedSettingsModalProps;
+

@@ -1,30 +1,14 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import {
-  AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  BookOpen,
-  HardDrive,
-  ListChecks,
-  RefreshCw,
-  Search,
-} from 'lucide-react';
+import React, { useMemo, useState, useCallback } from 'react';
+import { AlertCircle, BookOpen } from 'lucide-react';
 import { Chapter } from '../types/api';
-import { Input } from './ui/input';
-import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Skeleton } from './ui/skeleton';
-import { cn } from '../lib/utils';
 import { Pagination } from './Pagination';
 import { ChapterRow } from './chapter-list/ChapterRow';
 import { BatchActionBar } from './chapter-list/BatchActionBar';
 import { BatchRemoveDialog } from './chapter-list/BatchRemoveDialog';
-
-const sortOptions: Record<string, string> = {
-  source: 'Source Order',
-  number: 'Chapter Number',
-  date: 'Upload Date',
-};
+import { ChapterListHeader } from './chapter-list/ChapterListHeader';
+import { useChapterFilters } from './chapter-list/hooks/useChapterFilters';
+import { useChapterSelection } from './chapter-list/hooks/useChapterSelection';
 
 export interface ChapterListProps {
   chapters: Chapter[];
@@ -101,158 +85,48 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   onBatchRemove,
   isBatchRemoving = false,
 }) => {
-  const [filterQuery, setFilterQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 50;
 
-  // Selection Mode State
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(new Set());
-  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
-  const [isConfirmRemoveOpen, setIsConfirmRemoveOpen] = useState(false);
+  const {
+    filterQuery,
+    setFilterQuery,
+    setPage,
+    totalPages,
+    safePage,
+    filteredChapters,
+    paginatedChapters,
+    downloadedCount,
+  } = useChapterFilters({
+    chapters,
+    sortBy,
+    order,
+    pageSize: 50,
+  });
+
+  const {
+    isSelectionMode,
+    setIsSelectionMode,
+    selectedChapterIds,
+    selectedCount,
+    hasDownloadedInSelection,
+    isConfirmRemoveOpen,
+    setIsConfirmRemoveOpen,
+    handleSelectAll,
+    handleSelectNone,
+    handleInvertSelection,
+    handleExitSelectionMode,
+    handleToggleRow,
+    handleConfirmRemove,
+  } = useChapterSelection({
+    chapters,
+    filteredChapters,
+    mangaId,
+    onBatchRemove,
+  });
 
   const pullingSet = useMemo(() => new Set(pullingChapterIds), [pullingChapterIds]);
   const deletingFilesSet = useMemo(() => new Set(deletingFilesChapterIds), [deletingFilesChapterIds]);
   const removingSet = useMemo(() => new Set(removingChapterIds), [removingChapterIds]);
-
-  // Reset selection mode when manga changes
-  useEffect(() => {
-    setIsSelectionMode(false);
-    setSelectedChapterIds(new Set());
-    setLastSelectedId(null);
-  }, [mangaId]);
-
-  const filteredChapters = useMemo(() => {
-    let result = chapters.map((ch, idx) => ({
-      ...ch,
-      sourceOrder: ch.sourceOrder ?? idx,
-    }));
-    if (filterQuery.trim()) {
-      const q = filterQuery.toLowerCase().trim();
-      result = result.filter(
-        (c) =>
-          (c.title || c.name || '').toLowerCase().includes(q) ||
-          String(c.number).includes(q)
-      );
-    }
-
-    return [...result].sort((a, b) => {
-      let comparison = 0;
-      if (sortBy === 'number') {
-        comparison = (a.number ?? 0) - (b.number ?? 0);
-      } else if (sortBy === 'date') {
-        const dateA = a.uploadDate || a.uploadedAt || a.meta?.upload_date || '';
-        const dateB = b.uploadDate || b.uploadedAt || b.meta?.upload_date || '';
-        comparison = dateA.localeCompare(dateB);
-      } else {
-        // sortBy === 'source'
-        comparison = (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0);
-      }
-
-      return order === 'asc' ? comparison : -comparison;
-    });
-  }, [chapters, filterQuery, sortBy, order]);
-
-  const totalPages = Math.ceil(filteredChapters.length / PAGE_SIZE);
-  const safePage = Math.min(Math.max(1, page), totalPages || 1);
-  const paginatedChapters = filteredChapters.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-
-  const resolvedProviderName = contentProviderName;
-
-  const downloadedCount = useMemo(() => {
-    return chapters.reduce((count, c) => {
-      const isDownloaded = Boolean(
-        c.is_downloaded ??
-        (c as any).isDownloaded ??
-        c.meta?.is_downloaded ??
-        c.isDownloaded
-      );
-      return isDownloaded ? count + 1 : count;
-    }, 0);
-  }, [chapters]);
-
-  // Selection Helpers
-  const selectedCount = selectedChapterIds.size;
-
-  const hasDownloadedInSelection = useMemo(() => {
-    if (selectedChapterIds.size === 0) return false;
-    return chapters.some((c) => {
-      if (!selectedChapterIds.has(c.id)) return false;
-      const isDownloaded = Boolean(
-        c.is_downloaded ??
-        (c as any).isDownloaded ??
-        c.meta?.is_downloaded ??
-        c.isDownloaded
-      );
-      const downloadedPages =
-        c.downloaded_pages ??
-        (c as any).downloadedPages ??
-        c.meta?.downloaded_pages ??
-        c.downloadedPages ??
-        0;
-      return isDownloaded || downloadedPages > 0 || Boolean(c.meta?.downloaded_at);
-    });
-  }, [chapters, selectedChapterIds]);
-
-  const handleSelectAll = useCallback(() => {
-    const allFilteredIds = filteredChapters.map((c) => c.id);
-    setSelectedChapterIds(new Set(allFilteredIds));
-  }, [filteredChapters]);
-
-  const handleSelectNone = useCallback(() => {
-    setSelectedChapterIds(new Set());
-    setLastSelectedId(null);
-  }, []);
-
-  const handleInvertSelection = useCallback(() => {
-    const next = new Set<string>();
-    filteredChapters.forEach((c) => {
-      if (!selectedChapterIds.has(c.id)) {
-        next.add(c.id);
-      }
-    });
-    setSelectedChapterIds(next);
-  }, [filteredChapters, selectedChapterIds]);
-
-  const handleExitSelectionMode = useCallback(() => {
-    setIsSelectionMode(false);
-    setSelectedChapterIds(new Set());
-    setLastSelectedId(null);
-  }, []);
-
-  const handleToggleRow = useCallback(
-    (chapterId: string, event?: React.MouseEvent | React.KeyboardEvent) => {
-      if (event && 'shiftKey' in event && event.shiftKey && lastSelectedId !== null) {
-        const idx1 = filteredChapters.findIndex((c) => c.id === lastSelectedId);
-        const idx2 = filteredChapters.findIndex((c) => c.id === chapterId);
-        if (idx1 !== -1 && idx2 !== -1) {
-          const start = Math.min(idx1, idx2);
-          const end = Math.max(idx1, idx2);
-          const rangeIds = filteredChapters.slice(start, end + 1).map((c) => c.id);
-          setSelectedChapterIds((prev) => {
-            const next = new Set(prev);
-            rangeIds.forEach((id) => next.add(id));
-            return next;
-          });
-          setLastSelectedId(chapterId);
-          return;
-        }
-      }
-
-      setSelectedChapterIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(chapterId)) {
-          next.delete(chapterId);
-        } else {
-          next.add(chapterId);
-        }
-        return next;
-      });
-      setLastSelectedId(chapterId);
-    },
-    [filteredChapters, lastSelectedId]
-  );
 
   const handleBatchUpdateProgress = useCallback(
     (progress: { is_read?: boolean; last_read_page?: number }) => {
@@ -282,15 +156,6 @@ export const ChapterList: React.FC<ChapterListProps> = ({
     onBatchDeleteFiles(Array.from(selectedChapterIds));
   }, [onBatchDeleteFiles, hasDownloadedInSelection, selectedChapterIds]);
 
-  const handleConfirmRemove = useCallback(() => {
-    if (!onBatchRemove) return;
-    const ids = Array.from(selectedChapterIds);
-    onBatchRemove(ids);
-    setIsConfirmRemoveOpen(false);
-    setSelectedChapterIds(new Set());
-    setLastSelectedId(null);
-  }, [onBatchRemove, selectedChapterIds]);
-
   if (hasNoContentProvider) {
     return (
       <div className="flex flex-col gap-4 mt-8">
@@ -309,7 +174,7 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   }
 
   if (isUnavailable) {
-    const displayProvider = providerName || resolvedProviderName || 'Provider';
+    const displayProvider = providerName || contentProviderName || 'Provider';
     return (
       <div className="flex flex-col gap-4 mt-8">
         <div className="flex items-center justify-between border-b border-border/50 pb-3">
@@ -357,115 +222,24 @@ export const ChapterList: React.FC<ChapterListProps> = ({
       )}
 
       {/* Header & Controls Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/50 pb-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-xl font-bold tracking-tight text-foreground">
-            Chapters ({chapters.length})
-          </h2>
-          {isInLibrary && chapters.length > 0 && downloadedCount > 0 && (
-            <span
-              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-              title={`${downloadedCount} of ${chapters.length} chapters downloaded`}
-            >
-              <HardDrive className="size-3 text-emerald-500" />
-              {downloadedCount}/{chapters.length}
-            </span>
-          )}
-          {resolvedProviderName && (
-            <span className="text-xs text-muted-foreground">
-              Provided by <span className="font-medium text-foreground">{resolvedProviderName}</span>
-            </span>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {onRefreshChapters && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onRefreshChapters}
-              disabled={isRefreshing}
-              className="h-9 px-3 text-xs bg-card border-border gap-1.5 cursor-pointer"
-              title="Refresh chapter list from content provider"
-              aria-label="Refresh chapter list"
-            >
-              <RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} aria-hidden />
-              {isRefreshing ? 'Refreshing…' : 'Refresh'}
-            </Button>
-          )}
-
-          {/* Select Mode Button (when in library and has chapters) */}
-          {isInLibrary && chapters.length > 0 && !isSelectionMode && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setIsSelectionMode(true);
-                setSelectedChapterIds(new Set());
-                setLastSelectedId(null);
-              }}
-              className="h-9 px-2.5 text-xs bg-card border-border gap-1.5 cursor-pointer"
-              title="Enter selection mode for batch actions"
-              aria-label="Select chapters"
-            >
-              <ListChecks className="size-4" />
-              Select
-            </Button>
-          )}
-
-          {/* Filter Input */}
-          <div className="relative min-w-[180px] flex-1 sm:flex-none">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" aria-hidden />
-            <Input
-              type="text"
-              placeholder="Filter chapters..."
-              className="h-9 pl-9 text-xs bg-card border-border"
-              value={filterQuery}
-              onChange={(e) => {
-                setFilterQuery(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-
-          {/* Sort Selector */}
-          <Select
-            value={sortBy}
-            onValueChange={(val) => {
-              if (val) {
-                onSortByChange(val);
-                setPage(1);
-              }
-            }}
-          >
-            <SelectTrigger className="h-9 w-[130px] text-xs bg-card border-border">
-              <SelectValue placeholder="Sort order">
-                {sortOptions[sortBy] || sortBy}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="source" className="text-xs">Source Order</SelectItem>
-              <SelectItem value="number" className="text-xs">Chapter Number</SelectItem>
-              <SelectItem value="date" className="text-xs">Upload Date</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {/* Order Toggle */}
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 bg-card border-border cursor-pointer"
-            onClick={() => {
-              onOrderToggle();
-              setPage(1);
-            }}
-            title={order === 'desc' ? 'Sort descending' : 'Sort ascending'}
-            aria-label={order === 'desc' ? 'Sort descending' : 'Sort ascending'}
-          >
-            {order === 'desc' ? <ArrowDown className="size-4" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
-          </Button>
-        </div>
-      </div>
+      <ChapterListHeader
+        chapterCount={chapters.length}
+        downloadedCount={downloadedCount}
+        contentProviderName={contentProviderName}
+        isInLibrary={isInLibrary}
+        onRefreshChapters={onRefreshChapters}
+        isRefreshing={isRefreshing}
+        isSelectionMode={isSelectionMode}
+        onEnterSelectionMode={() => {
+          setIsSelectionMode(true);
+        }}
+        filterQuery={filterQuery}
+        onFilterQueryChange={setFilterQuery}
+        sortBy={sortBy}
+        order={order}
+        onSortByChange={onSortByChange}
+        onOrderToggle={onOrderToggle}
+      />
 
       {/* Chapter List */}
       <div className="flex flex-col gap-2">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router';
-import { Loader2, BookOpen, CheckCircle2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 import {
   useChapterPages,
@@ -17,69 +17,19 @@ import { ReaderTopBar } from '../components/ReaderTopBar';
 import { ReaderFooter } from '../components/ReaderFooter';
 import { ReaderHint } from '../components/ReaderHint';
 import { CompletionPromptDialog } from '../components/CompletionPromptDialog';
+import { ReaderPagedView, ReaderContinuousView } from '../components/reader';
 import { useReadingHint } from '../hooks/useReadingHint';
 import { useReaderFitMode } from '../hooks/useReaderFitMode';
-import { getProxyImageUrl, getPageImageUrl, formatChapterTitleWithPage } from '../lib/utils';
-import { Chapter } from '../types/api';
+import { useReaderKeyboard } from '../hooks/useReaderKeyboard';
+import { useReaderGesture } from '../hooks/useReaderGesture';
+import { useReaderProgressTracker } from '../hooks/useReaderProgressTracker';
+import { useReaderScrollTracker } from '../hooks/useReaderScrollTracker';
+import { getPageImageUrl, formatChapterTitleWithPage } from '../lib/utils';
 
 interface ReaderSearch {
   mangaId?: string;
   page?: number | 'last' | string;
 }
-
-interface ChapterBoundaryCardProps {
-  type: 'prev' | 'next';
-  hasChapter: boolean;
-  targetChapter?: Chapter;
-}
-
-const ChapterBoundaryCard: React.FC<ChapterBoundaryCardProps> = ({
-  type,
-  hasChapter,
-  targetChapter,
-}) => {
-  const isPrev = type === 'prev';
-  const chapterIdent = targetChapter
-    ? targetChapter.number || targetChapter.name || targetChapter.title || ''
-    : '';
-
-  const label = isPrev
-    ? hasChapter && targetChapter
-      ? `Previous chapter (${chapterIdent})`
-      : 'No previous chapter'
-    : hasChapter && targetChapter
-    ? `Next chapter (${chapterIdent})`
-    : 'No next chapter';
-
-  const subtitle = hasChapter
-    ? isPrev
-      ? 'Swipe or click to read previous chapter'
-      : 'Swipe or click to continue to next chapter'
-    : isPrev
-    ? 'You are at the beginning of the manga'
-    : 'You have reached the latest chapter';
-
-  return (
-    <div
-      data-testid={isPrev ? 'boundary-card-prev' : 'boundary-card-next'}
-      className="flex flex-col items-center justify-center p-8 mx-4 max-w-sm w-full rounded-2xl border border-border/70 bg-card/90 backdrop-blur-lg shadow-xl text-center select-none"
-    >
-      <div className="size-14 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 border border-primary/20">
-        {hasChapter ? (
-          <BookOpen className="size-6" aria-hidden />
-        ) : (
-          <CheckCircle2 className="size-6 text-muted-foreground" aria-hidden />
-        )}
-      </div>
-      <h3 className="text-base sm:text-lg font-semibold text-foreground tracking-tight">
-        {label}
-      </h3>
-      <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
-        {subtitle}
-      </p>
-    </div>
-  );
-};
 
 export const ReaderPage: React.FC = () => {
   const params = useParams({ strict: false }) as Record<string, string | undefined>;
@@ -92,13 +42,7 @@ export const ReaderPage: React.FC = () => {
   const providerId = params.providerId;
   const remoteId = params.remoteId;
 
-  const [currentPage, setCurrentPage] = useState(1);
   const [showOverlays, setShowOverlays] = useState(true);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
-
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const prevChapterIdRef = useRef<string | null>(null);
@@ -107,23 +51,31 @@ export const ReaderPage: React.FC = () => {
   const { data: libraryManga = [] } = useLibraryManga();
   const libraryEntry = mangaId
     ? libraryManga.find((m) => m.id === mangaId)
-    : (providerId && remoteId)
+    : providerId && remoteId
     ? libraryManga.find(
         (m) =>
-          (m.contentProviderId === providerId || m.sourceId === providerId || m.meta?.content?.provider_id === providerId) &&
-          (m.contentRemoteId === remoteId || m.url === remoteId || m.id === remoteId || m.meta?.content?.provider_manga_id === remoteId)
+          (m.contentProviderId === providerId ||
+            m.sourceId === providerId ||
+            m.meta?.content?.provider_id === providerId) &&
+          (m.contentRemoteId === remoteId ||
+            m.url === remoteId ||
+            m.id === remoteId ||
+            m.meta?.content?.provider_manga_id === remoteId)
       )
     : undefined;
 
   const effectiveMangaId = mangaId || libraryEntry?.id;
 
   // Fetch manga details (local vs remote)
-  const { data: localManga } = useMangaDetails(effectiveMangaId || '', { enabled: Boolean(effectiveMangaId) });
+  const { data: localManga } = useMangaDetails(effectiveMangaId || '', {
+    enabled: Boolean(effectiveMangaId),
+  });
   const { data: remoteManga } = useProviderMangaDetails(providerId || '', remoteId || '', {
     enabled: Boolean(!effectiveMangaId && providerId && remoteId),
   });
   const manga = effectiveMangaId ? localManga : remoteManga;
-  const chapterProviderId = manga?.contentProviderId || manga?.meta?.content?.provider_id || providerId || '';
+  const chapterProviderId =
+    manga?.contentProviderId || manga?.meta?.content?.provider_id || providerId || '';
 
   // Fetch chapter pages
   const {
@@ -151,12 +103,97 @@ export const ReaderPage: React.FC = () => {
   const currentChapterIndex = chapters.findIndex((c) => c.id === chapterId);
   const currentChapter = chapters[currentChapterIndex];
 
+  const hasPrevChapter = currentChapterIndex > 0;
+  const hasNextChapter = currentChapterIndex >= 0 && currentChapterIndex < chapters.length - 1;
+  const prevChapter = hasPrevChapter ? chapters[currentChapterIndex - 1] : undefined;
+  const nextChapter = hasNextChapter ? chapters[currentChapterIndex + 1] : undefined;
+
+  const rawReadingMode = (
+    manga?.content?.reading_mode ||
+    manga?.meta?.content?.reading_mode ||
+    manga?.readingMode ||
+    manga?.reading_mode ||
+    manga?.readingDirection ||
+    manga?.meta?.reading_direction ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+
+  const readingMode = ['rtl', 'ltr', 'vertical', 'longstrip'].includes(rawReadingMode)
+    ? rawReadingMode
+    : 'rtl';
+
+  const isPaged = readingMode === 'rtl' || readingMode === 'ltr';
+
+  // Reading mode hint & fit mode
+  const { hint: readingHint, dismissHint: dismissReadingHint } = useReadingHint(
+    effectiveMangaId,
+    readingMode
+  );
+  const { fitMode, setFitMode } = useReaderFitMode();
+
+  // Mutations
+  const updateProgressMutation = useUpdateChapterProgressMutation();
+  const updateLibraryMangaMutation = useUpdateLibraryMangaMutation();
+
+  const isChapterRead = Boolean(currentChapter?.meta?.is_read ?? (currentChapter as any)?.is_read);
+  const chapterLastReadPage =
+    currentChapter?.meta?.last_read_page ?? (currentChapter as any)?.last_read_page ?? 0;
+
+  // Scroll tracking (continuous mode)
+  const { scrollToPage, setReportedPage } = useReaderScrollTracker({
+    isPaged,
+    pagesCount: pages.length,
+    pageRefs,
+    onPageVisible: (page) => {
+      setCurrentPage(page);
+    },
+  });
+
+  // Progress tracking
+  const {
+    currentPage,
+    setCurrentPage,
+    showCompletionDialog,
+    setShowCompletionDialog,
+    markChapterRead,
+  } = useReaderProgressTracker({
+    effectiveMangaId,
+    chapterId,
+    chapterProviderId,
+    pagesCount: pages.length,
+    isPaged,
+    isChapterRead,
+    chapterLastReadPage,
+    searchPage: searchParams.page,
+    hasNextChapter,
+    userStatus: manga?.user_status || manga?.meta?.user_status,
+    onScrollToPage: (page) => {
+      scrollToPage(page, false);
+      setReportedPage(page);
+    },
+    onUpdateProgress: (params) => {
+      updateProgressMutation.mutate({
+        mangaId: params.mangaId,
+        chapterId: params.chapterId,
+        providerId: params.providerId || chapterProviderId || '',
+        progress: params.progress,
+      });
+    },
+  });
+
   // Toast notification on chapter transition
   useEffect(() => {
     if (chapterId && currentChapter && prevChapterIdRef.current !== chapterId) {
       const chNum = currentChapter.meta?.number ?? (currentChapter as any).number;
       const chTitle = currentChapter.meta?.title ?? (currentChapter as any).title;
-      showToast(chTitle ? `Chapter ${chNum}: ${chTitle}` : `Chapter ${chNum}`, 'info', undefined, 'subtle');
+      showToast(
+        chTitle ? `Chapter ${chNum}: ${chTitle}` : `Chapter ${chNum}`,
+        'info',
+        undefined,
+        'subtle'
+      );
       prevChapterIdRef.current = chapterId;
     }
   }, [chapterId, currentChapter, showToast]);
@@ -171,205 +208,6 @@ export const ReaderPage: React.FC = () => {
       document.title = `${mTitle} - ${formattedCh}`;
     }
   }, [manga?.title, currentChapter, currentPage, pages.length]);
-
-  const hasPrevChapter = currentChapterIndex > 0;
-  const hasNextChapter =
-    currentChapterIndex >= 0 && currentChapterIndex < chapters.length - 1;
-
-  const prevChapter = hasPrevChapter ? chapters[currentChapterIndex - 1] : undefined;
-  const nextChapter = hasNextChapter ? chapters[currentChapterIndex + 1] : undefined;
-
-  const rawReadingMode = (
-    manga?.content?.reading_mode ||
-    manga?.meta?.content?.reading_mode ||
-    manga?.readingMode ||
-    manga?.reading_mode ||
-    manga?.readingDirection ||
-    manga?.meta?.reading_direction ||
-    ''
-  ).trim().toLowerCase();
-
-  const readingMode = ['rtl', 'ltr', 'vertical', 'longstrip'].includes(rawReadingMode)
-    ? rawReadingMode
-    : 'rtl';
-
-  const isPaged = readingMode === 'rtl' || readingMode === 'ltr';
-
-  // Reading mode hint
-  const { hint: readingHint, dismissHint: dismissReadingHint } = useReadingHint(effectiveMangaId, readingMode);
-
-  // Fit mode
-  const { fitMode, setFitMode } = useReaderFitMode();
-
-  // Helper to get fit mode classes for page images
-  const getFitModeClasses = (baseClasses: string): string => {
-    const fitWidthClass = 'max-w-full h-auto';
-    const fitHeightClass = 'max-h-[calc(100vh-7.5rem)] w-auto max-w-full object-contain';
-    const fitOriginalClass = 'max-w-none h-auto';
-
-    let fitClass: string;
-    switch (fitMode) {
-      case 'fit-width':
-        fitClass = fitWidthClass;
-        break;
-      case 'fit-original':
-        fitClass = fitOriginalClass;
-        break;
-      case 'fit-height':
-      default:
-        fitClass = fitHeightClass;
-        break;
-    }
-
-    // Replace fit-related classes in baseClasses, then append fitClass
-    const withoutFit = baseClasses
-      .replace(/max-w-full|max-w-none/g, '')
-      .replace(/max-h-\[calc\(100vh-7\.5rem\)\]/g, '')
-      .replace(/w-auto|h-auto/g, '')
-      .replace(/object-contain/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    return `${withoutFit} ${fitClass}`.trim();
-  };
-
-  // Progress update mutation
-  const updateProgressMutation = useUpdateChapterProgressMutation();
-
-  // Manga metadata update mutation
-  const updateLibraryMangaMutation = useUpdateLibraryMangaMutation();
-
-  const isChapterRead = Boolean(currentChapter?.meta?.is_read ?? (currentChapter as any)?.is_read);
-  const chapterLastReadPage = currentChapter?.meta?.last_read_page ?? (currentChapter as any)?.last_read_page ?? 0;
-
-  const activeChapterIdRef = useRef<string | null>(null);
-  const hasMarkedRead = useRef(false);
-  const hasResumed = useRef(false);
-  const hasDismissedCompletion = useRef(false);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const animTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
-  const didDragRef = useRef(false);
-
-  const getContainerWidth = useCallback(() => {
-    return containerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 800);
-  }, []);
-
-  // Reset chapter tracking state on chapter switch
-  useEffect(() => {
-    if (activeChapterIdRef.current !== chapterId) {
-      activeChapterIdRef.current = chapterId;
-      hasMarkedRead.current = isChapterRead;
-      hasResumed.current = false;
-      hasDismissedCompletion.current = false;
-      lastReportedPage.current = 1;
-      setDragOffset(0);
-      setIsDragging(false);
-      setIsAnimating(false);
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-      if (animTimeoutRef.current) {
-        clearTimeout(animTimeoutRef.current);
-      }
-    }
-  }, [chapterId]);
-
-
-  // Restore initial reading position to last_read_page or requested target page when loading a chapter
-  useEffect(() => {
-    if (!chapterId || pages.length === 0 || hasResumed.current) return;
-
-    let targetResumePage = 1;
-    const rawPage = searchParams.page;
-
-    if (rawPage === 'last') {
-      targetResumePage = pages.length;
-    } else if (
-      rawPage !== undefined &&
-      rawPage !== null &&
-      rawPage !== '' &&
-      !isNaN(Number(rawPage))
-    ) {
-      const parsedPage = Number(rawPage);
-      targetResumePage = Math.min(Math.max(1, parsedPage), pages.length);
-    } else if (!isChapterRead && chapterLastReadPage > 1) {
-      targetResumePage = Math.min(Math.max(1, chapterLastReadPage), pages.length);
-    }
-
-    if (isPaged) {
-      hasResumed.current = true;
-      setCurrentPage(targetResumePage);
-      lastReportedPage.current = targetResumePage;
-      return;
-    }
-
-    if (targetResumePage > 1) {
-      hasResumed.current = true;
-      setCurrentPage(targetResumePage);
-      lastReportedPage.current = targetResumePage;
-      setTimeout(() => {
-        const targetEl = pageRefs.current[targetResumePage - 1];
-        if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'instant', block: 'start' });
-        }
-      }, 0);
-    } else {
-      window.scrollTo({ top: 0, behavior: 'instant' });
-      setCurrentPage(1);
-      lastReportedPage.current = 1;
-    }
-  }, [chapterId, pages.length, searchParams.page, isChapterRead, chapterLastReadPage, isPaged]);
-
-  // Debounced auto-save (1.5s idle) & auto mark-as-read on last page
-  useEffect(() => {
-    if (!effectiveMangaId || !chapterId || pages.length === 0) return;
-
-    // Auto mark-as-read when reaching last page
-    if (currentPage === pages.length) {
-      if (!hasMarkedRead.current) {
-        hasMarkedRead.current = true;
-        updateProgressMutation.mutate({
-          mangaId: effectiveMangaId,
-          chapterId,
-          providerId: chapterProviderId,
-          progress: { is_read: true, last_read_page: currentPage },
-        });
-
-        // Trigger completion prompt if on last chapter and manga is in "reading" status
-        if (
-          effectiveMangaId &&
-          !hasNextChapter &&
-          !hasDismissedCompletion.current &&
-          (manga?.user_status === 'reading' || manga?.meta?.user_status === 'reading')
-        ) {
-          hasDismissedCompletion.current = true;
-          setShowCompletionDialog(true);
-        }
-      }
-      return;
-    }
-
-    // Debounced auto-save (1.5s idle) sending { last_read_page: P }
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = setTimeout(() => {
-      updateProgressMutation.mutate({
-        mangaId: effectiveMangaId,
-        chapterId,
-        providerId: chapterProviderId,
-        progress: { last_read_page: currentPage },
-      });
-    }, 1500);
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, [currentPage, effectiveMangaId, chapterId, pages.length]);
 
   const handleSelectChapter = useCallback(
     (targetChapterId: string, targetPage?: number | 'last') => {
@@ -404,19 +242,41 @@ export const ReaderPage: React.FC = () => {
   }, [hasPrevChapter, prevChapter, handleSelectChapter]);
 
   const handleNextChapter = useCallback(() => {
-    if (effectiveMangaId && chapterId) {
-      hasMarkedRead.current = true;
-      updateProgressMutation.mutate({
-        mangaId: effectiveMangaId,
-        chapterId,
-        providerId: chapterProviderId,
-        progress: { is_read: true },
-      });
-    }
+    markChapterRead(pages.length);
     if (hasNextChapter && nextChapter) {
       handleSelectChapter(nextChapter.id);
     }
-  }, [effectiveMangaId, chapterId, hasNextChapter, nextChapter, handleSelectChapter, updateProgressMutation, chapterProviderId]);
+  }, [markChapterRead, pages.length, hasNextChapter, nextChapter, handleSelectChapter]);
+
+  const getContainerWidth = useCallback(() => {
+    return (
+      containerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 800)
+    );
+  }, []);
+
+  const goToNextPageRef = useRef<() => void>(() => {});
+  const goToPrevPageRef = useRef<() => void>(() => {});
+
+  // Gesture Tracker
+  const {
+    dragOffset,
+    isDragging,
+    isAnimating,
+    didDragRef,
+    setDragOffset,
+    setIsAnimating,
+    handlers: gestureHandlers,
+  } = useReaderGesture({
+    readingMode,
+    isPaged,
+    currentPage,
+    totalPages: pages.length,
+    hasNextChapter,
+    hasPrevChapter,
+    containerWidth: getContainerWidth,
+    onNextPage: () => goToNextPageRef.current(),
+    onPrevPage: () => goToPrevPageRef.current(),
+  });
 
   // Directional Paged Navigation Handlers
   const goToNextPage = useCallback(() => {
@@ -425,38 +285,28 @@ export const ReaderPage: React.FC = () => {
 
     if (currentPage < pages.length) {
       setIsAnimating(true);
-      // In RTL, next page is in Left Slot (+slideDistance). In LTR, next page is in Right Slot (-slideDistance).
       const targetOffset = readingMode === 'rtl' ? slideDistance : -slideDistance;
       setDragOffset(targetOffset);
-      animTimeoutRef.current = setTimeout(() => {
+      setTimeout(() => {
         setDragOffset(0);
         setCurrentPage((prev) => prev + 1);
         setIsAnimating(false);
         setTimeout(() => {
-          didDragRef.current = false;
+          if (didDragRef.current) didDragRef.current = false;
         }, 50);
       }, 220);
     } else {
-      // Past last page -> mark read and transition to next chapter if available
-      if (effectiveMangaId && chapterId) {
-        hasMarkedRead.current = true;
-        updateProgressMutation.mutate({
-          mangaId: effectiveMangaId,
-          chapterId,
-          providerId: chapterProviderId,
-          progress: { is_read: true, last_read_page: pages.length },
-        });
-      }
+      markChapterRead(pages.length);
       if (hasNextChapter) {
         setIsAnimating(true);
         const targetOffset = readingMode === 'rtl' ? slideDistance : -slideDistance;
         setDragOffset(targetOffset);
-        animTimeoutRef.current = setTimeout(() => {
+        setTimeout(() => {
           setDragOffset(0);
           setIsAnimating(false);
           handleNextChapter();
           setTimeout(() => {
-            didDragRef.current = false;
+            if (didDragRef.current) didDragRef.current = false;
           }, 50);
         }, 220);
       }
@@ -467,11 +317,13 @@ export const ReaderPage: React.FC = () => {
     currentPage,
     pages.length,
     readingMode,
-    effectiveMangaId,
-    chapterId,
-    updateProgressMutation,
+    markChapterRead,
     hasNextChapter,
     handleNextChapter,
+    setCurrentPage,
+    setDragOffset,
+    setIsAnimating,
+    didDragRef,
   ]);
 
   const goToPrevPage = useCallback(() => {
@@ -480,27 +332,26 @@ export const ReaderPage: React.FC = () => {
 
     if (currentPage > 1) {
       setIsAnimating(true);
-      // In RTL, prev page is in Right Slot (-slideDistance). In LTR, prev page is in Left Slot (+slideDistance).
       const targetOffset = readingMode === 'rtl' ? -slideDistance : slideDistance;
       setDragOffset(targetOffset);
-      animTimeoutRef.current = setTimeout(() => {
+      setTimeout(() => {
         setDragOffset(0);
         setCurrentPage((prev) => prev - 1);
         setIsAnimating(false);
         setTimeout(() => {
-          didDragRef.current = false;
+          if (didDragRef.current) didDragRef.current = false;
         }, 50);
       }, 220);
     } else if (hasPrevChapter) {
       setIsAnimating(true);
       const targetOffset = readingMode === 'rtl' ? -slideDistance : slideDistance;
       setDragOffset(targetOffset);
-      animTimeoutRef.current = setTimeout(() => {
+      setTimeout(() => {
         setDragOffset(0);
         setIsAnimating(false);
         handlePrevChapter();
         setTimeout(() => {
-          didDragRef.current = false;
+          if (didDragRef.current) didDragRef.current = false;
         }, 50);
       }, 220);
     }
@@ -511,24 +362,42 @@ export const ReaderPage: React.FC = () => {
     readingMode,
     hasPrevChapter,
     handlePrevChapter,
+    setCurrentPage,
+    setDragOffset,
+    setIsAnimating,
+    didDragRef,
   ]);
+
+  goToNextPageRef.current = goToNextPage;
+  goToPrevPageRef.current = goToPrevPage;
+
+  // Keyboard navigation
+  useReaderKeyboard({
+    readingMode,
+    isPaged,
+    onNextPage: goToNextPage,
+    onPrevPage: goToPrevPage,
+    onFirstPage: () => handlePageChange(1),
+    onLastPage: () => handlePageChange(pages.length),
+    onToggleOverlays: () => setShowOverlays((prev) => !prev),
+  });
 
   // Preload adjacent images in Paged mode
   useEffect(() => {
     if (!isPaged || pages.length === 0) return;
-    const nextIdx = currentPage; // 0-indexed index for currentPage + 1
+    const nextIdx = currentPage;
     if (nextIdx < pages.length) {
       const nextImg = new Image();
       const p = pages[nextIdx];
       nextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
     }
-    const nextNextIdx = currentPage + 1; // 0-indexed index for currentPage + 2
+    const nextNextIdx = currentPage + 1;
     if (nextNextIdx < pages.length) {
       const nextNextImg = new Image();
       const p = pages[nextNextIdx];
       nextNextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
     }
-    const prevIdx = currentPage - 2; // 0-indexed index for currentPage - 1
+    const prevIdx = currentPage - 2;
     if (prevIdx >= 0) {
       const prevImg = new Image();
       const p = pages[prevIdx];
@@ -536,193 +405,22 @@ export const ReaderPage: React.FC = () => {
     }
   }, [currentPage, isPaged, pages, effectiveMangaId, chapterId, chapterProviderId, manga?.url]);
 
-  // Keyboard navigation for Paged mode
-  useEffect(() => {
-    if (!isPaged) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable ||
-        target.closest('[role="dialog"]')
-      ) {
-        return;
-      }
-
-      if (readingMode === 'rtl') {
-        if (e.key === 'ArrowLeft' || e.key === ' ' || e.code === 'Space') {
-          e.preventDefault();
-          goToNextPage();
-        } else if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          goToPrevPage();
-        }
-      } else {
-        // LTR
-        if (e.key === 'ArrowRight' || e.key === ' ' || e.code === 'Space') {
-          e.preventDefault();
-          goToNextPage();
-        } else if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          goToPrevPage();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPaged, readingMode, goToNextPage, goToPrevPage]);
-
-  // Touch Drag & Swipe Handlers for mobile & touchscreens
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (!isPaged || pages.length === 0 || isAnimating) return;
-    if (e.touches.length === 1) {
-      touchStartPos.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY,
-      };
-      didDragRef.current = false;
-      setIsDragging(false);
-      setDragOffset(0);
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartPos.current || !isPaged || isAnimating || e.touches.length !== 1) return;
-
-    const currentX = e.touches[0].clientX;
-    const currentY = e.touches[0].clientY;
-    const deltaX = currentX - touchStartPos.current.x;
-    const deltaY = currentY - touchStartPos.current.y;
-
-    // Check if horizontal drag dominates vertical scroll
-    if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY)) {
-      didDragRef.current = true;
-      setIsDragging(true);
-      setDragOffset(deltaX);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (!touchStartPos.current || !isPaged) return;
-
-    const currentDrag = dragOffset;
-    const wasDragging = didDragRef.current;
-    touchStartPos.current = null;
-    setIsDragging(false);
-
-    if (!wasDragging || isAnimating) {
-      setDragOffset(0);
-      return;
-    }
-
-    const containerWidth = getContainerWidth();
-    const threshold = Math.max(50, containerWidth * 0.15);
-
-    if (Math.abs(currentDrag) >= threshold) {
-      // Determine intended navigation direction based on readingMode and swipe
-      // RTL: Drag right (currentDrag > 0) -> Next Page, Drag left (currentDrag < 0) -> Prev Page
-      // LTR: Drag left (currentDrag < 0) -> Next Page, Drag right (currentDrag > 0) -> Prev Page
-      const isNext = readingMode === 'rtl' ? currentDrag > 0 : currentDrag < 0;
-
-      if (isNext) {
-        if (currentPage < pages.length || hasNextChapter) {
-          goToNextPage();
-        } else {
-          setIsAnimating(true);
-          setDragOffset(0);
-          setTimeout(() => {
-            setIsAnimating(false);
-            didDragRef.current = false;
-          }, 220);
-        }
-      } else {
-        if (currentPage > 1 || hasPrevChapter) {
-          goToPrevPage();
-        } else {
-          setIsAnimating(true);
-          setDragOffset(0);
-          setTimeout(() => {
-            setIsAnimating(false);
-            didDragRef.current = false;
-          }, 220);
-        }
-      }
-    } else {
-      // Below threshold: spring back smoothly to 0
-      setIsAnimating(true);
-      setDragOffset(0);
-      setTimeout(() => {
-        setIsAnimating(false);
-        didDragRef.current = false;
-      }, 220);
-    }
-  };
-
-  const handleTouchCancel = () => {
-    touchStartPos.current = null;
-    setIsDragging(false);
-    setDragOffset(0);
-    setTimeout(() => {
-      didDragRef.current = false;
-    }, 100);
-  };
-
   const handlePageChange = (targetPage: number) => {
     if (targetPage !== currentPage) {
       setDragOffset(0);
-      setIsDragging(false);
       setIsAnimating(false);
       setCurrentPage(targetPage);
     }
     if (!isPaged) {
-      const targetEl = pageRefs.current[targetPage - 1];
-      if (targetEl) {
-        targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      scrollToPage(targetPage, true);
     }
-    // Sync page to URL for bookmarking
     navigate({ search: { ...searchParams, page: targetPage } as any, replace: true });
   };
-
-  // Scroll tracking — passive + rAF throttle (for continuous vertical / longstrip modes)
-  const lastReportedPage = useRef(1);
-  const rafPending = useRef(false);
-  const handleScroll = useCallback(() => {
-    if (isPaged || rafPending.current) return;
-    rafPending.current = true;
-    requestAnimationFrame(() => {
-      rafPending.current = false;
-      if (pages.length === 0) return;
-      let visiblePage = 1;
-      pageRefs.current.forEach((el, idx) => {
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          if (rect.top <= window.innerHeight * 0.5) {
-            visiblePage = idx + 1;
-          }
-        }
-      });
-      if (visiblePage !== lastReportedPage.current) {
-        lastReportedPage.current = visiblePage;
-        setCurrentPage(visiblePage);
-      }
-    });
-  }, [isPaged, pages.length]);
-
-  useEffect(() => {
-    if (isPaged) return;
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [isPaged, handleScroll]);
 
   const handleScrollTop = () => {
     if (isPaged) {
       if (currentPage !== 1) {
         setDragOffset(0);
-        setIsDragging(false);
         setIsAnimating(false);
         setCurrentPage(1);
       }
@@ -752,102 +450,25 @@ export const ReaderPage: React.FC = () => {
     }
   };
 
-  const transitionStyle = isDragging
-    ? 'none'
-    : isAnimating
-    ? 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)'
-    : 'none';
-
-  const currentPageData = pages[currentPage - 1];
-
-  const renderPageOrBoundary = (slotType: 'prev' | 'next') => {
-    if (slotType === 'prev') {
-      if (currentPage > 1) {
-        const prevPageData = pages[currentPage - 2];
-        if (!prevPageData) return null;
-        return (
-          <img
-            key={`page-${currentPage - 1}`}
-            src={getPageImageUrl(prevPageData, effectiveMangaId, chapterId, chapterProviderId, manga?.url)}
-            alt={`Page ${currentPage - 1}`}
-            className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
-            draggable={false}
-            onError={(e) => {
-              const fallbackUrl = getProxyImageUrl(prevPageData.url, manga?.url);
-              if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
-                e.currentTarget.src = fallbackUrl;
-              }
-            }}
-          />
-        );
-      }
-      return (
-        <ChapterBoundaryCard
-          type="prev"
-          hasChapter={hasPrevChapter}
-          targetChapter={prevChapter}
-        />
-      );
-    } else {
-      if (currentPage < pages.length) {
-        const nextPageData = pages[currentPage];
-        if (!nextPageData) return null;
-        return (
-          <img
-            key={`page-${currentPage + 1}`}
-            src={getPageImageUrl(nextPageData, effectiveMangaId, chapterId, chapterProviderId, manga?.url)}
-            alt={`Page ${currentPage + 1}`}
-            className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
-            draggable={false}
-            onError={(e) => {
-              const fallbackUrl = getProxyImageUrl(nextPageData.url, manga?.url);
-              if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
-                e.currentTarget.src = fallbackUrl;
-              }
-            }}
-          />
-        );
-      }
-      return (
-        <ChapterBoundaryCard
-          type="next"
-          hasChapter={hasNextChapter}
-          targetChapter={nextChapter}
-        />
-      );
-    }
-  };
-
-  const beforeSlotContent = renderPageOrBoundary('prev');
-  const centerSlotContent = currentPageData ? (
-    <img
-      key={`page-${currentPage}`}
-      src={getPageImageUrl(currentPageData, effectiveMangaId, chapterId, chapterProviderId, manga?.url)}
-      alt={`Page ${currentPage}`}
-      className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
-      draggable={false}
-      onError={(e) => {
-        const fallbackUrl = getProxyImageUrl(currentPageData.url, manga?.url);
-        if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
-          e.currentTarget.src = fallbackUrl;
-        }
-      }}
-    />
-  ) : null;
-  const afterSlotContent = renderPageOrBoundary('next');
-
-  const leftSlotContent = readingMode === 'rtl' ? afterSlotContent : beforeSlotContent;
-  const rightSlotContent = readingMode === 'rtl' ? beforeSlotContent : afterSlotContent;
-
   return (
-    <div className={`min-h-screen transition-colors duration-200 bg-black pt-14`}>
-      <div className={`fixed top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${showOverlays ? 'translate-y-0' : '-translate-y-full'}`}>
+    <div className="min-h-screen transition-colors duration-200 bg-black pt-14">
+      <div
+        className={`fixed top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${
+          showOverlays ? 'translate-y-0' : '-translate-y-full'
+        }`}
+      >
         <ReaderTopBar
           mangaTitle={manga?.title}
-          chapterTitle={chapters[currentChapterIndex]?.title || chapters[currentChapterIndex]?.name || 'Chapter View'}
+          chapterTitle={
+            chapters[currentChapterIndex]?.title ||
+            chapters[currentChapterIndex]?.name ||
+            'Chapter View'
+          }
           currentPage={currentPage}
           totalPages={pages.length}
-          chapterNumber={chapters[currentChapterIndex]?.number ?? chapters[currentChapterIndex]?.meta?.number}
+          chapterNumber={
+            chapters[currentChapterIndex]?.number ?? chapters[currentChapterIndex]?.meta?.number
+          }
           mangaId={mangaId}
           providerId={providerId}
           remoteId={remoteId}
@@ -894,193 +515,49 @@ export const ReaderPage: React.FC = () => {
             No page images found in chapter.
           </div>
         ) : isPaged ? (
-          /* Horizontal Paged View (RTL & LTR) */
-          <div
-            data-testid="reader-content"
-            className="relative flex flex-col items-center justify-center w-full min-h-[calc(100vh-7.5rem)] select-none overflow-hidden"
-          >
-            <div
-              ref={containerRef}
-              data-testid="reader-paged-container"
-              className="relative flex items-center justify-center w-full min-h-[calc(100vh-7.5rem)] max-h-[calc(100vh-7.5rem)] h-[calc(100vh-7.5rem)] overflow-hidden touch-pan-y select-none"
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              onTouchCancel={handleTouchCancel}
-            >
-              {/* Left Slot */}
-              <div
-                data-testid="reader-slot-left"
-                className="absolute inset-0 flex items-center justify-center will-change-transform pointer-events-none"
-                style={{
-                  transform: `translateX(calc(-100% + ${dragOffset}px))`,
-                  transition: transitionStyle,
-                }}
-              >
-                {leftSlotContent}
-              </div>
-
-              {/* Center Slot */}
-              <div
-                data-testid="reader-slot-center"
-                className="absolute inset-0 flex items-center justify-center will-change-transform pointer-events-none"
-                style={{
-                  transform: `translateX(${dragOffset}px)`,
-                  transition: transitionStyle,
-                }}
-              >
-                {centerSlotContent}
-              </div>
-
-              {/* Right Slot */}
-              <div
-                data-testid="reader-slot-right"
-                className="absolute inset-0 flex items-center justify-center will-change-transform pointer-events-none"
-                style={{
-                  transform: `translateX(calc(100% + ${dragOffset}px))`,
-                  transition: transitionStyle,
-                }}
-              >
-                {rightSlotContent}
-              </div>
-
-              {/* Click Navigation Zones */}
-              <div className="absolute inset-0 flex select-none z-10 pointer-events-auto">
-                {/* Left 30% Zone */}
-                <div
-                  data-testid="reader-zone-left"
-                  role="button"
-                  tabIndex={-1}
-                  aria-label={readingMode === 'rtl' ? 'Next Page' : 'Previous Page'}
-                  className="w-[30%] h-full cursor-pointer touch-manipulation"
-                  onTouchEnd={(e) => {
-                    e.stopPropagation();
-                    if (didDragRef.current || isAnimating) return;
-                    if (readingMode === 'rtl') {
-                      goToNextPage();
-                    } else {
-                      goToPrevPage();
-                    }
-                  }}
-                  onClick={() => {
-                    if (didDragRef.current || isAnimating) return;
-                    if (readingMode === 'rtl') {
-                      goToNextPage();
-                    } else {
-                      goToPrevPage();
-                    }
-                  }}
-                />
-                {/* Center 40% Zone */}
-                <div
-                  data-testid="reader-zone-center"
-                  role="button"
-                  tabIndex={-1}
-                  aria-label="Toggle Overlays"
-                  className="w-[40%] h-full cursor-pointer touch-manipulation"
-                  onTouchEnd={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    if (didDragRef.current || isAnimating) return;
-                    setShowOverlays((prev) => !prev);
-                  }}
-                  onClick={() => {
-                    if (didDragRef.current || isAnimating) return;
-                    setShowOverlays((prev) => !prev);
-                  }}
-                />
-                {/* Right 30% Zone */}
-                <div
-                  data-testid="reader-zone-right"
-                  role="button"
-                  tabIndex={-1}
-                  aria-label={readingMode === 'rtl' ? 'Previous Page' : 'Next Page'}
-                  className="w-[30%] h-full cursor-pointer touch-manipulation"
-                  onTouchEnd={(e) => {
-                    e.stopPropagation();
-                    if (didDragRef.current || isAnimating) return;
-                    if (readingMode === 'rtl') {
-                      goToPrevPage();
-                    } else {
-                      goToNextPage();
-                    }
-                  }}
-                  onClick={() => {
-                    if (didDragRef.current || isAnimating) return;
-                    if (readingMode === 'rtl') {
-                      goToPrevPage();
-                    } else {
-                      goToNextPage();
-                    }
-                  }}
-                />
-              </div>
-            </div>
-          </div>
+          <ReaderPagedView
+            readingMode={readingMode}
+            currentPage={currentPage}
+            pages={pages}
+            effectiveMangaId={effectiveMangaId}
+            chapterId={chapterId}
+            chapterProviderId={chapterProviderId}
+            mangaUrl={manga?.url}
+            fitMode={fitMode}
+            hasPrevChapter={hasPrevChapter}
+            hasNextChapter={hasNextChapter}
+            prevChapter={prevChapter}
+            nextChapter={nextChapter}
+            dragOffset={dragOffset}
+            isDragging={isDragging}
+            isAnimating={isAnimating}
+            didDragRef={didDragRef}
+            containerRef={containerRef}
+            gestureHandlers={gestureHandlers}
+            onNextPage={goToNextPage}
+            onPrevPage={goToPrevPage}
+            onToggleOverlays={() => setShowOverlays((prev) => !prev)}
+            onPrevChapter={handlePrevChapter}
+            onNextChapter={handleNextChapter}
+          />
         ) : (
-          /* Continuous Vertical View (Longstrip & Vertical) */
-          <div
-            data-testid="reader-content"
-            className={
-              readingMode === 'longstrip'
-                ? 'flex flex-col gap-0 items-center w-full max-w-3xl mx-auto cursor-pointer'
-                : 'flex flex-col gap-6 items-center w-full max-w-3xl mx-auto my-4 cursor-pointer'
-            }
-            onClick={() => setShowOverlays((prev) => !prev)}
-          >
-            {pages.map((p) => {
-              const originalIndex = p.index;
-              const pageNum = originalIndex + 1;
-              const imgSrc = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
-
-              if (readingMode === 'longstrip') {
-                return (
-                  <div
-                    key={p.index}
-                    ref={(el) => (pageRefs.current[originalIndex] = el)}
-                    className="w-full text-center leading-none"
-                  >
-                    <img
-                      src={imgSrc}
-                      alt={`Page ${pageNum}`}
-                      className={getFitModeClasses('block transition-opacity duration-300 min-h-[100px]')}
-                      loading="lazy"
-                      onError={(e) => {
-                        const fallbackUrl = getProxyImageUrl(p.url, manga?.url);
-                        if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
-                          e.currentTarget.src = fallbackUrl;
-                        }
-                      }}
-                    />
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={p.index}
-                  ref={(el) => (pageRefs.current[originalIndex] = el)}
-                  className="w-full text-center"
-                >
-                  <img
-                    src={imgSrc}
-                    alt={`Page ${pageNum}`}
-                    className={getFitModeClasses('rounded-sm shadow-md transition-opacity duration-300 min-h-[300px]')}
-                    loading="lazy"
-                    onError={(e) => {
-                      const fallbackUrl = getProxyImageUrl(p.url, manga?.url);
-                      if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
-                        e.currentTarget.src = fallbackUrl;
-                      }
-                    }}
-                  />
-                  <div className="mt-1 text-[10px] text-muted-foreground/70 font-mono">
-                    p.{pageNum}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <ReaderContinuousView
+            readingMode={readingMode}
+            pages={pages}
+            effectiveMangaId={effectiveMangaId}
+            chapterId={chapterId}
+            chapterProviderId={chapterProviderId}
+            mangaUrl={manga?.url}
+            fitMode={fitMode}
+            pageRefs={pageRefs}
+            onToggleOverlays={() => setShowOverlays((prev) => !prev)}
+            hasPrevChapter={hasPrevChapter}
+            hasNextChapter={hasNextChapter}
+            prevChapter={prevChapter}
+            nextChapter={nextChapter}
+            onPrevChapter={handlePrevChapter}
+            onNextChapter={handleNextChapter}
+          />
         )}
       </main>
 

@@ -14,13 +14,13 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
 
   const isRemote = Boolean(manga.sourceId || manga.contentProviderId);
   const providerId = manga.sourceId || manga.contentProviderId || '';
-  const rawPath = manga.url || manga.contentRemoteId || manga.id;
+  const remoteId = manga.contentRemoteId || manga.id || '';
 
-  if (isRemote && providerId) {
+  if (isRemote && providerId && remoteId) {
     return (
       <Link
         to="/providers/$providerId/manga/$remoteId"
-        params={{ providerId, remoteId: rawPath }}
+        params={{ providerId, remoteId }}
         className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-all duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-md"
       >
         {/* Cover Image Container */}

@@ -19,6 +19,32 @@ func (p *MangaDexPlugin) Search(ctx context.Context, query string, opts sdk.Sear
 	}
 	offset := opts.Offset
 
+	query = strings.TrimSpace(query)
+
+	// If query is a URL (e.g. https://mangadex.org/title/f9c33ab9-c603-4f0e-8470-42171f11c769/...) or UUID,
+	// resolve directly via Details.
+	if strings.Contains(query, "mangadex.org/title/") {
+		parts := strings.Split(query, "mangadex.org/title/")
+		if len(parts) > 1 {
+			subParts := strings.Split(strings.Trim(parts[1], "/"), "/")
+			if len(subParts) > 0 && subParts[0] != "" {
+				uuid := subParts[0]
+				meta, err := p.Details(ctx, uuid)
+				if err == nil && meta.Title != "" {
+					return []sdk.SearchResult{
+						{
+							RemoteID:     uuid,
+							Title:        meta.Title,
+							CoverURL:     meta.CoverURL,
+							URL:          fmt.Sprintf("https://mangadex.org/title/%s", uuid),
+							Availability: sdk.AvailabilityAvailable,
+						},
+					}, nil
+				}
+			}
+		}
+	}
+
 	endpoint := fmt.Sprintf("%s/manga?limit=%d&offset=%d&includes[]=cover_art&contentRating[]=safe&contentRating[]=suggestive", p.getBaseURL(), limit, offset)
 	if query != "" {
 		endpoint += "&title=" + url.QueryEscape(query)

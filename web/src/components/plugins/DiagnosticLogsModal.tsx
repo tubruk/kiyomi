@@ -25,7 +25,7 @@ import { PluginItem } from '../../types/api';
 import { useQuery } from '@tanstack/react-query';
 import { pluginLogsQueryOptions } from '../../lib/queryOptions';
 
-interface DiagnosticLogsModalProps {
+export interface DiagnosticLogsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   plugin: PluginItem | null;
@@ -301,3 +301,7 @@ export const DiagnosticLogsModal: React.FC<DiagnosticLogsModalProps> = ({
     </Dialog>
   );
 };
+
+export const PluginLogsModal = DiagnosticLogsModal;
+export type PluginLogsModalProps = DiagnosticLogsModalProps;
+

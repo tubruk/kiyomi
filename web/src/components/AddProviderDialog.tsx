@@ -1,15 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Plus, Loader2, Link as LinkIcon } from 'lucide-react';
 import { ProviderRef, Source, Manga } from '../types/api';
-import { api } from '../api/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { AliasCombobox } from './AliasCombobox';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '../lib/queryKeys';
-import { useToast } from '../context/ToastContext';
 import { getProxyImageUrl } from '../lib/utils';
+import { useAddProviderSearch } from './hooks/useAddProviderSearch';
 
 interface AddProviderDialogProps {
   mangaId: string;
@@ -22,8 +19,6 @@ interface AddProviderDialogProps {
   onSuccess?: (manga: Manga) => void;
 }
 
-type Step = 'pick' | 'confirm';
-
 export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   mangaId,
   sources,
@@ -34,105 +29,31 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   onOpenChange,
   onSuccess,
 }) => {
-  const queryClient = useQueryClient();
-  const { showToast } = useToast();
-
-  const [step, setStep] = useState<Step>('pick');
-  const initialProviderId = (() => {
-    const boundIds = new Set(existingProviders.map((p) => p.provider_id));
-    const unbound = sources.find((s) => !boundIds.has(s.id));
-    return unbound?.id ?? sources[0]?.id ?? '';
-  })();
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(initialProviderId);
-  const [searchQuery, setSearchQuery] = useState(mangaTitle ?? '');
-  const [searchResults, setSearchResults] = useState<Manga[]>([]);
-  const [selectedResult, setSelectedResult] = useState<Manga | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
-
-  const resetState = () => {
-    setStep('pick');
-    setSelectedProviderId(initialProviderId);
-    setSearchQuery(mangaTitle ?? '');
-    setSearchResults([]);
-    setSelectedResult(null);
-    setSearchError(null);
-  };
-
-  const handleOpenChange = (open: boolean) => {
-    if (!open) resetState();
-    onOpenChange(open);
-  };
-
-  const searchMutation = useMutation({
-    mutationFn: async (query: string) => {
-      if (!selectedProviderId) throw new Error('No provider selected');
-      const results = await api.searchManga(selectedProviderId, query);
-      return results.mangas || [];
-    },
-    onSuccess: (results) => {
-      setSearchResults(results);
-      setSearchError(null);
-    },
-    onError: (err: any) => {
-      setSearchError(err.message || 'Search failed');
-      setSearchResults([]);
-    },
+  const {
+    step,
+    setStep,
+    selectedProviderId,
+    setSelectedProviderId,
+    searchQuery,
+    setSearchQuery,
+    searchResults,
+    selectedResult,
+    searchError,
+    selectedProvider,
+    isSearching,
+    isAdding,
+    handleResultSelect,
+    handleConfirm,
+    handleOpenChange,
+  } = useAddProviderSearch({
+    mangaId,
+    sources,
+    existingProviders,
+    mangaTitle,
+    open,
+    onOpenChange,
+    onSuccess,
   });
-
-  const addProviderMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedResult || !selectedProviderId) throw new Error('No selection');
-      const providerMangaId = selectedResult.id || selectedResult.contentRemoteId || selectedResult.url || '';
-      return api.addProvider(
-        mangaId,
-        {
-          provider_id: selectedProviderId,
-          provider_manga_id: providerMangaId,
-          manga_title: selectedResult.title,
-        },
-        false
-      );
-    },
-    onSuccess: (manga) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(mangaId) });
-      const name = sources.find((s) => s.id === selectedProviderId)?.name;
-      showToast(`Provider "${name}" added`, 'success');
-      handleOpenChange(false);
-      onSuccess?.(manga);
-    },
-    onError: (err: any) => {
-      showToast(`Failed to add provider: ${err.message}`, 'error');
-    },
-  });
-
-  // Auto-search when query changes (debounced) after a provider is selected.
-  useEffect(() => {
-    if (step !== 'pick' || !selectedProviderId) return;
-    const q = searchQuery.trim();
-    if (!q) {
-      setSearchResults([]);
-      setSearchError(null);
-      return;
-    }
-    const handle = setTimeout(() => {
-      searchMutation.mutate(q);
-    }, 300);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, step, selectedProviderId]);
-
-  const handleResultSelect = (manga: Manga) => {
-    setSelectedResult(manga);
-    setStep('confirm');
-  };
-
-  const handleConfirm = () => {
-    addProviderMutation.mutate();
-  };
-
-  const selectedProvider = sources.find((s) => s.id === selectedProviderId) || null;
 
   const renderStep = () => {
     switch (step) {
@@ -140,9 +61,7 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         return (
           <>
             <DialogHeader>
-              <DialogTitle>
-                Add Provider
-              </DialogTitle>
+              <DialogTitle>Add Provider</DialogTitle>
             </DialogHeader>
             <div className="space-y-3 py-2">
               <div className="flex gap-2">
@@ -181,11 +100,9 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                   />
                 </div>
               </div>
-              {searchError && (
-                <p className="text-xs text-destructive">{searchError}</p>
-              )}
+              {searchError && <p className="text-xs text-destructive">{searchError}</p>}
               <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-                {searchMutation.isPending ? (
+                {isSearching ? (
                   <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
                     <Loader2 className="size-4 animate-spin" />
                     Searching...
@@ -230,7 +147,11 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => handleOpenChange(false)} className="cursor-pointer">
+              <Button
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+                className="cursor-pointer"
+              >
                 Cancel
               </Button>
             </DialogFooter>
@@ -248,7 +169,10 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                 <div className="flex items-start gap-3 rounded-lg border border-border p-3">
                   {selectedResult.coverUrl || selectedResult.cover ? (
                     <img
-                      src={getProxyImageUrl(selectedResult.coverUrl || selectedResult.cover, selectedResult.url)}
+                      src={getProxyImageUrl(
+                        selectedResult.coverUrl || selectedResult.cover,
+                        selectedResult.url
+                      )}
                       alt=""
                       className="size-16 rounded object-cover shrink-0"
                       onError={(e) => {
@@ -261,13 +185,15 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                   <div className="min-w-0">
                     <p className="text-sm font-semibold break-words">{selectedResult.title}</p>
                     <p className="text-xs text-muted-foreground break-words">
-                      {selectedProvider?.name}{selectedResult.author ? ` • ${selectedResult.author}` : ''}
+                      {selectedProvider?.name}
+                      {selectedResult.author ? ` • ${selectedResult.author}` : ''}
                     </p>
                   </div>
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                This will link this provider to the manga in your library. Chapters and metadata can be synced from this provider.
+                This will link this provider to the manga in your library. Chapters and metadata can be
+                synced from this provider.
               </p>
             </div>
             <DialogFooter>
@@ -276,10 +202,10 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
               </Button>
               <Button
                 onClick={handleConfirm}
-                disabled={addProviderMutation.isPending}
+                disabled={isAdding}
                 className="gap-2 cursor-pointer"
               >
-                {addProviderMutation.isPending ? (
+                {isAdding ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
                   <Plus className="size-4" />
@@ -294,9 +220,7 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        {renderStep()}
-      </DialogContent>
+      <DialogContent className="sm:max-w-2xl">{renderStep()}</DialogContent>
     </Dialog>
   );
 };

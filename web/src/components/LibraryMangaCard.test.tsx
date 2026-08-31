@@ -139,6 +139,17 @@ describe('LibraryMangaCard', () => {
     expect(screen.queryByText('1 unread')).not.toBeInTheDocument();
   });
 
+  it('renders unread count badge directly when unreadCount prop is passed without fetching chapters', () => {
+    const getChaptersSpy = vi.spyOn(api, 'getMangaChapters');
+
+    renderCard({
+      unreadCount: 5,
+    });
+
+    expect(screen.getByText('5 unread')).toBeInTheDocument();
+    expect(getChaptersSpy).not.toHaveBeenCalled();
+  });
+
   it('image src uses coverAssetUrl when provided', () => {
     const { container } = renderCard({
       manga: {

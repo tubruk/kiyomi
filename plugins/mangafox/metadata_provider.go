@@ -15,6 +15,26 @@ func (p *MangaFoxPlugin) Search(ctx context.Context, query string, opts sdk.Sear
 	query = strings.TrimSpace(query)
 	baseURL := p.getBaseURL()
 
+	// If query is a URL or slug path (e.g. https://fanfox.net/manga/yakusoku_no_natsu/ or manga/yakusoku_no_natsu),
+	// resolve directly by slug.
+	if query != "" && (strings.Contains(query, "fanfox.net/manga/") || strings.Contains(query, "mangafox.me/manga/") || strings.HasPrefix(query, "http://") || strings.HasPrefix(query, "https://")) {
+		slug := extractSlug(query)
+		if slug != "" {
+			meta, err := p.Details(ctx, slug)
+			if err == nil && meta.Title != "" {
+				return []sdk.SearchResult{
+					{
+						RemoteID:     slug,
+						Title:        meta.Title,
+						CoverURL:     meta.CoverURL,
+						URL:          p.mangaURL(slug),
+						Availability: sdk.AvailabilityAvailable,
+					},
+				}, nil
+			}
+		}
+	}
+
 	var searchURL string
 	if query == "" {
 		if opts.Mode == "latest" {

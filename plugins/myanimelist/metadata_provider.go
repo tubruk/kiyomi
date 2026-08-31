@@ -78,6 +78,33 @@ func (p *MyAnimeListPlugin) Search(ctx context.Context, query string, opts sdk.S
 
 	query = strings.TrimSpace(query)
 
+	// If query is a MAL URL (e.g. https://myanimelist.net/manga/13/One_Piece),
+	// resolve directly via Details.
+	if strings.Contains(query, "myanimelist.net/manga/") {
+		parts := strings.Split(query, "myanimelist.net/manga/")
+		if len(parts) > 1 {
+			subParts := strings.Split(strings.Trim(parts[1], "/"), "/")
+			if len(subParts) > 0 && subParts[0] != "" {
+				malID := subParts[0]
+				if _, err := strconv.Atoi(malID); err == nil {
+					meta, err := p.Details(ctx, malID)
+					if err == nil && meta.Title != "" {
+						return []sdk.SearchResult{
+							{
+								RemoteID:     malID,
+								Title:        meta.Title,
+								Aliases:      meta.Aliases,
+								CoverURL:     meta.CoverURL,
+								URL:          fmt.Sprintf("https://myanimelist.net/manga/%s", malID),
+								Availability: sdk.AvailabilityAvailable,
+							},
+						}, nil
+					}
+				}
+			}
+		}
+	}
+
 	var endpoint string
 	if query != "" {
 		endpoint = fmt.Sprintf("%s/manga?q=%s&limit=%d&offset=%d&fields=%s",

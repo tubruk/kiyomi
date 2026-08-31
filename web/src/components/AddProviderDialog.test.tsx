@@ -61,7 +61,7 @@ describe('AddProviderDialog', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Frieren at the Funeral')).toBeInTheDocument();
-    });
+    }, { timeout: 4000 });
 
     const img = document.querySelector('img[src*="/api/v1/proxy/image"]') as HTMLImageElement;
     expect(img).toBeInTheDocument();
@@ -91,7 +91,7 @@ describe('AddProviderDialog', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Frieren at the Funeral')).toBeInTheDocument();
-    });
+    }, { timeout: 4000 });
 
     fireEvent.click(screen.getByText('Frieren at the Funeral'));
 

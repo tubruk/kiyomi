@@ -1,38 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Plus, Trash2, Save } from 'lucide-react';
-import { Manga, ExternalLink } from '../types/api';
-import { useUpdateLibraryMangaMutation } from '../api/hooks';
+import { Manga } from '../types/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-
-const readingModeOptions: Record<string, string> = {
-  rtl: 'Right to Left (Manga)',
-  ltr: 'Left to Right (Comic)',
-  vertical: 'Vertical (Gapped)',
-  longstrip: 'Longstrip (Webtoon)',
-};
-
-const contentRatingOptions: Record<string, string> = {
-  safe: 'Safe',
-  suggestive: 'Suggestive',
-  mature: 'Mature',
-  erotica: 'Erotica',
-};
-
-const externalLinkProviderOptions: Record<string, string> = {
-  custom: 'Custom',
-  anilist: 'AniList',
-  myanimelist: 'MyAnimeList',
-  kitsu: 'Kitsu',
-  mangadex: 'MangaDex',
-  mangaupdates: 'MangaUpdates',
-  animeplanet: 'Anime-Planet',
-  amazon: 'Amazon',
-  ebookjapan: 'eBookJapan',
-  cdjapan: 'CDJapan',
-};
+import {
+  useEditMetadataForm,
+  READING_MODE_OPTIONS,
+  CONTENT_RATING_OPTIONS,
+  EXTERNAL_LINK_PROVIDER_OPTIONS,
+} from './hooks/useEditMetadataForm';
 
 interface EditMetadataDialogProps {
   manga: Manga;
@@ -47,120 +25,39 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
   onOpenChange,
   onSaved,
 }) => {
-  const getInitialReadingMode = (m: Manga) =>
-    m.content?.reading_mode ||
-    m.meta?.content?.reading_mode ||
-    m.readingMode ||
-    m.reading_mode ||
-    m.readingDirection ||
-    m.meta?.reading_direction ||
-    'rtl';
-
-  const [title, setTitle] = useState(manga.title || '');
-  const [aliasesInput, setAliasesInput] = useState((manga.aliases || manga.meta?.aliases || []).join(', '));
-  const [description, setDescription] = useState(manga.description || manga.meta?.description || '');
-  const [readingMode, setReadingMode] = useState(getInitialReadingMode(manga));
-  const [contentRating, setContentRating] = useState(manga.contentRating || manga.meta?.content_rating || 'safe');
-  const [publisher, setPublisher] = useState(manga.publisher || manga.meta?.publisher || '');
-  const [releaseYear, setReleaseYear] = useState<number>(manga.releaseYear || manga.meta?.release_year || 0);
-  const [country, setCountry] = useState(manga.country || 'JP');
-  const [tagsInput, setTagsInput] = useState((manga.tags || manga.genres || manga.meta?.tags || []).join(', '));
-  const [shelvesInput, setShelvesInput] = useState((manga.shelves || []).join(', '));
-  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>(manga.externalLinks || []);
-
-  useEffect(() => {
-    if (open) {
-      setTitle(manga.title || '');
-      setAliasesInput((manga.aliases || manga.meta?.aliases || []).join(', '));
-      setDescription(manga.description || manga.meta?.description || '');
-      setReadingMode(getInitialReadingMode(manga));
-      setContentRating(manga.contentRating || manga.meta?.content_rating || 'safe');
-      setPublisher(manga.publisher || manga.meta?.publisher || '');
-      setReleaseYear(manga.releaseYear || manga.meta?.release_year || 0);
-      setCountry(manga.country || 'JP');
-      setTagsInput((manga.tags || manga.genres || manga.meta?.tags || []).join(', '));
-      setShelvesInput((manga.shelves || []).join(', '));
-      setExternalLinks(manga.externalLinks || []);
-    }
-  }, [open, manga]);
-
-  const updateMutation = useUpdateLibraryMangaMutation();
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const seenAliases = new Set<string>();
-    const parsedAliases: string[] = [];
-    aliasesInput
-      .split(',')
-      .map((a) => a.trim())
-      .filter(Boolean)
-      .forEach((a) => {
-        const lower = a.toLowerCase();
-        if (!seenAliases.has(lower)) {
-          seenAliases.add(lower);
-          parsedAliases.push(a);
-        }
-      });
-
-    const parsedTags = tagsInput
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-
-    const parsedShelves = shelvesInput
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const payload: Partial<Manga> = {
-      ...manga,
-      title,
-      aliases: parsedAliases,
-      description,
-      content: {
-        ...(manga.content || manga.meta?.content),
-        provider_id: manga.content?.provider_id || manga.meta?.content?.provider_id || manga.contentProviderId || manga.sourceId || '',
-        reading_mode: readingMode,
-      },
-      readingMode,
-      reading_mode: readingMode,
-      readingDirection: readingMode,
-      contentRating,
-      publisher,
-      releaseYear: Number(releaseYear),
-      country,
-      tags: parsedTags,
-      shelves: parsedShelves,
-      externalLinks: externalLinks.filter((l) => l.url.trim() !== ''),
-    };
-
-    updateMutation.mutate(
-      { mangaId: manga.id, fields: payload },
-      {
-        onSuccess: () => {
-          onOpenChange(false);
-          if (onSaved) onSaved();
-        },
-      }
-    );
-  };
-
-  const handleAddLink = () => {
-    setExternalLinks((prev) => [...prev, { provider: 'custom', label: 'Custom Link', url: '' }]);
-  };
-
-  const handleRemoveLink = (index: number) => {
-    setExternalLinks((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleLinkChange = (index: number, key: keyof ExternalLink, val: string) => {
-    setExternalLinks((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], [key]: val };
-      return next;
-    });
-  };
+  const {
+    title,
+    setTitle,
+    aliasesInput,
+    setAliasesInput,
+    description,
+    setDescription,
+    readingMode,
+    setReadingMode,
+    contentRating,
+    setContentRating,
+    publisher,
+    setPublisher,
+    releaseYear,
+    setReleaseYear,
+    country,
+    setCountry,
+    tagsInput,
+    setTagsInput,
+    shelvesInput,
+    setShelvesInput,
+    externalLinks,
+    handleAddLink,
+    handleRemoveLink,
+    handleLinkChange,
+    handleSubmit,
+    isUpdating,
+  } = useEditMetadataForm({
+    manga,
+    open,
+    onOpenChange,
+    onSaved,
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -184,7 +81,9 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
 
           {/* Aliases */}
           <div>
-            <label className="text-xs font-semibold text-foreground mb-1 block">Title Aliases (comma separated)</label>
+            <label className="text-xs font-semibold text-foreground mb-1 block">
+              Title Aliases (comma separated)
+            </label>
             <Input
               value={aliasesInput}
               onChange={(e) => setAliasesInput(e.target.value)}
@@ -195,7 +94,9 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
 
           {/* Description */}
           <div>
-            <label className="text-xs font-semibold text-foreground mb-1 block">Synopsis / Description</label>
+            <label className="text-xs font-semibold text-foreground mb-1 block">
+              Synopsis / Description
+            </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -211,7 +112,7 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
               <Select value={readingMode} onValueChange={(v) => v && setReadingMode(v)}>
                 <SelectTrigger className="text-xs">
                   <SelectValue placeholder="Reading mode">
-                    {readingModeOptions[readingMode] || readingMode}
+                    {READING_MODE_OPTIONS[readingMode] || readingMode}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -228,7 +129,7 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
               <Select value={contentRating} onValueChange={(v) => v && setContentRating(v)}>
                 <SelectTrigger className="text-xs">
                   <SelectValue placeholder="Content rating">
-                    {contentRatingOptions[contentRating] || contentRating}
+                    {CONTENT_RATING_OPTIONS[contentRating] || contentRating}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -276,7 +177,9 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
           {/* Tags & Shelves */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-semibold text-foreground mb-1 block">Tags (comma separated)</label>
+              <label className="text-xs font-semibold text-foreground mb-1 block">
+                Tags (comma separated)
+              </label>
               <Input
                 value={tagsInput}
                 onChange={(e) => setTagsInput(e.target.value)}
@@ -285,7 +188,9 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-foreground mb-1 block">Shelves (comma separated)</label>
+              <label className="text-xs font-semibold text-foreground mb-1 block">
+                Shelves (comma separated)
+              </label>
               <Input
                 value={shelvesInput}
                 onChange={(e) => setShelvesInput(e.target.value)}
@@ -299,7 +204,13 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
           <div className="space-y-2 border-t border-border/50 pt-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-foreground">External Links</label>
-              <Button type="button" variant="outline" size="sm" onClick={handleAddLink} className="gap-1 text-xs h-7 cursor-pointer">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddLink}
+                className="gap-1 text-xs h-7 cursor-pointer"
+              >
                 <Plus className="size-3" /> Add Link
               </Button>
             </div>
@@ -316,11 +227,11 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
                     >
                       <SelectTrigger className="w-28 text-xs bg-background border-border">
                         <SelectValue placeholder="provider">
-                          {externalLinkProviderOptions[link.provider] || link.provider}
+                          {EXTERNAL_LINK_PROVIDER_OPTIONS[link.provider] || link.provider}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(externalLinkProviderOptions).map(([val, label]) => (
+                        {Object.entries(EXTERNAL_LINK_PROVIDER_OPTIONS).map(([val, label]) => (
                           <SelectItem key={val} value={val} className="text-xs">
                             {label}
                           </SelectItem>
@@ -355,12 +266,21 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
           </div>
 
           <DialogFooter className="pt-4 border-t border-border/50">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="cursor-pointer">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="cursor-pointer"
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={updateMutation.isPending} className="gap-2 cursor-pointer">
+            <Button
+              type="submit"
+              disabled={isUpdating}
+              className="gap-2 cursor-pointer"
+            >
               <Save className="size-4" />
-              {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+              {isUpdating ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </form>

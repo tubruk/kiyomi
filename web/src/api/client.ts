@@ -75,7 +75,7 @@ export const api = {
   },
 
   getProviderMangaDetails: (providerId: string, remoteId: string): Promise<Manga> => {
-    return fetchAPI<Manga>(`/providers/${providerId}/manga/${remoteId}`);
+    return fetchAPI<Manga>(`/providers/${encodeURIComponent(providerId)}/manga/${encodeURIComponent(remoteId)}`);
   },
 
   getProviderMangaChapters: (providerId: string, remoteId: string): Promise<ChapterListResponse> => {

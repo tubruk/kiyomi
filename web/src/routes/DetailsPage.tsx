@@ -1,675 +1,92 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, Link, useLocation, useNavigate } from '@tanstack/react-router';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { jobsQueryOptions } from '../lib/queryOptions';
-
-import {
-  ArrowLeft,
-  BookOpen,
-  Edit3,
-  Plus,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  Star,
-  Heart,
-  Play,
-  MoreVertical,
-  Download,
-  ExternalLink,
-} from 'lucide-react';
-import { api } from '../api/client';
-import {
-  useLibraryManga,
-  useMangaDetails,
-  useProviderMangaDetails,
-  useSources,
-  useChapterList,
-  useProviderChapterList,
-  useUpdateLibraryMangaMutation,
-  useDeleteLibraryMangaMutation,
-  useBatchUpdateChapterProgressMutation,
-  useBatchPullChaptersMutation,
-  useBatchRefreshChaptersMutation,
-  useBatchDeleteChapterFilesMutation,
-  useBatchDeleteChaptersMutation,
-} from '../api/hooks';
-import { useToast } from '../context/ToastContext';
-import { Manga, UserStatus, Chapter, ProviderRef } from '../types/api';
-import { getProxyImageUrl } from '../lib/utils';
-import { queryKeys } from '../lib/queryKeys';
+import React, { useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { Button } from '../components/ui/button';
-import { GenrePill } from '../components/GenrePill';
 import { ChapterList } from '../components/ChapterList';
-import { EditMetadataDialog } from '../components/EditMetadataDialog';
 import { ProviderList } from '../components/ProviderList';
+import { EditMetadataDialog } from '../components/EditMetadataDialog';
 import { AddProviderDialog } from '../components/AddProviderDialog';
 import { ImportMetadataDialog } from '../components/ImportMetadataDialog';
-import { Card } from '../components/ui/card';
-import { Skeleton } from '../components/ui/skeleton';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu';
-import { cn } from '../lib/utils';
-
-export const STATUS_OPTIONS: { value: UserStatus; label: string }[] = [
-  { value: 'reading', label: 'Reading' },
-  { value: 'plan_to_read', label: 'Plan to Read' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'on_hold', label: 'On Hold' },
-  { value: 'dropped', label: 'Dropped' },
-  { value: 'unread', label: 'Unread' },
-];
-
-export const READING_MODE_LABELS: Record<string, string> = {
-  rtl: 'Right to Left (Manga)',
-  ltr: 'Left to Right (Comic)',
-  vertical: 'Vertical (Gapped)',
-  longstrip: 'Longstrip (Webtoon)',
-};
-
-const formatStatus = (status?: string) => {
-  if (!status) return 'Unread';
-  const found = STATUS_OPTIONS.find((s) => s.value === status);
-  if (found) return found.label;
-  return status
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-};
+  useDetailsManga,
+  useChapterOperations,
+  DetailsHeroCard,
+  DetailsUserMetadata,
+  DetailsActionBar,
+} from '../components/details';
 
 export const DetailsPage: React.FC = () => {
-  const queryClient = useQueryClient();
-  const location = useLocation();
   const navigate = useNavigate();
-  const { showToast } = useToast();
-  const params = useParams({ strict: false }) as { mangaId?: string; providerId?: string; remoteId?: string };
-
-
-  const isRemoteRoute = location.pathname.startsWith('/explore/') || location.pathname.startsWith('/providers/') || Boolean(params.providerId && params.remoteId);
-  const providerIdParam = params.providerId || '';
-  const remoteIdParam = params.remoteId || '';
 
   const [sortBy, setSortBy] = useState('source');
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
 
   const [isEditMetadataOpen, setIsEditMetadataOpen] = useState(false);
-  const [showDetailedMetadata, setShowDetailedMetadata] = useState(false);
-  const [localUserNotes, setLocalUserNotes] = useState('');
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-  const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
   const [isImportMetadataOpen, setIsImportMetadataOpen] = useState(false);
   const [importMetadataProviderId, setImportMetadataProviderId] = useState<string | undefined>(undefined);
   const [importMetadataRemoteId, setImportMetadataRemoteId] = useState<string | undefined>(undefined);
   const [isProvidersCollapsed, setIsProvidersCollapsed] = useState(true);
-  const [optimisticPullIds, setOptimisticPullIds] = useState<Set<string>>(new Set());
 
-  // 1. Fetch Library List to check if in Library
-  const { data: libraryManga = [] } = useLibraryManga();
-
-  const libraryEntry = isRemoteRoute
-    ? libraryManga.find(
-        (m) =>
-          (m.contentProviderId === providerIdParam || m.sourceId === providerIdParam || m.meta?.content?.provider_id === providerIdParam) &&
-          (m.contentRemoteId === remoteIdParam || m.url === remoteIdParam || m.id === remoteIdParam || m.meta?.content?.provider_manga_id === remoteIdParam)
-      )
-    : libraryManga.find((m) => m.id === params.mangaId);
-
-  const isInLibrary = Boolean(libraryEntry);
-  const targetMangaId = libraryEntry?.id || params.mangaId || '';
-
-  // Query background jobs for the current manga
-  const { data: mangaJobs = [] } = useQuery({
-    ...jobsQueryOptions({ 'metadata.manga_id': targetMangaId, all: true }),
-    enabled: Boolean(targetMangaId && isInLibrary),
-  });
-
-  const activeJobChapterIds = useMemo(() => {
-    return mangaJobs
-      .filter((j) => j.type === 'pull_chapter' && (j.status === 'pending' || j.status === 'running') && j.metadata?.chapter_id)
-      .map((j) => j.metadata!.chapter_id);
-  }, [mangaJobs]);
-
-  const hasActivePullJobs = activeJobChapterIds.length > 0 || optimisticPullIds.size > 0;
-
-  // 2. Fetch Manga Details (Remote vs Local)
-  const { data: localDetailsManga, isLoading: isLocalMangaLoading } = useMangaDetails(targetMangaId, {
-    enabled: !isRemoteRoute && Boolean(targetMangaId),
-  });
-
-  const { data: remoteDetailsManga, isLoading: isRemoteMangaLoading } = useProviderMangaDetails(
+  // Manga details data & route resolution
+  const {
+    isRemoteRoute,
     providerIdParam,
     remoteIdParam,
-    { enabled: isRemoteRoute && Boolean(providerIdParam && remoteIdParam) }
-  );
-
-  const manga = isRemoteRoute ? remoteDetailsManga : localDetailsManga;
-  const isMangaLoading = isRemoteRoute ? isRemoteMangaLoading : isLocalMangaLoading;
-
-  useEffect(() => {
-    if (manga && !isEditingNotes) {
-      setLocalUserNotes(manga.userNotes || manga.meta?.user_notes || '');
-    }
-  }, [manga?.userNotes, manga?.meta?.user_notes, isEditingNotes]);
-
-  // Fetch remote details of library manga from its content provider to get original provider title
-  const providerIdForRemote = (manga?.contentProviderId || manga?.sourceId) || '';
-  const remoteIdForRemote = manga?.contentRemoteId || '';
-  const { data: remoteManga } = useProviderMangaDetails(providerIdForRemote, remoteIdForRemote, {
-    enabled: !isRemoteRoute && Boolean(providerIdForRemote && remoteIdForRemote),
-  });
-
-  // Fetch Sources for provider info
-  const { data: sources = [] } = useSources();
-
-  const activeContentProviderId = isRemoteRoute ? providerIdParam : manga?.contentProviderId || manga?.sourceId || manga?.meta?.content?.provider_id;
-
-  // 4. Fetch Manga Chapters
-  const {
-    data: localChaptersData,
-    isLoading: isLocalChaptersLoading,
-    isError: isLocalChaptersError,
-  } = useChapterList(targetMangaId, {
-    enabled: (!isRemoteRoute || isInLibrary) && Boolean(targetMangaId),
-    hasActivePullJobs,
-  });
-
-  const {
-    data: remoteChaptersData,
-    isLoading: isRemoteChaptersLoading,
-    isError: isRemoteChaptersError,
-  } = useProviderChapterList(providerIdParam, remoteIdParam, {
-    enabled: isRemoteRoute && !isInLibrary && Boolean(providerIdParam && remoteIdParam),
-  });
-
-  const chaptersData = isRemoteRoute && !isInLibrary ? remoteChaptersData : localChaptersData;
-  const isChaptersLoading = isRemoteRoute && !isInLibrary ? isRemoteChaptersLoading : isLocalChaptersLoading;
-  const isChaptersError = isRemoteRoute && !isInLibrary ? isRemoteChaptersError : isLocalChaptersError;
-
-  // Cleanup optimistic pull IDs when chapter is downloaded or background job finishes
-  useEffect(() => {
-    setOptimisticPullIds((prev) => {
-      if (prev.size === 0) return prev;
-      let changed = false;
-      const next = new Set(prev);
-      for (const id of prev) {
-        const ch = chaptersData?.chapters?.find((c) => c.id === id);
-        const isDownloaded = Boolean(ch?.is_downloaded ?? (ch as any)?.isDownloaded ?? ch?.meta?.is_downloaded);
-        const job = mangaJobs.find(
-          (j) => j.type === 'pull_chapter' && j.metadata?.chapter_id === id
-        );
-        const isJobFinished = job && (job.status === 'completed' || job.status === 'failed');
-        if (isDownloaded || isJobFinished) {
-          next.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [chaptersData, mangaJobs]);
-
-  // Mutations
-  const addToLibraryMutation = useMutation({
-    mutationFn: async () => {
-      if (!manga) return null;
-      const created = await api.importProviderManga(
-        providerIdParam || manga.sourceId || 'mangafox',
-        remoteIdParam,
-        'plan_to_read'
-      );
-      return created;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.manga.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.all });
-      showToast('Series added to library', 'success');
-    },
-    onError: (err: any) => {
-      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-      showToast(`Failed to add to library: ${err.message || 'An error occurred'}`, 'error', detail);
-    },
-  });
-
-  const deleteLibraryMutation = useDeleteLibraryMangaMutation();
-
-  const updateLibraryMangaMutation = useUpdateLibraryMangaMutation();
-
-  const refreshChaptersMutation = useMutation({
-    mutationFn: () => {
-      if (!targetMangaId) throw new Error('No manga ID');
-      return api.refreshLibraryManga(targetMangaId);
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.library.refresh(targetMangaId) });
-      if (data.added === 0) {
-        showToast('Up to date', 'success');
-      } else {
-        showToast(`Refresh complete: ${data.added} chapter(s)`, 'success');
-      }
-    },
-    onError: (err: any) => {
-      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-      showToast(`Refresh failed: ${err.message || 'An error occurred'}`, 'error', detail);
-    },
-  });
-
-  const removeChapterMutation = useMutation({
-    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
-      if (!targetMangaId) throw new Error('No manga ID');
-      return api.deleteChapter(targetMangaId, chapterId, providerId);
-    },
-    onSuccess: (_, { providerId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
-      if (providerId) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
-        });
-      }
-      showToast('Chapter removed from library', 'success');
-    },
-    onError: (err: any) => {
-      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-      showToast(`Remove failed: ${err.message || 'An error occurred'}`, 'error', detail);
-    },
-  });
-
-  const deleteChapterFilesMutation = useMutation({
-    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
-      if (!targetMangaId) throw new Error('No manga ID');
-      return api.deleteChapterFiles(targetMangaId, providerId, chapterId);
-    },
-    onSuccess: (_, { providerId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
-      if (providerId) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
-        });
-      }
-      showToast('Files deleted (chapter entry preserved)', 'success');
-    },
-    onError: (err: any) => {
-      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-      showToast(`Delete files failed: ${err.message || 'An error occurred'}`, 'error', detail);
-    },
-  });
-
-  const pullChapterMutation = useMutation({
-    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
-      if (!targetMangaId) throw new Error('No manga ID');
-      return api.pullChapter(targetMangaId, providerId, chapterId);
-    },
-    onSuccess: (_, { chapterId, providerId }) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.chapters.pages(chapterId, targetMangaId, providerId),
-      });
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
-      if (providerId) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
-      showToast('Chapter pulled from provider', 'success');
-    },
-    onError: (err: any) => {
-      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-      showToast(`Pull failed: ${err.message || 'An error occurred'}`, 'error', detail);
-    },
-  });
-
-  const handlePullChapter = (chapterId: string, providerId: string) => {
-    setOptimisticPullIds((prev) => {
-      const next = new Set(prev);
-      next.add(chapterId);
-      return next;
-    });
-    pullChapterMutation.mutate({ chapterId, providerId });
-  };
-
-  const removeProviderMutation = useMutation({
-    mutationFn: (provider: ProviderRef) => {
-      if (!targetMangaId) throw new Error('No manga ID');
-      return api.removeProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
-      showToast('Provider removed', 'success');
-    },
-    onError: (err: any) => {
-      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-      showToast(`Remove failed: ${err.message || 'An error occurred'}`, 'error', detail);
-    },
-  });
-
-  const switchToMutation = useMutation({
-    mutationFn: ({ provider }: { provider: ProviderRef }) => {
-      if (!targetMangaId) throw new Error('No manga ID');
-      return api.switchContentProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
-    },
-    onSuccess: (_, { provider }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
-      if (provider?.provider_id) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.chapters.providerList(targetMangaId, provider.provider_id),
-        });
-      }
-      showToast('Switched content provider', 'success');
-    },
-    onError: (err: any) => {
-      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-      showToast(`Switch failed: ${err.message || 'An error occurred'}`, 'error', detail);
-    },
-  });
-
-  // Batch Mutations
-  const batchUpdateProgressMutation = useBatchUpdateChapterProgressMutation();
-  const batchPullMutation = useBatchPullChaptersMutation();
-  const batchRefreshChaptersMutation = useBatchRefreshChaptersMutation();
-  const batchDeleteFilesMutation = useBatchDeleteChapterFilesMutation();
-  const batchDeleteChaptersMutation = useBatchDeleteChaptersMutation();
-
-  const handleBatchUpdateProgress = (chapterIds: string[], progress: { is_read?: boolean; last_read_page?: number }) => {
-    if (!targetMangaId || !activeContentProviderId) return;
-    batchUpdateProgressMutation.mutate(
-      {
-        mangaId: targetMangaId,
-        providerId: activeContentProviderId,
-        chapterIds,
-        progress,
-      },
-      {
-        onSuccess: (data) => {
-          const count = data?.updated ?? chapterIds.length;
-          showToast(
-            progress.is_read
-              ? `Marked ${count} chapter(s) as read`
-              : `Marked ${count} chapter(s) as unread`,
-            'success'
-          );
-        },
-        onError: (err: any) => {
-          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-          showToast(`Failed to update chapter progress: ${err.message || 'An error occurred'}`, 'error', detail);
-        },
-      }
-    );
-  };
-
-  const handleBatchPull = (chapterIds: string[]) => {
-    if (!targetMangaId || !activeContentProviderId) return;
-    setOptimisticPullIds((prev) => {
-      const next = new Set(prev);
-      chapterIds.forEach((id) => next.add(id));
-      return next;
-    });
-    batchPullMutation.mutate(
-      {
-        mangaId: targetMangaId,
-        providerId: activeContentProviderId,
-        chapterIds,
-      },
-      {
-        onSuccess: (data) => {
-          const count = data?.chapter_count ?? chapterIds.length;
-          queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
-          showToast(`Pull enqueued for ${count} chapter(s)`, 'success');
-        },
-        onError: (err: any) => {
-          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-          showToast(`Failed to pull chapters: ${err.message || 'An error occurred'}`, 'error', detail);
-        },
-      }
-    );
-  };
-
-  const handleBatchRefresh = (chapterIds: string[]) => {
-    if (!targetMangaId || !activeContentProviderId) return;
-    batchRefreshChaptersMutation.mutate(
-      {
-        mangaId: targetMangaId,
-        providerId: activeContentProviderId,
-        chapterIds,
-      },
-      {
-        onSuccess: (data) => {
-          const count = data?.refreshed || chapterIds.length;
-          showToast(`Refreshed metadata for ${count} chapter(s)`, 'success');
-        },
-        onError: (err: any) => {
-          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-          showToast(`Failed to refresh chapter metadata: ${err.message || 'An error occurred'}`, 'error', detail);
-        },
-      }
-    );
-  };
-
-  const handleBatchDeleteFiles = (chapterIds: string[]) => {
-    if (!targetMangaId || !activeContentProviderId) return;
-    batchDeleteFilesMutation.mutate(
-      {
-        mangaId: targetMangaId,
-        providerId: activeContentProviderId,
-        chapterIds,
-      },
-      {
-        onSuccess: (data) => {
-          const count = data?.deleted ?? chapterIds.length;
-          showToast(`Deleted files for ${count} chapter(s)`, 'success');
-        },
-        onError: (err: any) => {
-          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-          showToast(`Failed to delete files: ${err.message || 'An error occurred'}`, 'error', detail);
-        },
-      }
-    );
-  };
-
-  const handleBatchRemove = (chapterIds: string[]) => {
-    if (!targetMangaId || !activeContentProviderId) return;
-    batchDeleteChaptersMutation.mutate(
-      {
-        mangaId: targetMangaId,
-        providerId: activeContentProviderId,
-        chapterIds,
-      },
-      {
-        onSuccess: (data) => {
-          const count = data?.removed ?? chapterIds.length;
-          showToast(`Removed ${count} chapter(s) from library`, 'success');
-        },
-        onError: (err: any) => {
-          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-          showToast(`Failed to remove chapters: ${err.message || 'An error occurred'}`, 'error', detail);
-        },
-      }
-    );
-  };
-
-  const pullingChapterIds = useMemo(() => {
-    const set = new Set<string>(activeJobChapterIds);
-    optimisticPullIds.forEach((id) => {
-      const ch = chaptersData?.chapters?.find((c) => c.id === id);
-      const isDownloaded = Boolean(ch?.is_downloaded ?? (ch as any)?.isDownloaded ?? ch?.meta?.is_downloaded);
-      if (!isDownloaded) {
-        set.add(id);
-      }
-    });
-    if (pullChapterMutation.isPending && pullChapterMutation.variables?.chapterId) {
-      set.add(pullChapterMutation.variables.chapterId);
-    }
-    if (batchPullMutation.isPending && batchPullMutation.variables?.chapterIds) {
-      batchPullMutation.variables.chapterIds.forEach((id) => set.add(id));
-    }
-    return Array.from(set);
-  }, [
+    targetMangaId,
+    isInLibrary,
+    manga,
+    isMangaLoading,
+    sources,
+    activeContentProviderId,
+    activeProvider,
+    contentProviderName,
+    chapters,
+    isChaptersLoading,
+    isChaptersError,
+    mangaJobs,
     activeJobChapterIds,
-    optimisticPullIds,
-    chaptersData,
-    pullChapterMutation.isPending,
-    pullChapterMutation.variables,
-    batchPullMutation.isPending,
-    batchPullMutation.variables,
-  ]);
+    readingCta,
+    isUnavailable,
+    hasZeroChapters,
+  } = useDetailsManga();
 
-  const deletingFilesChapterIds = useMemo(() => {
-    const ids: string[] = [];
-    if (deleteChapterFilesMutation.isPending && deleteChapterFilesMutation.variables?.chapterId) {
-      ids.push(deleteChapterFilesMutation.variables.chapterId);
-    }
-    if (batchDeleteFilesMutation.isPending && batchDeleteFilesMutation.variables?.chapterIds) {
-      ids.push(...batchDeleteFilesMutation.variables.chapterIds);
-    }
-    return ids;
-  }, [
-    deleteChapterFilesMutation.isPending,
-    deleteChapterFilesMutation.variables,
-    batchDeleteFilesMutation.isPending,
-    batchDeleteFilesMutation.variables,
-  ]);
-
-  const removingChapterIds = useMemo(() => {
-    const ids: string[] = [];
-    if (removeChapterMutation.isPending && removeChapterMutation.variables?.chapterId) {
-      ids.push(removeChapterMutation.variables.chapterId);
-    }
-    if (batchDeleteChaptersMutation.isPending && batchDeleteChaptersMutation.variables?.chapterIds) {
-      ids.push(...batchDeleteChaptersMutation.variables.chapterIds);
-    }
-    return ids;
-  }, [
-    removeChapterMutation.isPending,
-    removeChapterMutation.variables,
-    batchDeleteChaptersMutation.isPending,
-    batchDeleteChaptersMutation.variables,
-  ]);
-
-  const handleUserMetadataChange = (updatedFields: Partial<Manga>) => {
-    if (!targetMangaId) return;
-    updateLibraryMangaMutation.mutate(
-      { mangaId: targetMangaId, fields: updatedFields },
-      {
-        onError: (err: any) => {
-          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-          showToast(`Failed to update metadata: ${err.message || 'An error occurred'}`, 'error', detail);
-        },
-      }
-    );
-  };
-
-  const readingCta = useMemo(() => {
-    const chapters = chaptersData?.chapters || [];
-    if (chapters.length === 0) return null;
-
-    const sorted = [...chapters].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-    const firstChapter = sorted[0];
-
-    const lastReadChapterId = manga?.lastReadChapterId || manga?.last_read_chapter_id || manga?.meta?.last_read_chapter_id;
-    const lastReadChapter = lastReadChapterId ? chapters.find((c) => c.id === lastReadChapterId) : undefined;
-
-    // 1. Check in-progress chapter (!is_read && last_read_page > 1)
-    let inProgressChapter: Chapter | undefined;
-    if (lastReadChapter) {
-      const isRead = Boolean(lastReadChapter.meta?.is_read ?? (lastReadChapter as any).is_read);
-      const lastPage = lastReadChapter.meta?.last_read_page ?? (lastReadChapter as any).last_read_page ?? 0;
-      if (!isRead && lastPage > 1) {
-        inProgressChapter = lastReadChapter;
-      }
-    }
-
-    if (!inProgressChapter) {
-      const inProgressList = sorted.filter((c) => {
-        const isRead = Boolean(c.meta?.is_read ?? (c as any).is_read);
-        const lastPage = c.meta?.last_read_page ?? (c as any).last_read_page ?? 0;
-        return !isRead && lastPage > 1;
-      });
-      if (inProgressList.length > 0) {
-        inProgressChapter = inProgressList[inProgressList.length - 1];
-      }
-    }
-
-    if (inProgressChapter) {
-      const lastPage = inProgressChapter.meta?.last_read_page ?? (inProgressChapter as any).last_read_page ?? 1;
-      const chNum = inProgressChapter.number ?? 1;
-      return {
-        type: 'resume',
-        label: `Resume Ch. ${chNum} (p. ${lastPage})`,
-        chapterId: inProgressChapter.id,
-        page: lastPage,
-      };
-    }
-
-    // 2. Check read chapters
-    const readChapters = sorted.filter((c) => Boolean(c.meta?.is_read ?? (c as any).is_read));
-
-    if (readChapters.length === 0) {
-      return {
-        type: 'start',
-        label: 'Start Reading',
-        chapterId: firstChapter.id,
-        page: 1,
-      };
-    }
-
-    if (readChapters.length === sorted.length) {
-      const chNum = firstChapter.number ?? 1;
-      return {
-        type: 'reread',
-        label: `Re-read Ch. ${chNum}`,
-        chapterId: firstChapter.id,
-        page: 1,
-      };
-    }
-
-    // 3. If Ch X completed: Read Ch. X+1
-    let nextChapter: Chapter | undefined;
-    if (lastReadChapter && Boolean(lastReadChapter.meta?.is_read ?? (lastReadChapter as any).is_read)) {
-      const lastIdx = sorted.findIndex((c) => c.id === lastReadChapter.id);
-      if (lastIdx >= 0) {
-        nextChapter = sorted.slice(lastIdx + 1).find((c) => !Boolean(c.meta?.is_read ?? (c as any).is_read));
-      }
-    }
-
-    if (!nextChapter) {
-      const lastReadCh = readChapters[readChapters.length - 1];
-      const lastReadIdx = sorted.findIndex((c) => c.id === lastReadCh.id);
-      if (lastReadIdx >= 0) {
-        nextChapter = sorted.slice(lastReadIdx + 1).find((c) => !Boolean(c.meta?.is_read ?? (c as any).is_read));
-      }
-    }
-
-    if (!nextChapter) {
-      nextChapter = sorted.find((c) => !Boolean(c.meta?.is_read ?? (c as any).is_read));
-    }
-
-    if (nextChapter) {
-      const chNum = nextChapter.number ?? 1;
-      return {
-        type: 'next',
-        label: `Read Ch. ${chNum}`,
-        chapterId: nextChapter.id,
-        page: 1,
-      };
-    }
-
-    return {
-      type: 'start',
-      label: 'Start Reading',
-      chapterId: firstChapter.id,
-      page: 1,
-    };
-  }, [chaptersData?.chapters, manga]);
+  // Chapter & Library operations
+  const {
+    pullingChapterIds,
+    deletingFilesChapterIds,
+    removingChapterIds,
+    addToLibraryMutation,
+    deleteLibraryMutation,
+    updateLibraryMangaMutation,
+    refreshChaptersMutation,
+    removeChapterMutation,
+    deleteChapterFilesMutation,
+    pullChapterMutation,
+    removeProviderMutation,
+    switchToMutation,
+    batchUpdateProgressMutation,
+    batchPullMutation,
+    batchRefreshChaptersMutation,
+    batchDeleteFilesMutation,
+    batchDeleteChaptersMutation,
+    handlePullChapter,
+    handleUserMetadataChange,
+    handleBatchUpdateProgress,
+    handleBatchPull,
+    handleBatchRefresh,
+    handleBatchDeleteFiles,
+    handleBatchRemove,
+  } = useChapterOperations({
+    targetMangaId,
+    activeContentProviderId,
+    providerIdParam,
+    remoteIdParam,
+    manga,
+    chapters,
+    mangaJobs,
+    activeJobChapterIds,
+  });
 
   const handlePrimaryCta = () => {
     if (!readingCta) return;
@@ -700,572 +117,133 @@ export const DetailsPage: React.FC = () => {
       if (isInLibrary && targetMangaId) {
         deleteLibraryMutation.mutate(targetMangaId, {
           onSuccess: () => {
-            showToast('Removed from library', 'info');
             navigate({ to: '/' });
-          },
-          onError: (err: any) => {
-            const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
-            showToast(`Failed to remove: ${err.message || 'An error occurred'}`, 'error', detail);
           },
         });
       }
     }
   };
 
-  const handleOrderToggle = () => {
-    setOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
-  };
-
-  const filteredAliases = (manga?.aliases || manga?.meta?.aliases || []).filter(
-    (alias) => alias.toLowerCase().trim() !== (manga?.title || '').toLowerCase().trim()
-  );
-
-  const authorsList = manga?.authors && manga.authors.length > 0 ? manga.authors : manga?.author ? [manga.author] : manga?.meta?.authors || [];
-  const artistsList = manga?.artists && manga.artists.length > 0 ? manga.artists : manga?.artist ? [manga.artist] : manga?.meta?.artists || [];
-  const authorsJoined = authorsList.join(', ');
-  const artistsJoined = artistsList.join(', ');
-  const areAuthorsAndArtistsSame =
-    authorsJoined && artistsJoined && authorsJoined.toLowerCase().trim() === artistsJoined.toLowerCase().trim();
-
-  const activeProvider = sources.find((s) => s.id === activeContentProviderId);
-  const contentProviderName = activeProvider
-    ? `${activeProvider.name}${activeProvider.language || activeProvider.lang ? ` (${(activeProvider.language || activeProvider.lang)!.toUpperCase()})` : ''}`
-    : activeContentProviderId || undefined;
-
-  const coverSrc = manga?.coverAssetUrl || getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
-
-  const isFavorite = manga?.userFavorite || manga?.user_favorite || manga?.meta?.user_favorite;
-  const userStatus = manga?.userStatus || manga?.meta?.user_status || 'reading';
-  const userRating = manga?.userRating || manga?.meta?.user_rating || 0;
-  const userNotes = manga?.userNotes || manga?.meta?.user_notes || '';
-  const hasZeroChapters = isRemoteRoute && !isInLibrary
-    ? !isRemoteChaptersLoading && Boolean(remoteChaptersData) && remoteChaptersData?.chapters?.length === 0
-    : !isLocalChaptersLoading && Boolean(localChaptersData) && localChaptersData?.chapters?.length === 0;
-  // "Unavailable" means the provider has marked the whole content as takedown/gone.
-  // Distinct from "hasZeroChapters" (metadata exists but no chapters yet), which
-  // surfaces a separate "No chapters found" empty state in ChapterList.
-  const isUnavailable = (manga?.availability === 'unavailable') || (remoteManga?.availability === 'unavailable') || (manga?.meta?.availability === 'unavailable');
-
   return (
     <div className="flex flex-col gap-6">
       {/* Top Action Bar */}
-      <div className="flex items-center justify-between gap-4">
-        {isRemoteRoute ? (
-          <Link
-            to="/providers/$providerId"
-            params={{ providerId: providerIdParam || 'mangafox' }}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Back to Explore
-          </Link>
-        ) : (
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Back to Library
-          </Link>
-        )}
-
-        <div className="flex flex-wrap items-center gap-2">
-          {isRemoteRoute ? (
-            isInLibrary ? (
-              <Link
-                to="/manga/$mangaId"
-                params={{ mangaId: targetMangaId }}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3.5 text-xs font-semibold text-emerald-500 hover:bg-emerald-500/20 transition-colors"
-                title="Series is saved in your local library. Click to view library entry."
-              >
-                <BookOpen className="size-4" aria-hidden />
-                View in Library
-              </Link>
-            ) : (
-              <Button
-                variant="default"
-                onClick={() => addToLibraryMutation.mutate()}
-                disabled={addToLibraryMutation.isPending || !manga || hasZeroChapters || isUnavailable}
-                className="gap-2 cursor-pointer"
-              >
-                <Plus className="size-4" aria-hidden />
-                {addToLibraryMutation.isPending ? 'Adding...' : 'Add to Library'}
-              </Button>
-            )
-          ) : (
-            manga && !isUnavailable && chaptersData?.chapters && chaptersData.chapters.length > 0 && readingCta && (
-              <Button
-                variant="default"
-                onClick={handlePrimaryCta}
-                className="font-semibold cursor-pointer gap-2"
-              >
-                <Play className="size-4 fill-current" aria-hidden />
-                {readingCta.label}
-              </Button>
-            )
-          )}
-        </div>
-      </div>
+      <DetailsActionBar
+        isRemoteRoute={isRemoteRoute}
+        providerIdParam={providerIdParam}
+        isInLibrary={isInLibrary}
+        targetMangaId={targetMangaId}
+        manga={manga}
+        hasZeroChapters={hasZeroChapters}
+        isUnavailable={isUnavailable}
+        hasChapters={chapters.length > 0}
+        readingCta={readingCta}
+        isAddingToLibrary={addToLibraryMutation.isPending}
+        onAddToLibrary={() => addToLibraryMutation.mutate()}
+        onPrimaryCta={handlePrimaryCta}
+        onOpenImportMetadata={() => {
+          setImportMetadataProviderId(undefined);
+          setImportMetadataRemoteId(undefined);
+          setIsImportMetadataOpen(true);
+        }}
+        onOpenEditMetadata={() => setIsEditMetadataOpen(true)}
+        onRemoveFromLibrary={handleConfirmRemoveFromLibrary}
+      />
 
       {/* Hero Card */}
-      <Card className="grid grid-cols-1 gap-6 p-6 md:grid-cols-[240px_1fr]">
-        <div className="flex flex-col gap-4">
-          <div className="overflow-hidden rounded-lg bg-muted shadow-md">
-            {isMangaLoading ? (
-              <Skeleton className="aspect-[2/3] w-full" />
-            ) : (
-              <img
-                src={coverSrc}
-                alt={manga?.title || 'Manga Cover'}
-                className="aspect-[2/3] w-full object-cover"
-                onError={(e) => {
-                  const proxied = getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
-                  if (manga?.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
-                    e.currentTarget.src = proxied;
-                  } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
-                    e.currentTarget.src = '/placeholder.jpg';
-                  }
-                }}
-              />
-            )}
-          </div>
-
-          {/* User Metadata / Library Actions (only if local library entry) */}
-          {!isRemoteRoute && isInLibrary && manga && (
-            <div className={cn(
-              "flex flex-col gap-3 p-3.5 rounded-lg border border-border bg-card shadow-xs transition-opacity duration-200",
-              updateLibraryMangaMutation.isPending && "opacity-60 pointer-events-none"
-            )}>
-              {/* Reading Status Dropdown */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Reading Status</span>
-                <Select
-                  value={userStatus}
-                  onValueChange={(val) => handleUserMetadataChange({ user_status: val || undefined })}
-                  disabled={updateLibraryMangaMutation.isPending}
-                >
-                  <SelectTrigger className="h-9 w-full text-xs bg-background border-border">
-                    <SelectValue placeholder="Select Status">
-                      {formatStatus(userStatus)}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Rating and Favorite row */}
-              <div className="flex items-center justify-between border-t border-border/40 pt-3 mt-0.5">
-                {/* 5-star rating with score indicator */}
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Rating</span>
-                    <span className="text-[10px] font-semibold text-foreground/80">
-                      {(hoverRating !== null ? hoverRating : userRating) > 0
-                        ? `${hoverRating !== null ? hoverRating : userRating}/10`
-                        : 'Unrated'}
-                    </span>
-                    {userRating > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => handleUserMetadataChange({ user_rating: 0 })}
-                        disabled={updateLibraryMangaMutation.isPending}
-                        className="text-[10px] text-muted-foreground hover:text-destructive cursor-pointer"
-                        title="Clear Rating"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                  <div
-                    className="flex items-center gap-0.5"
-                    onMouseLeave={() => setHoverRating(null)}
-                  >
-                    {Array.from({ length: 5 }).map((_, idx) => {
-                      const starValue = (idx + 1) * 2;
-                      const activeValue = hoverRating !== null ? hoverRating : userRating;
-                      const isFilled = activeValue >= starValue;
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          disabled={updateLibraryMangaMutation.isPending}
-                          onMouseEnter={() => setHoverRating(starValue)}
-                          onClick={() => {
-                            const newRating = userRating === starValue ? 0 : starValue;
-                            handleUserMetadataChange({ user_rating: newRating });
-                          }}
-                          className="text-amber-400 hover:scale-110 active:scale-95 transition-transform focus:outline-hidden disabled:opacity-50 cursor-pointer"
-                          title={`Rate ${starValue}/10 (${idx + 1} Stars)`}
-                        >
-                          <Star
-                            className={cn(
-                              "size-4",
-                              isFilled ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30"
-                            )}
-                          />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Love / Favorite button */}
-                <div className="flex flex-col gap-1 items-end">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Favorite</span>
-                  <button
-                    type="button"
-                    disabled={updateLibraryMangaMutation.isPending}
-                    onClick={() => handleUserMetadataChange({ user_favorite: !isFavorite })}
-                    className={cn(
-                      "flex items-center justify-center size-8 rounded-full border transition-all active:scale-95 hover:bg-muted/50 cursor-pointer disabled:opacity-50",
-                      isFavorite
-                        ? "bg-rose-500/10 border-rose-500/30 text-rose-500 hover:bg-rose-500/20"
-                        : "bg-background border-border text-muted-foreground hover:text-foreground"
-                    )}
-                    title={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
-                    aria-label={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
-                  >
-                    <Heart className="size-4" fill={isFavorite ? "currentColor" : "none"} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Personal Notes */}
-              <div className="flex flex-col gap-1.5 border-t border-border/40 pt-3 mt-0.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Personal Notes</span>
-                  {!isEditingNotes && (
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingNotes(true)}
-                      className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
-                    >
-                      {userNotes ? 'Edit' : '+ Add Note'}
-                    </button>
-                  )}
-                </div>
-
-                {isEditingNotes ? (
-                  <div className="flex flex-col gap-2">
-                    <textarea
-                      value={localUserNotes}
-                      onChange={(e) => setLocalUserNotes(e.target.value)}
-                      disabled={updateLibraryMangaMutation.isPending}
-                      placeholder="Add private personal notes..."
-                      autoFocus
-                      className="w-full min-h-16 h-20 max-h-32 rounded-md border border-border bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
-                    />
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setLocalUserNotes(userNotes);
-                          setIsEditingNotes(false);
-                        }}
-                        disabled={updateLibraryMangaMutation.isPending}
-                        className="h-7 text-[11px] px-2.5 cursor-pointer"
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => {
-                          handleUserMetadataChange({ user_notes: localUserNotes || undefined });
-                          setIsEditingNotes(false);
-                        }}
-                        disabled={updateLibraryMangaMutation.isPending}
-                        className="h-7 text-[11px] px-2.5 bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer"
-                      >
-                        {updateLibraryMangaMutation.isPending ? 'Saving...' : 'Save'}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-xs text-foreground bg-muted/40 border border-border/20 rounded-md p-2.5 min-h-12 break-words whitespace-pre-wrap">
-                    {userNotes ? userNotes : (
-                      <span className="text-muted-foreground italic text-[11px]">No notes added yet.</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-4">
-            <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
-              {isMangaLoading ? 'Loading Manga...' : manga?.title || 'Untitled Manga'}
-            </h1>
-
-            {isInLibrary && manga && (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
-                  aria-label="Metadata options"
-                  title="Metadata options"
-                >
-                  <MoreVertical className="size-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setImportMetadataProviderId(undefined);
-                      setImportMetadataRemoteId(undefined);
-                      setIsImportMetadataOpen(true);
-                    }}
-                    className="text-xs cursor-pointer gap-2"
-                  >
-                    <Download className="size-4" />
-                    Import metadata
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setIsEditMetadataOpen(true)}
-                    className="text-xs cursor-pointer gap-2"
-                  >
-                    <Edit3 className="size-4" />
-                    Edit Metadata
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={handleConfirmRemoveFromLibrary}
-                    className="text-destructive focus:text-destructive focus:bg-destructive/10 text-xs cursor-pointer gap-2"
-                  >
-                    <Trash2 className="size-4" />
-                    Remove from Library
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-
-          {filteredAliases.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">Aliases:</span> {filteredAliases.join(', ')}
-            </p>
-          )}
-
-          {/* Essential Info: merged Author/Artist if same */}
-          <div className="flex flex-col gap-1 text-sm border-t border-b border-border/40 py-3 mt-1">
-            {areAuthorsAndArtistsSame ? (
-              <div>
-                <span className="text-muted-foreground font-medium">Author / Artist: </span>
-                <span className="text-foreground font-semibold">{authorsJoined}</span>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                {authorsJoined && (
-                  <div>
-                    <span className="text-muted-foreground font-medium">Author: </span>
-                    <span className="text-foreground font-semibold">{authorsJoined}</span>
-                  </div>
-                )}
-                {artistsJoined && (
-                  <div>
-                    <span className="text-muted-foreground font-medium">Artist: </span>
-                    <span className="text-foreground font-semibold">{artistsJoined}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Collapsible Detailed Metadata */}
-          <div className="border-b border-border/40 pb-3 mt-1">
-            <button
-              type="button"
-              onClick={() => setShowDetailedMetadata(!showDetailedMetadata)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-semibold transition-colors focus:outline-none cursor-pointer"
-            >
-              {showDetailedMetadata ? (
-                <>
-                  <ChevronUp className="size-3.5" />
-                  Hide Details
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="size-3.5" />
-                  Show Detailed Metadata
-                </>
-              )}
-            </button>
-
-            {showDetailedMetadata && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3 text-xs bg-muted/40 p-3 rounded-lg border border-border/30">
-                <div>
-                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Reading Mode</span>
-                  <span className="font-medium text-foreground uppercase">
-                    {READING_MODE_LABELS[
-                      (
-                        manga?.content?.reading_mode ||
-                        manga?.meta?.content?.reading_mode ||
-                        manga?.readingMode ||
-                        manga?.reading_mode ||
-                        manga?.readingDirection ||
-                        manga?.meta?.reading_direction ||
-                        'rtl'
-                      ).toLowerCase()
-                    ] ||
-                      manga?.content?.reading_mode ||
-                      manga?.meta?.content?.reading_mode ||
-                      manga?.readingMode ||
-                      manga?.reading_mode ||
-                      manga?.readingDirection ||
-                      manga?.meta?.reading_direction ||
-                      'rtl'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Content Rating</span>
-                  <span className="font-medium text-foreground capitalize">{manga?.contentRating || manga?.meta?.content_rating || 'safe'}</span>
-                </div>
-                {manga?.publisher && (
-                  <div>
-                    <span className="text-muted-foreground block text-[10px] uppercase font-bold">Publisher</span>
-                    <span className="font-medium text-foreground">{manga.publisher}</span>
-                  </div>
-                )}
-                {manga?.releaseYear && (
-                  <div>
-                    <span className="text-muted-foreground block text-[10px] uppercase font-bold">Release Year</span>
-                    <span className="font-medium text-foreground">{manga.releaseYear}</span>
-                  </div>
-                )}
-                {manga?.country && (
-                  <div>
-                    <span className="text-muted-foreground block text-[10px] uppercase font-bold">Country</span>
-                    <span className="font-medium text-foreground uppercase">{manga.country}</span>
-                  </div>
-                )}
-                {(() => {
-                  const extLinks = (manga?.externalLinks && manga.externalLinks.length > 0)
-                    ? manga.externalLinks
-                    : (manga?.meta?.external_links || []);
-                  if (extLinks.length === 0) return null;
-                  return (
-                    <div className="col-span-2 sm:col-span-3 pt-1 border-t border-border/20">
-                      <span className="text-muted-foreground block text-[10px] uppercase font-bold mb-1.5">External Links</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {extLinks.map((link, idx) => (
-                          <a
-                            key={`${link.url}-${idx}`}
-                            href={link.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline bg-primary/10 rounded px-2 py-0.5 font-medium transition-colors"
-                          >
-                            <ExternalLink className="size-3" />
-                            <span>{link.label || link.provider || link.url}</span>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-
-          {/* Genre / Tag Pills */}
-          {((manga?.tags && manga.tags.length > 0) || (manga?.genres && manga.genres.length > 0)) && (
-            <div className="flex flex-wrap gap-1.5">
-              {(manga?.tags || manga?.genres || manga?.meta?.tags || []).map((genre) => (
-                <GenrePill key={genre} genre={genre} />
-              ))}
-            </div>
-          )}
-
-          {/* Description */}
-          <div className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {manga?.description || manga?.meta?.description || 'No description available for this series.'}
-          </div>
-        </div>
-      </Card>
+      <DetailsHeroCard
+        manga={manga}
+        isMangaLoading={isMangaLoading}
+        contentProviderName={contentProviderName}
+        userMetadataSlot={
+          !isRemoteRoute && isInLibrary && manga ? (
+            <DetailsUserMetadata
+              manga={manga}
+              isUpdating={updateLibraryMangaMutation.isPending}
+              onUpdate={handleUserMetadataChange}
+            />
+          ) : null
+        }
+      />
 
       {/* Provider Bindings Section */}
-          {!isRemoteRoute && isInLibrary && manga && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setIsProvidersCollapsed(!isProvidersCollapsed)}
-                  className="flex items-center gap-1.5 hover:opacity-80 cursor-pointer"
-                >
-                  <h2 className="text-sm font-semibold text-foreground">Providers</h2>
-                  {isProvidersCollapsed ? (
-                    <ChevronDown className="size-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronUp className="size-4 text-muted-foreground" />
-                  )}
-                </button>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsAddProviderOpen(true)}
-                    className="gap-1.5 h-8 text-xs cursor-pointer"
-                  >
-                    <Plus className="size-3" />
-                    Add provider
-                  </Button>
-                </div>
-              </div>
-
-              {!isProvidersCollapsed && (
-                <ProviderList
-                  providers={manga.meta?.providers || []}
-                  contentProviderId={manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id}
-                  contentProviderMangaId={manga.contentRemoteId || manga.meta?.content?.provider_manga_id}
-                  sources={sources}
-                  onImportMetadata={(provider) => {
-                    setImportMetadataProviderId(provider.provider_id);
-                    setImportMetadataRemoteId(provider.provider_manga_id);
-                    setIsImportMetadataOpen(true);
-                  }}
-                  onRemove={(provider) => {
-                    if (confirm(`Remove "${provider.manga_title || provider.provider_id}" from this manga?`)) {
-                      removeProviderMutation.mutate(provider);
-                    }
-                  }}
-                  onSwitchTo={(provider) => {
-                    if (confirm(`Switch the default content provider to "${provider.manga_title || provider.provider_id}"? Chapters from the previous provider remain accessible — nothing is deleted.`)) {
-                      switchToMutation.mutate({ provider });
-                    }
-                  }}
-                  isRemoving={removeProviderMutation.isPending}
-                  canRemoveProvider={(provider) => {
-                    // Can't remove the last content provider
-                    const hasContentCapability = sources.find(s => s.id === provider.provider_id)?.capabilities?.includes('content');
-                    if (!hasContentCapability) return true;
-                    const contentProviders = (manga.meta?.providers || []).filter(
-                      p => sources.find(s => s.id === p.provider_id)?.capabilities?.includes('content')
-                    );
-                    return contentProviders.length > 1;
-                  }}
-                  isContentUnavailable={isUnavailable}
-                />
+      {!isRemoteRoute && isInLibrary && manga && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setIsProvidersCollapsed(!isProvidersCollapsed)}
+              className="flex items-center gap-1.5 hover:opacity-80 cursor-pointer"
+            >
+              <h2 className="text-sm font-semibold text-foreground">Providers</h2>
+              {isProvidersCollapsed ? (
+                <ChevronDown className="size-4 text-muted-foreground" />
+              ) : (
+                <ChevronUp className="size-4 text-muted-foreground" />
               )}
+            </button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAddProviderOpen(true)}
+                className="gap-1.5 h-8 text-xs cursor-pointer"
+              >
+                <Plus className="size-3" />
+                Add provider
+              </Button>
             </div>
+          </div>
+
+          {!isProvidersCollapsed && (
+            <ProviderList
+              providers={manga.meta?.providers || []}
+              contentProviderId={manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id}
+              contentProviderMangaId={manga.contentRemoteId || manga.meta?.content?.provider_manga_id}
+              sources={sources}
+              onImportMetadata={(provider) => {
+                setImportMetadataProviderId(provider.provider_id);
+                setImportMetadataRemoteId(provider.provider_manga_id);
+                setIsImportMetadataOpen(true);
+              }}
+              onRemove={(provider) => {
+                if (confirm(`Remove "${provider.manga_title || provider.provider_id}" from this manga?`)) {
+                  removeProviderMutation.mutate(provider);
+                }
+              }}
+              onSwitchTo={(provider) => {
+                if (
+                  confirm(
+                    `Switch the default content provider to "${provider.manga_title || provider.provider_id}"? Chapters from the previous provider remain accessible — nothing is deleted.`
+                  )
+                ) {
+                  switchToMutation.mutate({ provider });
+                }
+              }}
+              isRemoving={removeProviderMutation.isPending}
+              canRemoveProvider={(provider) => {
+                const hasContentCapability = sources.find((s) => s.id === provider.provider_id)?.capabilities?.includes('content');
+                if (!hasContentCapability) return true;
+                const contentProviders = (manga.meta?.providers || []).filter((p) =>
+                  sources.find((s) => s.id === p.provider_id)?.capabilities?.includes('content')
+                );
+                return contentProviders.length > 1;
+              }}
+              isContentUnavailable={isUnavailable}
+            />
           )}
+        </div>
+      )}
 
       {/* Chapters Section using ChapterList */}
       {manga && (
         <ChapterList
-          chapters={chaptersData?.chapters || []}
+          chapters={chapters}
           mangaId={manga.id}
           providerId={isRemoteRoute ? providerIdParam : undefined}
           remoteId={isRemoteRoute ? remoteIdParam : undefined}
           sortBy={sortBy}
           order={order}
           onSortByChange={setSortBy}
-          onOrderToggle={handleOrderToggle}
+          onOrderToggle={() => setOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
           isLoading={isChaptersLoading}
           isError={isChaptersError}
           contentProviderName={contentProviderName}
@@ -1274,8 +252,16 @@ export const DetailsPage: React.FC = () => {
           isInLibrary={isInLibrary}
           onRefreshChapters={isInLibrary ? () => refreshChaptersMutation.mutate() : undefined}
           isRefreshing={refreshChaptersMutation.isPending}
-          onRemoveChapter={isInLibrary ? (chId, providerId) => providerId && removeChapterMutation.mutate({ chapterId: chId, providerId }) : undefined}
-          onDeleteFiles={isInLibrary ? (chId, providerId) => deleteChapterFilesMutation.mutate({ chapterId: chId, providerId }) : undefined}
+          onRemoveChapter={
+            isInLibrary
+              ? (chId, provId) => provId && removeChapterMutation.mutate({ chapterId: chId, providerId: provId })
+              : undefined
+          }
+          onDeleteFiles={
+            isInLibrary
+              ? (chId, provId) => deleteChapterFilesMutation.mutate({ chapterId: chId, providerId: provId })
+              : undefined
+          }
           onPullChapter={isInLibrary ? handlePullChapter : undefined}
           isDeletingFiles={deleteChapterFilesMutation.isPending}
           isPullingChapter={pullChapterMutation.isPending}
@@ -1296,7 +282,7 @@ export const DetailsPage: React.FC = () => {
         />
       )}
 
-      {/* Edit Metadata Dialog */}
+      {/* Dialogs */}
       {manga && (
         <EditMetadataDialog
           manga={manga}
@@ -1305,7 +291,6 @@ export const DetailsPage: React.FC = () => {
         />
       )}
 
-      {/* Add Provider Dialog */}
       {manga && (
         <AddProviderDialog
           mangaId={manga.id}
@@ -1318,7 +303,6 @@ export const DetailsPage: React.FC = () => {
         />
       )}
 
-      {/* Import Metadata Dialog */}
       {manga && (
         <ImportMetadataDialog
           manga={manga}

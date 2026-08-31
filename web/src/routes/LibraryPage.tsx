@@ -1,32 +1,18 @@
-import React, { useState, useDeferredValue, useMemo } from 'react';
+import React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Library as LibraryIcon, Plus, Search, Filter, ArrowUpDown } from 'lucide-react';
+import { Library as LibraryIcon, Plus } from 'lucide-react';
 import { useLibraryManga, useDeleteLibraryMangaMutation } from '../api/hooks';
 import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { Input } from '../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Skeleton } from '../components/ui/skeleton';
 import { LibraryMangaCard } from '../components/LibraryMangaCard';
-import { LibraryShelfFilters } from '../components/LibraryShelfFilters';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../components/ui/sheet';
-
-const sortOptions: Record<string, string> = {
-  title_asc: 'Title (A to Z)',
-  title_desc: 'Title (Z to A)',
-  rating_desc: 'Rating (Highest)',
-  rating_asc: 'Rating (Lowest)',
-  added_desc: 'Recently Added',
-  updated_desc: 'Recently Updated',
-};
+import {
+  useLibraryFilters,
+  LibraryDesktopFilters,
+  LibraryMobileFilterSheet,
+} from '../components/library';
 
 export const LibraryPage: React.FC = () => {
   const navigate = useNavigate();
-
-  const [activeShelf, setActiveShelf] = useState<string>('all');
-  const [selectedTag, setSelectedTag] = useState<string>('');
-  const [filterSearch, setFilterSearch] = useState<string>('');
-  const [sortBy, setSortBy] = useState<string>('title_asc');
 
   // 1. Query Library Manga
   const { data: libraryManga = [], isLoading: isLibraryLoading } = useLibraryManga();
@@ -34,131 +20,24 @@ export const LibraryPage: React.FC = () => {
   // 2. Delete Manga Mutation
   const deleteMangaMutation = useDeleteLibraryMangaMutation();
 
-  const deferredFilterSearch = useDeferredValue(filterSearch);
-
-  // Shelves & Tags Extraction — memoized to avoid recompute on every filter change
-  const { customShelves, allTags } = useMemo(() => {
-    const shelves = Array.from(
-      new Set(libraryManga.flatMap((m) => m.shelves || []))
-    ).filter(Boolean);
-    const tags = Array.from(
-      new Set(libraryManga.flatMap((m) => m.tags || m.genres || m.meta?.tags || []))
-    ).sort();
-    return { customShelves: shelves, allTags: tags };
-  }, [libraryManga]);
-
-  const defaultShelves = [
-    { id: 'all', label: 'All' },
-    { id: 'reading', label: 'Reading' },
-    { id: 'favorites', label: 'Favorites', isFavorite: true },
-    { id: 'plan_to_read', label: 'Plan to Read' },
-    { id: 'completed', label: 'Completed' },
-    { id: 'on_hold', label: 'On Hold' },
-    { id: 'dropped', label: 'Dropped' },
-    { id: 'unread', label: 'Unread' },
-  ];
-
-  const allShelves = useMemo(() => [
-    ...defaultShelves,
-    ...customShelves.map((s) => ({ id: `custom:${s}`, label: s })),
-  ], [customShelves]);
-
-  // Counts per status and favorites
-  const counts = useMemo(() => {
-    const res: Record<string, number> = {
-      all: libraryManga.length,
-      reading: 0,
-      favorites: 0,
-      plan_to_read: 0,
-      completed: 0,
-      on_hold: 0,
-      dropped: 0,
-      unread: 0,
-    };
-    for (const m of libraryManga) {
-      const st = m.userStatus || m.user_status || m.meta?.user_status || 'unread';
-      if (res[st] !== undefined) {
-        res[st]++;
-      }
-      if (m.userFavorite || m.user_favorite || m.meta?.user_favorite) {
-        res.favorites++;
-      }
-      if (m.shelves) {
-        for (const s of m.shelves) {
-          const key = 'custom:' + s;
-          res[key] = (res[key] || 0) + 1;
-        }
-      }
-    }
-    return res;
-  }, [libraryManga]);
-
-  // Filtered and Sorted Manga List
-  const filteredManga = useMemo(() => {
-    const filtered = libraryManga.filter((manga) => {
-      const uStatus = manga.userStatus || manga.user_status || manga.meta?.user_status || 'unread';
-      const isFav = manga.userFavorite || manga.user_favorite || manga.meta?.user_favorite;
-
-      if (activeShelf === 'reading' && uStatus !== 'reading') return false;
-      if (activeShelf === 'favorites' && !isFav) return false;
-      if (activeShelf === 'plan_to_read' && uStatus !== 'plan_to_read') return false;
-      if (activeShelf === 'completed' && uStatus !== 'completed') return false;
-      if (activeShelf === 'on_hold' && uStatus !== 'on_hold') return false;
-      if (activeShelf === 'dropped' && uStatus !== 'dropped') return false;
-      if (activeShelf === 'unread' && uStatus !== 'unread') return false;
-      if (activeShelf.startsWith('custom:')) {
-        const shelfName = activeShelf.replace('custom:', '');
-        if (!manga.shelves?.includes(shelfName)) return false;
-      }
-
-      if (selectedTag) {
-        const mangaTags = manga.tags || manga.genres || manga.meta?.tags || [];
-        if (!mangaTags.includes(selectedTag)) return false;
-      }
-
-      if (deferredFilterSearch.trim()) {
-        const q = deferredFilterSearch.toLowerCase();
-        const titleMatch = manga.title.toLowerCase().includes(q);
-        const authorList = manga.authors || (manga.author ? [manga.author] : []) || manga.meta?.authors || [];
-        const authorMatch = authorList.some((a) => a.toLowerCase().includes(q));
-        if (!titleMatch && !authorMatch) return false;
-      }
-
-      return true;
-    });
-
-    return [...filtered].sort((a, b) => {
-      if (sortBy === 'title_asc') {
-        return a.title.localeCompare(b.title);
-      }
-      if (sortBy === 'title_desc') {
-        return b.title.localeCompare(a.title);
-      }
-      if (sortBy === 'rating_desc') {
-        const rA = a.userRating || a.user_rating || a.meta?.user_rating || 0;
-        const rB = b.userRating || b.user_rating || b.meta?.user_rating || 0;
-        if (rB !== rA) return rB - rA;
-        return a.title.localeCompare(b.title);
-      }
-      if (sortBy === 'rating_asc') {
-        const rA = a.userRating || a.user_rating || a.meta?.user_rating || 0;
-        const rB = b.userRating || b.user_rating || b.meta?.user_rating || 0;
-        if (rA !== rB) return rA - rB;
-        return a.title.localeCompare(b.title);
-      }
-      if (sortBy === 'added_desc') {
-        const tA = a.meta?.added_at ? new Date(a.meta.added_at).getTime() : 0;
-        const tB = b.meta?.added_at ? new Date(b.meta.added_at).getTime() : 0;
-        return tB - tA;
-      }
-      if (sortBy === 'updated_desc') {
-        const tA = a.meta?.updated_at ? new Date(a.meta.updated_at).getTime() : 0;
-        const tB = b.meta?.updated_at ? new Date(b.meta.updated_at).getTime() : 0;
-        return tB - tA;
-      }
-      return 0;
-    });
-  }, [libraryManga, activeShelf, selectedTag, deferredFilterSearch, sortBy]);
+  // 3. Filter & Sort hook
+  const {
+    activeShelf,
+    setActiveShelf,
+    selectedTag,
+    setSelectedTag,
+    filterSearch,
+    setFilterSearch,
+    sortBy,
+    setSortBy,
+    allTags,
+    allShelves,
+    counts,
+    filteredManga,
+    clearFilters,
+  } = useLibraryFilters({
+    libraryManga,
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -180,205 +59,36 @@ export const LibraryPage: React.FC = () => {
       {/* Shelves Tabs & Filter Bar */}
       <div className="flex flex-col gap-4">
         {/* Desktop Filter Layout */}
-        <div className="hidden md:flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {libraryManga.length > 0 && (
-              <LibraryShelfFilters
-                shelves={allShelves}
-                counts={counts}
-                activeShelf={activeShelf}
-                onSelectShelf={setActiveShelf}
-              />
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-2 w-full pt-1">
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Sort Dropdown */}
-                <div className="flex items-center gap-1.5">
-                  <Select value={sortBy} onValueChange={(val) => val && setSortBy(val)}>
-                    <SelectTrigger className="w-[170px] text-xs h-9">
-                      <ArrowUpDown className="size-3.5 mr-1 text-muted-foreground" />
-                      <SelectValue placeholder="Sort by">
-                        {sortOptions[sortBy] || sortBy}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="title_asc" className="text-xs">Title (A to Z)</SelectItem>
-                      <SelectItem value="title_desc" className="text-xs">Title (Z to A)</SelectItem>
-                      <SelectItem value="rating_desc" className="text-xs">Rating (Highest)</SelectItem>
-                      <SelectItem value="rating_asc" className="text-xs">Rating (Lowest)</SelectItem>
-                      <SelectItem value="added_desc" className="text-xs">Recently Added</SelectItem>
-                      <SelectItem value="updated_desc" className="text-xs">Recently Updated</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Tag Filter Dropdown */}
-                {allTags.length > 0 && (
-                  <Select value={selectedTag} onValueChange={(val) => setSelectedTag(!val || val === 'all_tags' ? '' : val)}>
-                    <SelectTrigger className="w-[140px] text-xs h-9">
-                      <Filter className="size-3.5 mr-1 text-muted-foreground" />
-                      <SelectValue placeholder="All Tags">
-                        {selectedTag || 'All Tags'}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all_tags" className="text-xs">All Tags</SelectItem>
-                      {allTags.map((tag) => (
-                        <SelectItem key={tag} value={tag} className="text-xs">
-                          {tag}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Quick Filter Input */}
-              <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
-                <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Search by title or author..."
-                  value={filterSearch}
-                  onChange={(e) => setFilterSearch(e.target.value)}
-                  className="pl-8 text-xs h-9"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        <LibraryDesktopFilters
+          hasManga={libraryManga.length > 0}
+          allShelves={allShelves}
+          counts={counts}
+          activeShelf={activeShelf}
+          onSelectShelf={setActiveShelf}
+          sortBy={sortBy}
+          onSortByChange={setSortBy}
+          allTags={allTags}
+          selectedTag={selectedTag}
+          onSelectTag={setSelectedTag}
+          filterSearch={filterSearch}
+          onSearchChange={setFilterSearch}
+        />
 
         {/* Mobile Filter Layout */}
-        <div className="flex md:hidden items-center gap-2 w-full">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search..."
-              value={filterSearch}
-              onChange={(e) => setFilterSearch(e.target.value)}
-              className="pl-8 text-xs h-9"
-            />
-          </div>
-
-          <Sheet>
-            <SheetTrigger
-              render={
-                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs cursor-pointer shrink-0">
-                  <Filter className="size-3.5" />
-                  <span>Filter & Sort</span>
-                </Button>
-              }
-            />
-            <SheetContent side="bottom" className="h-[80vh] rounded-t-xl sm:max-w-full">
-              <SheetHeader>
-                <SheetTitle>Filter & Sort</SheetTitle>
-              </SheetHeader>
-              <div className="mt-4 flex flex-col gap-6 overflow-y-auto max-h-[calc(80vh-100px)] pb-10">
-                {/* Sorting */}
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
-                  <Select value={sortBy} onValueChange={(val) => val && setSortBy(val)}>
-                    <SelectTrigger className="w-full text-xs h-10">
-                      <ArrowUpDown className="size-3.5 mr-1 text-muted-foreground" />
-                      <SelectValue placeholder="Sort by" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="title_asc" className="text-xs">Title (A to Z)</SelectItem>
-                      <SelectItem value="title_desc" className="text-xs">Title (Z to A)</SelectItem>
-                      <SelectItem value="rating_desc" className="text-xs">Rating (Highest)</SelectItem>
-                      <SelectItem value="rating_asc" className="text-xs">Rating (Lowest)</SelectItem>
-                      <SelectItem value="added_desc" className="text-xs">Recently Added</SelectItem>
-                      <SelectItem value="updated_desc" className="text-xs">Recently Updated</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Shelves Selection */}
-                {libraryManga.length > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Shelf / Status</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {allShelves.map((shelf) => {
-                        const isActive = activeShelf === shelf.id;
-                        const count = counts[shelf.id] ?? 0;
-                        return (
-                          <button
-                            key={shelf.id}
-                            type="button"
-                            onClick={() => setActiveShelf(shelf.id)}
-                            className={`rounded-full px-3 py-1 text-xs font-medium border cursor-pointer transition-colors ${
-                              isActive
-                                ? 'bg-primary text-primary-foreground border-primary'
-                                : 'bg-card text-foreground border-border hover:bg-accent'
-                            }`}
-                          >
-                            {shelf.label} ({count})
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Tag Filter */}
-                {allTags.length > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter by Tag</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedTag('')}
-                        className={`rounded-full px-3 py-1 text-xs font-medium border cursor-pointer transition-colors ${
-                          !selectedTag
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-foreground border-border hover:bg-accent'
-                        }`}
-                      >
-                        All Tags
-                      </button>
-                      {allTags.map((tag) => {
-                        const isActive = selectedTag === tag;
-                        return (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => setSelectedTag(tag)}
-                            className={`rounded-full px-3 py-1 text-xs font-medium border cursor-pointer transition-colors ${
-                              isActive
-                                ? 'bg-primary text-primary-foreground border-primary'
-                                : 'bg-card text-foreground border-border hover:bg-accent'
-                            }`}
-                          >
-                            {tag}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </SheetContent>
-          </Sheet>
-        </div>
-
-        {/* Selected Tag Badge indicator */}
-        {selectedTag && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Filtered by tag:</span>
-            <Badge variant="secondary" className="gap-1">
-              {selectedTag}
-              <button
-                type="button"
-                onClick={() => setSelectedTag('')}
-                className="ml-1 text-muted-foreground hover:text-foreground font-bold cursor-pointer"
-              >
-                ×
-              </button>
-            </Badge>
-          </div>
-        )}
+        <LibraryMobileFilterSheet
+          hasManga={libraryManga.length > 0}
+          allShelves={allShelves}
+          counts={counts}
+          activeShelf={activeShelf}
+          onSelectShelf={setActiveShelf}
+          sortBy={sortBy}
+          onSortByChange={setSortBy}
+          allTags={allTags}
+          selectedTag={selectedTag}
+          onSelectTag={setSelectedTag}
+          filterSearch={filterSearch}
+          onSearchChange={setFilterSearch}
+        />
       </div>
 
       {/* Library Grid / Loading / Empty State */}
@@ -412,11 +122,7 @@ export const LibraryPage: React.FC = () => {
           ) : (
             <Button
               variant="outline"
-              onClick={() => {
-                setActiveShelf('all');
-                setSelectedTag('');
-                setFilterSearch('');
-              }}
+              onClick={clearFilters}
               className="cursor-pointer"
             >
               Clear Filters
