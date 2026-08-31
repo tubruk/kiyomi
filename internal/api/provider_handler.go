@@ -59,9 +59,6 @@ func (h *Handler) listContentProviders(c echo.Context) error {
 
 func (h *Handler) getProviderMangaCatalog(c echo.Context) error {
 	providerID := c.Param("providerId")
-	if providerID == "" {
-		providerID = c.Param("id")
-	}
 	metaProvider, _, err := h.getProvider(providerID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
@@ -125,9 +122,6 @@ func (h *Handler) getProviderMangaCatalog(c echo.Context) error {
 
 func (h *Handler) getPopularManga(c echo.Context) error {
 	providerID := c.Param("providerId")
-	if providerID == "" {
-		providerID = c.Param("id")
-	}
 	metaProvider, _, err := h.getProvider(providerID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
@@ -172,9 +166,6 @@ func (h *Handler) getPopularManga(c echo.Context) error {
 
 func (h *Handler) getLatestManga(c echo.Context) error {
 	providerID := c.Param("providerId")
-	if providerID == "" {
-		providerID = c.Param("id")
-	}
 	metaProvider, _, err := h.getProvider(providerID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
@@ -219,9 +210,6 @@ func (h *Handler) getLatestManga(c echo.Context) error {
 
 func (h *Handler) searchManga(c echo.Context) error {
 	providerID := c.Param("providerId")
-	if providerID == "" {
-		providerID = c.Param("id")
-	}
 	query := c.QueryParam("q")
 	metaProvider, _, err := h.getProvider(providerID)
 	if err != nil {
@@ -257,9 +245,6 @@ func (h *Handler) searchManga(c echo.Context) error {
 
 func (h *Handler) getProviderMangaDetails(c echo.Context) error {
 	providerID := c.Param("providerId")
-	if providerID == "" {
-		providerID = c.Param("id")
-	}
 	remoteID := c.Param("remoteId")
 
 	metaProvider, _, err := h.getProvider(providerID)
@@ -296,13 +281,7 @@ func (h *Handler) getProviderMangaDetails(c echo.Context) error {
 
 func (h *Handler) getProviderMangaChapters(c echo.Context) error {
 	providerID := c.Param("providerId")
-	if providerID == "" {
-		providerID = c.Param("id")
-	}
 	remoteID := c.Param("remoteId")
-	if remoteID == "" {
-		remoteID = c.Param("mangaId")
-	}
 
 	_, contentProvider, err := h.getProvider(providerID)
 	if err != nil {
@@ -345,6 +324,11 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+
+	if body.ProviderID == "" || body.RemoteID == "" {
+		c.Set("handler_error", "provider_id and remote_id are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "provider_id and remote_id are required"})
 	}
 
 	if body.UserStatus != "" && !library.IsValidUserStatus(body.UserStatus) {
@@ -416,9 +400,15 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		sem := make(chan struct{}, numWorkers)
 		var wg sync.WaitGroup
 
+	chapterLoop:
 		for _, ch := range chapters {
+			select {
+			case <-ctx.Done():
+				break chapterLoop
+			case sem <- struct{}{}:
+			}
+
 			wg.Add(1)
-			sem <- struct{}{}
 			go func(ch sdk.Chapter) {
 				defer wg.Done()
 				defer func() { <-sem }()
@@ -434,7 +424,7 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 						LastSyncedAt: now,
 					},
 				}
-				_ = h.lib.SaveChapter(localID, ch.ID, chMeta)
+				_ = h.lib.SaveChapter(localID, body.ProviderID, ch.ID, chMeta)
 			}(ch)
 		}
 		wg.Wait()
@@ -462,6 +452,7 @@ func handleProviderError(c echo.Context, providerID string, err error) error {
 	)
 
 	c.Set("handler_error", pe.Message)
+	c.Set("_error_logged", true)
 
 	return c.JSON(status, echo.Map{
 		"error":       pe.Message,

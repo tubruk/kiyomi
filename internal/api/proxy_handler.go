@@ -7,8 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/cookiejar"
-	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/tubruk/kiyomi/internal/cache"
 	"github.com/tubruk/kiyomi/internal/library"
-	"github.com/tubruk/kiyomi/pkg/provider/sdk"
+	"github.com/tubruk/kiyomi/internal/security/ssrfguard"
 )
 
 func (h *Handler) streamDataURI(c echo.Context, urlStr string) error {
@@ -36,6 +36,8 @@ func (h *Handler) streamDataURI(c echo.Context, urlStr string) error {
 		if strings.HasSuffix(header, ";base64") {
 			contentType = strings.TrimSuffix(contentType, ";base64")
 		}
+	} else if header != "" {
+		contentType = header
 	}
 	if contentType == "" {
 		contentType = "text/plain"
@@ -63,32 +65,24 @@ func (h *Handler) streamDataURI(c echo.Context, urlStr string) error {
 
 func (h *Handler) getChapterPages(c echo.Context) error {
 	chapterRef := c.Param("chapterId")
-	if chapterRef == "" {
-		chapterRef = c.Param("ch")
-	}
 	providerID := c.Param("providerId")
 	if providerID == "" {
 		providerID = c.QueryParam("providerId")
 	}
-	if providerID == "" {
-		providerID = c.QueryParam("provider")
-	}
 
 	mangaRef := c.QueryParam("mangaId")
-	if mangaRef == "" {
-		mangaRef = c.QueryParam("mangaRef")
-	}
-	if mangaRef == "" {
-		mangaRef = c.Param("mangaId")
-	}
 	if mangaRef == "" {
 		mangaRef = c.Param("remoteId")
 	}
 
 	if providerID == "" {
 		if mangaRef != "" {
-			if chMeta, err := h.lib.GetChapter(mangaRef, chapterRef); err == nil && chMeta.Content != nil && chMeta.Content.ProviderID != "" {
-				providerID = chMeta.Content.ProviderID
+			if chMeta, foundProviderID, err := h.lib.FindChapter(mangaRef, chapterRef); err == nil {
+				if chMeta.Content != nil && chMeta.Content.ProviderID != "" {
+					providerID = chMeta.Content.ProviderID
+				} else {
+					providerID = foundProviderID
+				}
 			}
 		}
 		if providerID == "" {
@@ -128,7 +122,7 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 						default:
 						}
 
-						if chMeta, err := h.lib.GetChapter(m.ID, chapterRef); err == nil && chMeta.Content != nil && chMeta.Content.ProviderID != "" {
+						if chMeta, _, err := h.lib.FindChapter(m.ID, chapterRef); err == nil && chMeta.Content != nil && chMeta.Content.ProviderID != "" {
 							foundOnce.Do(func() {
 								foundProvider = chMeta.Content.ProviderID
 								foundManga = m.ID
@@ -156,7 +150,7 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 
 	refresh := c.QueryParam("refresh") == "true"
 	if !refresh {
-		savedPages, err := h.lib.GetChapterPages(mangaRef, chapterRef)
+		savedPages, err := h.lib.GetChapterPages(mangaRef, providerID, chapterRef)
 		if err == nil && len(savedPages) > 0 {
 			resPages := make([]echo.Map, 0, len(savedPages))
 			for _, p := range savedPages {
@@ -191,7 +185,7 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 		})
 	}
 
-	if saveErr := h.lib.SaveChapterPages(mangaRef, chapterRef, pageItems); saveErr != nil {
+	if saveErr := h.lib.SaveChapterPages(mangaRef, providerID, chapterRef, pageItems); saveErr != nil {
 		slog.Warn("failed to save chapter pages to library",
 			slog.String("error", saveErr.Error()),
 			slog.String("manga_ref", mangaRef),
@@ -215,17 +209,8 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 
 func (h *Handler) proxyPageImage(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	if mangaID == "" {
-		mangaID = c.Param("id")
-	}
 	chapterID := c.Param("chapterId")
-	if chapterID == "" {
-		chapterID = c.Param("ch")
-	}
 	pageStr := c.Param("pageIndex")
-	if pageStr == "" {
-		pageStr = c.Param("n")
-	}
 
 	pageIndex, err := strconv.Atoi(pageStr)
 	if err != nil || pageIndex < 1 {
@@ -233,19 +218,60 @@ func (h *Handler) proxyPageImage(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid page number"})
 	}
 
-	chMeta, err := h.lib.GetChapter(mangaID, chapterID)
-	if err != nil {
-		c.Set("handler_error", "chapter meta not found")
-		return c.JSON(http.StatusNotFound, echo.Map{"error": "chapter meta not found"})
+	providerID := c.QueryParam("provider_id")
+	var chMeta *library.ChapterMeta
+	if providerID == "" {
+		// No provider specified — search all provider subdirs
+		var foundProviderID string
+		chMeta, foundProviderID, err = h.lib.FindChapter(mangaID, chapterID)
+		if err != nil {
+			c.Set("handler_error", "chapter meta not found")
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "chapter meta not found"})
+		}
+		providerID = foundProviderID
+	} else {
+		chMeta, err = h.lib.GetChapter(mangaID, providerID, chapterID)
+		if err != nil {
+			c.Set("handler_error", "chapter meta not found")
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "chapter meta not found"})
+		}
+	}
+
+	// Check if page file already exists on disk
+	chapterDir := h.lib.ProviderChapterDir(mangaID, providerID, chapterID)
+	for _, ext := range []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"} {
+		localPath := filepath.Join(chapterDir, fmt.Sprintf("%d%s", pageIndex, ext))
+		if info, statErr := os.Stat(localPath); statErr == nil && !info.IsDir() {
+			c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+			return c.File(localPath)
+		}
 	}
 
 	imageURL := c.QueryParam("url")
+	if imageURL == "" && providerID != "" {
+		if savedPages, err := h.lib.GetChapterPages(mangaID, providerID, chapterID); err == nil {
+			for _, p := range savedPages {
+				if p.Index == pageIndex {
+					imageURL = p.URL
+					break
+				}
+			}
+		}
+	}
+
 	if imageURL == "" {
 		c.Set("handler_error", "url parameter is required")
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "url parameter is required"})
 	}
 
-	return h.streamRemoteImage(c, imageURL, chMeta.Content)
+	var content *library.ContentSource
+	if chMeta != nil && chMeta.Content != nil {
+		content = chMeta.Content
+	} else if providerID != "" {
+		content = &library.ContentSource{ProviderID: providerID}
+	}
+
+	return h.streamRemoteImage(c, imageURL, content)
 }
 
 func (h *Handler) proxyImageDirect(c echo.Context) error {
@@ -257,95 +283,26 @@ func (h *Handler) proxyImageDirect(c echo.Context) error {
 	return h.streamRemoteImage(c, imageURL, nil)
 }
 
-func (h *Handler) buildProxyRequest(ctx context.Context, urlStr string, refererParam string, content *library.ContentSource) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	userAgent := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-	if content != nil && content.ProviderID != "" && h.fpStore != nil {
-		prof, err := h.fpStore.Get(content.ProviderID)
-		if err == nil {
-			if prof.UserAgent != "" {
-				userAgent = prof.UserAgent
-			}
-			if len(prof.Cookies) > 0 {
-				if h.httpClient.Jar == nil {
-					jar, _ := cookiejar.New(nil)
-					h.httpClient.Jar = jar
-				}
-				for domainURL, rawHeader := range prof.Cookies {
-					u, parseErr := url.Parse(domainURL)
-					if parseErr != nil || u.Host == "" {
-						continue
-					}
-					parts := strings.Split(rawHeader, ";")
-					var jarCookies []*http.Cookie
-					for _, part := range parts {
-						part = strings.TrimSpace(part)
-						if part == "" {
-							continue
-						}
-						kv := strings.SplitN(part, "=", 2)
-						if len(kv) == 2 {
-							jarCookies = append(jarCookies, &http.Cookie{
-								Name:  strings.TrimSpace(kv[0]),
-								Value: strings.TrimSpace(kv[1]),
-								Path:  "/",
-							})
-						}
-					}
-					if len(jarCookies) > 0 {
-						h.httpClient.Jar.SetCookies(u, jarCookies)
-					}
-				}
-			}
-		}
-	}
-
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-
-	referer := refererParam
-	if referer == "" && content != nil && content.ProviderID != "" {
-		if cp, ok := h.registry.GetContent(content.ProviderID); ok {
-			if hsGetter, ok := cp.(interface{ GetConfig() sdk.ProviderConfig }); ok {
-				cfg := hsGetter.GetConfig()
-				if cfg.BaseURL != "" {
-					referer = cfg.BaseURL
-					if !strings.HasSuffix(referer, "/") {
-						referer += "/"
-					}
-				}
-			}
-		}
-	}
-	if referer == "" {
-		if strings.Contains(urlStr, "fanfox.net") || strings.Contains(urlStr, "mfcdn.net") || strings.Contains(urlStr, "mangafox.me") || strings.Contains(urlStr, "zjcdn") {
-			referer = "https://fanfox.net/"
-		} else if strings.Contains(urlStr, "mangadex.org") || strings.Contains(urlStr, "mangadex.network") {
-			referer = "https://mangadex.org/"
-		}
-	}
-	if referer != "" {
-		req.Header.Set("Referer", referer)
-	}
-
-	return req, nil
-}
-
 func (h *Handler) streamRemoteImage(c echo.Context, urlStr string, content *library.ContentSource) error {
 	// Handle data: URIs directly — no HTTP fetch needed.
 	if len(urlStr) >= 5 && urlStr[:5] == "data:" {
 		return h.streamDataURI(c, urlStr)
 	}
 
+	allowPrivate := h.cfg != nil && h.cfg.AllowPrivateNetworks
+	if _, err := ssrfguard.ValidateURL(urlStr, allowPrivate); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+
 	queryReferer := c.QueryParam("referer")
+	providerID := ""
+	if content != nil {
+		providerID = content.ProviderID
+	}
 
 	if h.imageCache == nil {
-		req, err := h.buildProxyRequest(c.Request().Context(), urlStr, queryReferer, content)
+		req, err := h.reqBuilder.BuildRequest(c.Request().Context(), urlStr, providerID, queryReferer)
 		if err != nil {
 			c.Set("handler_error", err.Error())
 			return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
@@ -377,7 +334,7 @@ func (h *Handler) streamRemoteImage(c echo.Context, urlStr string, content *libr
 	}
 
 	rc, meta, err := h.imageCache.GetOrFetch(c.Request().Context(), urlStr, func(ctx context.Context) (io.ReadCloser, cache.Meta, error) {
-		req, err := h.buildProxyRequest(ctx, urlStr, queryReferer, content)
+		req, err := h.reqBuilder.BuildRequest(ctx, urlStr, providerID, queryReferer)
 		if err != nil {
 			return nil, cache.Meta{}, err
 		}

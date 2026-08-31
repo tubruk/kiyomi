@@ -14,6 +14,9 @@ import {
   providerMangaDetailsQueryOptions,
   exploreCatalogQueryOptions,
   pluginsQueryOptions,
+  cacheStatsQueryOptions,
+  jobsQueryOptions,
+  infoQueryOptions,
 } from './lib/queryOptions';
 
 export interface RouterContext {
@@ -56,6 +59,33 @@ export interface ExploreSearch {
   page?: number;
 }
 
+export interface ReaderSearch {
+  mangaId?: string;
+  page?: number | 'last' | string;
+}
+
+const validateExploreSearch = (search: Record<string, unknown>): ExploreSearch => {
+  return {
+    mode: search.mode === 'latest' ? 'latest' : 'popular',
+    q: typeof search.q === 'string' && search.q.trim() ? search.q : undefined,
+    page: typeof search.page === 'number' && search.page > 0 ? search.page : Number(search.page) || 1,
+  };
+};
+
+const validateReaderSearch = (search: Record<string, unknown>): ReaderSearch => {
+  return {
+    mangaId: typeof search.mangaId === 'string' ? search.mangaId : undefined,
+    page:
+      search.page === 'last'
+        ? 'last'
+        : typeof search.page === 'number' && search.page > 0
+        ? search.page
+        : typeof search.page === 'string' && search.page.trim()
+        ? search.page.trim()
+        : undefined,
+  };
+};
+
 export const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -90,13 +120,7 @@ export const exploreLandingRoute = createRoute({
 export const providerCatalogRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/providers/$providerId',
-  validateSearch: (search: Record<string, unknown>): ExploreSearch => {
-    return {
-      mode: search.mode === 'latest' ? 'latest' : 'popular',
-      q: typeof search.q === 'string' && search.q.trim() ? search.q : undefined,
-      page: typeof search.page === 'number' && search.page > 0 ? search.page : Number(search.page) || 1,
-    };
-  },
+  validateSearch: validateExploreSearch,
   loaderDeps: ({ search: { mode, q, page } }) => ({ mode, q, page }),
   loader: ({ context, params, deps }) => {
     context.queryClient.ensureQueryData(
@@ -121,6 +145,7 @@ export const providerDetailsRoute = providerRemoteDetailsRoute;
 export const providerRemoteReaderRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/providers/$providerId/manga/$remoteId/chapter/$chapterId',
+  validateSearch: validateReaderSearch,
   component: () => <Suspense fallback={<Loading />}><ReaderPage /></Suspense>,
 });
 
@@ -135,12 +160,14 @@ export const localDetailsRoute = createRoute({
 export const localReaderRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/manga/$mangaId/chapter/$chapterId',
+  validateSearch: validateReaderSearch,
   component: () => <Suspense fallback={<Loading />}><ReaderPage /></Suspense>,
 });
 
 export const exploreProviderRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/explore/$providerId',
+  validateSearch: validateExploreSearch,
   component: () => <Suspense fallback={<Loading />}><ExplorePage /></Suspense>,
 });
 
@@ -153,6 +180,7 @@ export const exploreRemoteDetailsRoute = createRoute({
 export const readerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reader/$chapterId',
+  validateSearch: validateReaderSearch,
   component: () => <Suspense fallback={<Loading />}><ReaderPage /></Suspense>,
 });
 
@@ -161,17 +189,39 @@ export const settingsRoute = createRoute({
   path: '/settings',
   loader: () => {
     throw redirect({
-      to: '/settings/plugins',
+      to: '/settings/$tab',
+      params: { tab: 'plugins' },
       replace: true,
     });
   },
 });
 
-export const settingsPluginsRoute = createRoute({
+export const settingsTabRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/settings/plugins',
-  loader: ({ context }) =>
-    context.queryClient.ensureQueryData(pluginsQueryOptions()).catch(() => undefined),
+  path: '/settings/$tab',
+  loader: ({ context, params }) => {
+    const validTabs = ['plugins', 'cache', 'jobs', 'about'];
+    if (!validTabs.includes(params.tab)) {
+      throw redirect({
+        to: '/settings/$tab',
+        params: { tab: 'plugins' },
+        replace: true,
+      });
+    }
+
+    switch (params.tab) {
+      case 'plugins':
+        return context.queryClient.ensureQueryData(pluginsQueryOptions()).catch(() => undefined);
+      case 'cache':
+        return context.queryClient.ensureQueryData(cacheStatsQueryOptions()).catch(() => undefined);
+      case 'jobs':
+        return context.queryClient.ensureQueryData(jobsQueryOptions()).catch(() => undefined);
+      case 'about':
+        return context.queryClient.ensureQueryData(infoQueryOptions()).catch(() => undefined);
+      default:
+        return undefined;
+    }
+  },
   component: () => <Suspense fallback={<Loading />}><SettingsPage /></Suspense>,
 });
 
@@ -180,7 +230,8 @@ export const pluginsRoute = createRoute({
   path: '/plugins',
   loader: () => {
     throw redirect({
-      to: '/settings/plugins',
+      to: '/settings/$tab',
+      params: { tab: 'plugins' },
       replace: true,
     });
   },
@@ -199,7 +250,7 @@ const routeTree = rootRoute.addChildren([
   exploreRemoteDetailsRoute,
   readerRoute,
   settingsRoute,
-  settingsPluginsRoute,
+  settingsTabRoute,
   pluginsRoute,
 ]);
 

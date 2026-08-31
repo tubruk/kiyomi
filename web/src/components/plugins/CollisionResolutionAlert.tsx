@@ -99,7 +99,17 @@ export const CollisionResolutionAlert: React.FC<CollisionResolutionAlertProps> =
                       disabled={isBusy}
                     >
                       <SelectTrigger className="w-56 text-xs h-8 bg-card border-border">
-                        <SelectValue placeholder="Select active provider" />
+                        <SelectValue placeholder="Select active provider">
+                          {(() => {
+                            const selectedCand = item.candidates.find(
+                              (cand) => (cand.isBuiltIn ? 'builtin' : cand.pluginId) === item.selected
+                            );
+                            if (!selectedCand) return item.selected;
+                            return selectedCand.isBuiltIn
+                              ? `Built-in (v${selectedCand.version})`
+                              : `Plugin: ${selectedCand.pluginId} (v${selectedCand.version})`;
+                          })()}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {item.candidates.map((cand) => {

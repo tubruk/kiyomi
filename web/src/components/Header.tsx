@@ -42,7 +42,7 @@ export const Header: React.FC = () => {
           </Link>
 
           {/* Desktop Navigation Links */}
-          <nav className="hidden items-center gap-1 md:flex">
+          <nav className="hidden items-center gap-1 md:flex" aria-label="Main navigation">
             <Link
               to="/"
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -69,7 +69,8 @@ export const Header: React.FC = () => {
         {/* Actions: Settings & Theme Switcher */}
         <div className="flex items-center gap-3">
           <Link
-            to="/settings/plugins"
+            to="/settings/$tab"
+            params={{ tab: 'plugins' }}
             className={`inline-flex size-9 items-center justify-center rounded-full border border-border bg-card transition-colors cursor-pointer shrink-0 ${
               isSettingsActive
                 ? 'bg-secondary text-primary'

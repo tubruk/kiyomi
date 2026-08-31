@@ -18,12 +18,13 @@ func setupTestHandler(t *testing.T) (*Handler, *echo.Echo) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	cfg := &config.Config{
-		LibraryDir: tmpDir,
-		CacheDir:   filepath.Join(tmpDir, "cache"),
+		LibraryDir:           tmpDir,
+		CacheDir:             filepath.Join(tmpDir, "cache"),
+		AllowPrivateNetworks: true,
 	}
 	lib := library.NewLibrary(tmpDir)
 
-	h := NewHandler(cfg, lib)
+	h := NewHandler(cfg, lib, nil, nil)
 	e := echo.New()
 	h.RegisterRoutes(e)
 	return h, e
@@ -191,5 +192,19 @@ func TestStreamRemoteImageFingerprintWiring(t *testing.T) {
 	}
 	if receivedCookie != "cf_clearance=test_cookie_val" {
 		t.Errorf("expected Cookie 'cf_clearance=test_cookie_val', got %q", receivedCookie)
+	}
+}
+
+func TestFingerprintHandlers_NilStore(t *testing.T) {
+	h, e := setupTestHandler(t)
+	h.fpStore = nil
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/providers/mangadex/fingerprint", bytes.NewReader([]byte("{}")))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 Service Unavailable when fpStore is nil, got %d", rec.Code)
 	}
 }

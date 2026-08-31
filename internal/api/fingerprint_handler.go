@@ -105,11 +105,11 @@ func (h *Handler) handlePutFingerprint(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	prof := requestToProfile(req)
 	if h.fpStore == nil {
-		h.fpStore = fingerprint.NewMemoryStore()
+		return c.JSON(http.StatusServiceUnavailable, echo.Map{"error": "fingerprint store not configured"})
 	}
 
+	prof := requestToProfile(req)
 	if err := h.fpStore.Set(providerID, prof); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})

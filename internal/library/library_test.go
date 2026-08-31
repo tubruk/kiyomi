@@ -3,6 +3,8 @@ package library
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,12 +87,12 @@ func TestLibraryCRUD(t *testing.T) {
 		},
 	}
 
-	if err := lib.SaveChapter(mangaID, chapterID, chapterMeta); err != nil {
+	if err := lib.SaveChapter(mangaID, "mangadex", chapterID, chapterMeta); err != nil {
 		t.Fatalf("failed to save chapter: %v", err)
 	}
 
 	// Test GetChapter
-	gotChapterMeta, err := lib.GetChapter(mangaID, chapterID)
+	gotChapterMeta, err := lib.GetChapter(mangaID, "mangadex", chapterID)
 	if err != nil {
 		t.Fatalf("failed to get chapter: %v", err)
 	}
@@ -121,7 +123,7 @@ func TestLibraryCRUD(t *testing.T) {
 	}
 
 	// Test ListChapters
-	chapters, err := lib.ListChapters(mangaID)
+	chapters, err := lib.ListChapters(mangaID, "mangadex")
 	if err != nil {
 		t.Fatalf("failed to list chapters: %v", err)
 	}
@@ -133,10 +135,10 @@ func TestLibraryCRUD(t *testing.T) {
 	}
 
 	// Test DeleteChapter
-	if err := lib.DeleteChapter(mangaID, chapterID); err != nil {
+	if err := lib.DeleteChapter(mangaID, "mangadex", chapterID); err != nil {
 		t.Fatalf("failed to delete chapter: %v", err)
 	}
-	chaptersAfterDelete, err := lib.ListChapters(mangaID)
+	chaptersAfterDelete, err := lib.ListChapters(mangaID, "mangadex")
 	if err != nil {
 		t.Fatalf("failed to list chapters after delete: %v", err)
 	}
@@ -261,12 +263,12 @@ func TestUpdateChapterProgress(t *testing.T) {
 		Title:  "Chapter 1",
 		Number: 1.0,
 	}
-	if err := lib.SaveChapter(mangaID, chapterID, chapterMeta); err != nil {
+	if err := lib.SaveChapter(mangaID, LocalProviderID, chapterID, chapterMeta); err != nil {
 		t.Fatalf("failed to save chapter: %v", err)
 	}
 
 	// Update progress
-	info, err := lib.UpdateChapterProgress(mangaID, chapterID, true, 15)
+	info, err := lib.UpdateChapterProgress(mangaID, LocalProviderID, chapterID, true, 15)
 	if err != nil {
 		t.Fatalf("failed to update chapter progress: %v", err)
 	}
@@ -288,7 +290,7 @@ func TestUpdateChapterProgress(t *testing.T) {
 	}
 
 	// Check chapter was persisted
-	savedCh, err := lib.GetChapter(mangaID, chapterID)
+	savedCh, err := lib.GetChapter(mangaID, LocalProviderID, chapterID)
 	if err != nil {
 		t.Fatalf("failed to get saved chapter: %v", err)
 	}
@@ -309,7 +311,7 @@ func TestUpdateChapterProgress(t *testing.T) {
 	}
 
 	// Non-existent chapter
-	if _, err := lib.UpdateChapterProgress(mangaID, "non-existent-ch", true, 1); err == nil {
+	if _, err := lib.UpdateChapterProgress(mangaID, LocalProviderID, "non-existent-ch", true, 1); err == nil {
 		t.Errorf("expected error updating non-existent chapter, got nil")
 	}
 }
@@ -466,7 +468,7 @@ func TestListChapters_ParallelAndSorted(t *testing.T) {
 
 	for i, num := range chapNums {
 		chID := fmt.Sprintf("ch-%02d", i)
-		if err := lib.SaveChapter(mangaID, chID, &ChapterMeta{
+		if err := lib.SaveChapter(mangaID, LocalProviderID, chID, &ChapterMeta{
 			Title:  fmt.Sprintf("Chapter %v", num),
 			Number: num,
 		}); err != nil {
@@ -495,7 +497,7 @@ func TestListChapters_ParallelAndSorted(t *testing.T) {
 		t.Fatalf("failed to create regular file: %v", err)
 	}
 
-	chapters, err := lib.ListChapters(mangaID)
+	chapters, err := lib.ListChapters(mangaID, LocalProviderID)
 	if err != nil {
 		t.Fatalf("ListChapters failed: %v", err)
 	}
@@ -553,7 +555,7 @@ func TestListChapters_EmptyAndNonExistent(t *testing.T) {
 	lib := NewLibrary(tempDir)
 
 	// Non-existent manga
-	chapters, err := lib.ListChapters("non-existent-manga")
+	chapters, err := lib.ListChapters("non-existent-manga", "")
 	if err != nil {
 		t.Fatalf("expected no error on non-existent manga, got: %v", err)
 	}
@@ -565,7 +567,7 @@ func TestListChapters_EmptyAndNonExistent(t *testing.T) {
 	if err := lib.SaveManga("empty-manga", &MangaMeta{Title: "Empty"}); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
-	chapters2, err := lib.ListChapters("empty-manga")
+	chapters2, err := lib.ListChapters("empty-manga", "")
 	if err != nil {
 		t.Fatalf("expected no error on manga with no chapters, got: %v", err)
 	}
@@ -591,7 +593,7 @@ func TestLibrary_ConcurrentRaceCheck(t *testing.T) {
 		}
 		for j := 0; j < 10; j++ {
 			chID := fmt.Sprintf("ch-%02d", j)
-			if err := lib.SaveChapter(mangaID, chID, &ChapterMeta{Title: fmt.Sprintf("Ch %d", j), Number: float32(j)}); err != nil {
+			if err := lib.SaveChapter(mangaID, LocalProviderID, chID, &ChapterMeta{Title: fmt.Sprintf("Ch %d", j), Number: float32(j)}); err != nil {
 				t.Fatalf("failed to save chapter: %v", err)
 			}
 		}
@@ -607,7 +609,7 @@ func TestLibrary_ConcurrentRaceCheck(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			mangaID := fmt.Sprintf("race-manga-%02d", idx%20)
-			_, _ = lib.ListChapters(mangaID)
+			_, _ = lib.ListChapters(mangaID, LocalProviderID)
 		}(i)
 	}
 	wg.Wait()
@@ -630,17 +632,17 @@ func TestChapterPages_SaveAndGet(t *testing.T) {
 		{Index: 2, URL: "https://example.com/p2.jpg"},
 	}
 
-	if err := lib.SaveChapterPages(mangaID, chapterID, pages); err != nil {
+	if err := lib.SaveChapterPages(mangaID, LocalProviderID, chapterID, pages); err != nil {
 		t.Fatalf("SaveChapterPages failed: %v", err)
 	}
 
 	// Verify file was written to expected location
-	pagesPath := filepath.Join(tempDir, mangaID, chapterID, "pages.json")
+	pagesPath := filepath.Join(tempDir, mangaID, LocalProviderID, chapterID, "pages.json")
 	if _, err := os.Stat(pagesPath); err != nil {
 		t.Fatalf("expected pages.json at %s, got err: %v", pagesPath, err)
 	}
 
-	gotPages, err := lib.GetChapterPages(mangaID, chapterID)
+	gotPages, err := lib.GetChapterPages(mangaID, LocalProviderID, chapterID)
 	if err != nil {
 		t.Fatalf("GetChapterPages failed: %v", err)
 	}
@@ -672,7 +674,7 @@ func TestChapterPages_FallbackToPagesDir(t *testing.T) {
 	}
 
 	// Empty mangaID should store in _pages/<chapter_id>.json
-	if err := lib.SaveChapterPages("", chapterID, pages); err != nil {
+	if err := lib.SaveChapterPages("", LocalProviderID, chapterID, pages); err != nil {
 		t.Fatalf("SaveChapterPages with empty mangaID failed: %v", err)
 	}
 
@@ -681,7 +683,7 @@ func TestChapterPages_FallbackToPagesDir(t *testing.T) {
 		t.Fatalf("expected file at %s, got err: %v", pagesPath, err)
 	}
 
-	gotPages, err := lib.GetChapterPages("", chapterID)
+	gotPages, err := lib.GetChapterPages("", LocalProviderID, chapterID)
 	if err != nil {
 		t.Fatalf("GetChapterPages with empty mangaID failed: %v", err)
 	}
@@ -709,7 +711,7 @@ func TestChapterPages_MetaPageCountUpdate(t *testing.T) {
 	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Count Test Manga"}); err != nil {
 		t.Fatalf("SaveManga failed: %v", err)
 	}
-	if err := lib.SaveChapter(mangaID, chapterID, &ChapterMeta{
+	if err := lib.SaveChapter(mangaID, LocalProviderID, chapterID, &ChapterMeta{
 		Title:     "Chapter 1",
 		Number:    1.0,
 		PageCount: 0,
@@ -724,12 +726,12 @@ func TestChapterPages_MetaPageCountUpdate(t *testing.T) {
 		{Index: 3, URL: "https://example.com/4.png"},
 	}
 
-	if err := lib.SaveChapterPages(mangaID, chapterID, pages); err != nil {
+	if err := lib.SaveChapterPages(mangaID, LocalProviderID, chapterID, pages); err != nil {
 		t.Fatalf("SaveChapterPages failed: %v", err)
 	}
 
 	// Verify meta.json was updated with page_count = 4
-	updatedMeta, err := lib.GetChapter(mangaID, chapterID)
+	updatedMeta, err := lib.GetChapter(mangaID, LocalProviderID, chapterID)
 	if err != nil {
 		t.Fatalf("GetChapter failed: %v", err)
 	}
@@ -750,19 +752,19 @@ func TestChapterPages_Errors(t *testing.T) {
 	chapterID := "ch-err-test"
 
 	// 1. Empty slice error
-	if err := lib.SaveChapterPages(mangaID, chapterID, []PageItem{}); err == nil {
+	if err := lib.SaveChapterPages(mangaID, LocalProviderID, chapterID, []PageItem{}); err == nil {
 		t.Errorf("expected error saving empty page slice, got nil")
 	} else if err.Error() != "save chapter pages: empty page list" {
 		t.Errorf("expected error 'save chapter pages: empty page list', got: %v", err)
 	}
 
 	// 2. Nil slice error
-	if err := lib.SaveChapterPages(mangaID, chapterID, nil); err == nil {
+	if err := lib.SaveChapterPages(mangaID, LocalProviderID, chapterID, nil); err == nil {
 		t.Errorf("expected error saving nil page slice, got nil")
 	}
 
 	// 3. GetChapterPages non-existent
-	if _, err := lib.GetChapterPages(mangaID, "non-existent"); err == nil {
+	if _, err := lib.GetChapterPages(mangaID, LocalProviderID, "non-existent"); err == nil {
 		t.Errorf("expected error getting non-existent pages, got nil")
 	}
 
@@ -775,7 +777,7 @@ func TestChapterPages_Errors(t *testing.T) {
 		t.Fatalf("failed to write corrupt pages file: %v", err)
 	}
 
-	if _, err := lib.GetChapterPages(mangaID, "corrupt-ch"); err == nil {
+	if _, err := lib.GetChapterPages(mangaID, LocalProviderID, "corrupt-ch"); err == nil {
 		t.Errorf("expected unmarshal error on corrupt pages.json, got nil")
 	}
 }
@@ -975,6 +977,169 @@ func TestHasContentProvider(t *testing.T) {
 	}
 }
 
+func TestSyncCover_Success(t *testing.T) {
+	coverBytes := []byte("FAKE-JPEG-BYTES")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write(coverBytes)
+	}))
+	defer srv.Close()
+
+	tempDir, err := os.MkdirTemp("", "kiyomi-cover-test-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	lib.SetAllowPrivateNetworks(true) // httptest binds 127.0.0.1
+	mangaID := "manga-cover-1"
+
+	if err := lib.SyncCover(mangaID, srv.URL+"/cover.jpg"); err != nil {
+		t.Fatalf("SyncCover failed: %v", err)
+	}
+
+	// Verify file written at expected path
+	target := filepath.Join(tempDir, mangaID, "cover.jpg")
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("expected cover at %s: %v", target, err)
+	}
+	if info.Size() != int64(len(coverBytes)) {
+		t.Errorf("expected cover size %d, got %d", len(coverBytes), info.Size())
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read cover: %v", err)
+	}
+	if string(got) != string(coverBytes) {
+		t.Errorf("cover content mismatch: got %q want %q", got, coverBytes)
+	}
+}
+
+func TestSyncCover_ExtensionFromURL(t *testing.T) {
+	coverBytes := []byte("PNG-BYTES")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream") // force URL-based detection
+		_, _ = w.Write(coverBytes)
+	}))
+	defer srv.Close()
+
+	tempDir, err := os.MkdirTemp("", "kiyomi-cover-ext-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	lib.SetAllowPrivateNetworks(true) // httptest binds 127.0.0.1
+	mangaID := "manga-png"
+
+	if err := lib.SyncCover(mangaID, srv.URL+"/cover.png"); err != nil {
+		t.Fatalf("SyncCover failed: %v", err)
+	}
+
+	target := filepath.Join(tempDir, mangaID, "cover.png")
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("expected cover at %s: %v", target, err)
+	}
+}
+
+func TestSyncCover_ExtensionFromContentType(t *testing.T) {
+	// URL has no extension, so we rely on Content-Type detection.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/webp")
+		_, _ = w.Write([]byte("WEBP-BYTES"))
+	}))
+	defer srv.Close()
+
+	tempDir, err := os.MkdirTemp("", "kiyomi-cover-ct-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	lib.SetAllowPrivateNetworks(true) // httptest binds 127.0.0.1
+	mangaID := "manga-webp"
+
+	if err := lib.SyncCover(mangaID, srv.URL+"/cover"); err != nil {
+		t.Fatalf("SyncCover failed: %v", err)
+	}
+
+	target := filepath.Join(tempDir, mangaID, "cover.webp")
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("expected cover at %s: %v", target, err)
+	}
+}
+
+func TestSyncCover_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	tempDir, err := os.MkdirTemp("", "kiyomi-cover-err-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "manga-404"
+
+	if err := lib.SyncCover(mangaID, srv.URL+"/cover.jpg"); err == nil {
+		t.Errorf("expected error on 404 response, got nil")
+	}
+}
+
+func TestSyncCover_EmptyURL(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-cover-empty-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	if err := lib.SyncCover("any", ""); err == nil {
+		t.Errorf("expected error on empty URL, got nil")
+	}
+}
+
+func TestHasCover(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-hascover-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "manga-hascover"
+
+	if lib.HasCover(mangaID) {
+		t.Errorf("expected HasCover to be false for missing cover")
+	}
+
+	// Create a cover.jpg
+	mangaDir := filepath.Join(tempDir, mangaID)
+	if err := os.MkdirAll(mangaDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mangaDir, "cover.jpg"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write cover: %v", err)
+	}
+
+	if !lib.HasCover(mangaID) {
+		t.Errorf("expected HasCover to be true after creating cover.jpg")
+	}
+	if p := lib.CoverPath(mangaID); p != filepath.Join(mangaDir, "cover.jpg") {
+		t.Errorf("CoverPath mismatch: got %q want %q", p, filepath.Join(mangaDir, "cover.jpg"))
+	}
+}
+
 func TestLibrary_ConcurrentReadWrite(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "kiyomi-rw-race-*")
 	if err != nil {
@@ -992,7 +1157,7 @@ func TestLibrary_ConcurrentReadWrite(t *testing.T) {
 		}
 		for j := 0; j < 5; j++ {
 			chID := fmt.Sprintf("ch-%d", j)
-			if err := lib.SaveChapter(mangaID, chID, &ChapterMeta{Title: fmt.Sprintf("Ch %d", j), Number: float32(j)}); err != nil {
+			if err := lib.SaveChapter(mangaID, LocalProviderID, chID, &ChapterMeta{Title: fmt.Sprintf("Ch %d", j), Number: float32(j)}); err != nil {
 				t.Fatalf("failed to save chapter: %v", err)
 			}
 		}
@@ -1017,9 +1182,9 @@ func TestLibrary_ConcurrentReadWrite(t *testing.T) {
 			defer wg.Done()
 			mangaID := fmt.Sprintf("manga-%d", idx%numManga)
 			for k := 0; k < 20; k++ {
-				_, _ = lib.ListChapters(mangaID)
+				_, _ = lib.ListChapters(mangaID, LocalProviderID)
 				_, _ = lib.GetManga(mangaID)
-				_, _ = lib.GetChapter(mangaID, "ch-0")
+				_, _ = lib.GetChapter(mangaID, LocalProviderID, "ch-0")
 			}
 		}(i)
 	}
@@ -1031,7 +1196,7 @@ func TestLibrary_ConcurrentReadWrite(t *testing.T) {
 			defer wg.Done()
 			mangaID := fmt.Sprintf("manga-%d", idx%numManga)
 			for k := 0; k < 20; k++ {
-				_, _ = lib.UpdateChapterProgress(mangaID, "ch-0", true, k)
+				_, _ = lib.UpdateChapterProgress(mangaID, LocalProviderID, "ch-0", true, k)
 			}
 		}(i)
 	}
@@ -1043,7 +1208,7 @@ func TestLibrary_ConcurrentReadWrite(t *testing.T) {
 			defer wg.Done()
 			mangaID := fmt.Sprintf("manga-%d", idx%numManga)
 			for k := 0; k < 20; k++ {
-				_ = lib.SaveChapterPages(mangaID, "ch-0", []PageItem{{Index: 0, URL: "http://example.com/p0.jpg"}})
+				_ = lib.SaveChapterPages(mangaID, LocalProviderID, "ch-0", []PageItem{{Index: 0, URL: "http://example.com/p0.jpg"}})
 			}
 		}(i)
 	}
@@ -1051,5 +1216,373 @@ func TestLibrary_ConcurrentReadWrite(t *testing.T) {
 	wg.Wait()
 }
 
+func TestBatchUpdateChapterProgress(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-library-batch-progress-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
 
+	lib := NewLibrary(tempDir)
+	mangaID := "batch-progress-manga"
 
+	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Batch Progress Manga"}); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	chapterIDs := []string{"ch-01", "ch-02", "ch-03"}
+	for i, chID := range chapterIDs {
+		if err := lib.SaveChapter(mangaID, LocalProviderID, chID, &ChapterMeta{
+			Title:  fmt.Sprintf("Chapter %d", i+1),
+			Number: float32(i + 1),
+		}); err != nil {
+			t.Fatalf("failed to save chapter %s: %v", chID, err)
+		}
+	}
+
+	// 1. Batch update progress for all 3 chapters
+	updated, err := lib.BatchUpdateChapterProgress(mangaID, LocalProviderID, chapterIDs, true, 20)
+	if err != nil {
+		t.Fatalf("BatchUpdateChapterProgress failed: %v", err)
+	}
+
+	if len(updated) != 3 {
+		t.Fatalf("expected 3 updated chapters, got %d", len(updated))
+	}
+
+	for i, u := range updated {
+		if u.ID != chapterIDs[i] {
+			t.Errorf("expected chapter ID %q, got %q", chapterIDs[i], u.ID)
+		}
+		if !u.Meta.IsRead {
+			t.Errorf("chapter %s: expected is_read true, got %v", u.ID, u.Meta.IsRead)
+		}
+		if u.Meta.LastReadPage != 20 {
+			t.Errorf("chapter %s: expected last_read_page 20, got %d", u.ID, u.Meta.LastReadPage)
+		}
+		if u.Meta.LastReadAt.IsZero() {
+			t.Errorf("chapter %s: expected last_read_at to be non-zero", u.ID)
+		}
+	}
+
+	// Verify parent manga has LastReadChapterID set to last chapter in list ("ch-03")
+	manga, err := lib.GetManga(mangaID)
+	if err != nil {
+		t.Fatalf("GetManga failed: %v", err)
+	}
+	if manga.LastReadChapterID != "ch-03" {
+		t.Errorf("expected LastReadChapterID 'ch-03', got %q", manga.LastReadChapterID)
+	}
+	if manga.LastReadAt.IsZero() {
+		t.Errorf("expected LastReadAt to be set")
+	}
+
+	// 2. Error case: non-existent chapter
+	_, err = lib.BatchUpdateChapterProgress(mangaID, LocalProviderID, []string{"ch-01", "non-existent-ch"}, true, 1)
+	if err == nil {
+		t.Fatalf("expected error for non-existent chapter, got nil")
+	}
+}
+
+func TestBatchDeleteChapters(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-library-batch-del-chapters-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "batch-del-manga"
+
+	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Batch Delete Manga"}); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	chapterIDs := []string{"ch-01", "ch-02", "ch-03", "ch-04"}
+	for i, chID := range chapterIDs {
+		if err := lib.SaveChapter(mangaID, LocalProviderID, chID, &ChapterMeta{
+			Title:  fmt.Sprintf("Chapter %d", i+1),
+			Number: float32(i + 1),
+		}); err != nil {
+			t.Fatalf("failed to save chapter %s: %v", chID, err)
+		}
+	}
+
+	chapters, _ := lib.ListChapters(mangaID, LocalProviderID)
+	if len(chapters) != 4 {
+		t.Fatalf("expected 4 chapters initially, got %d", len(chapters))
+	}
+
+	// Delete ch-02 and ch-04
+	if err := lib.BatchDeleteChapters(mangaID, LocalProviderID, []string{"ch-02", "ch-04"}); err != nil {
+		t.Fatalf("BatchDeleteChapters failed: %v", err)
+	}
+
+	remaining, err := lib.ListChapters(mangaID, LocalProviderID)
+	if err != nil {
+		t.Fatalf("ListChapters failed: %v", err)
+	}
+	if len(remaining) != 2 {
+		t.Fatalf("expected 2 remaining chapters, got %d", len(remaining))
+	}
+	if remaining[0].ID != "ch-01" || remaining[1].ID != "ch-03" {
+		t.Errorf("unexpected remaining chapters: %+v", remaining)
+	}
+}
+
+func TestBatchDeleteChapterFiles(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-library-batch-del-files-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "batch-files-manga"
+
+	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Batch Files Manga"}); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	chapterIDs := []string{"ch-01", "ch-02"}
+	for i, chID := range chapterIDs {
+		if err := lib.SaveChapter(mangaID, LocalProviderID, chID, &ChapterMeta{
+			Title:  fmt.Sprintf("Chapter %d", i+1),
+			Number: float32(i + 1),
+		}); err != nil {
+			t.Fatalf("failed to save chapter %s: %v", chID, err)
+		}
+
+		chDir := filepath.Join(tempDir, mangaID, LocalProviderID, chID)
+		_ = os.WriteFile(filepath.Join(chDir, "001.jpg"), []byte("jpgdata"), 0o644)
+		_ = os.WriteFile(filepath.Join(chDir, "002.png"), []byte("pngdata"), 0o644)
+		_ = os.WriteFile(filepath.Join(chDir, "pages.json"), []byte("[]"), 0o644)
+	}
+
+	// Delete files for both chapters
+	if err := lib.BatchDeleteChapterFiles(mangaID, LocalProviderID, chapterIDs); err != nil {
+		t.Fatalf("BatchDeleteChapterFiles failed: %v", err)
+	}
+
+	for _, chID := range chapterIDs {
+		chDir := filepath.Join(tempDir, mangaID, LocalProviderID, chID)
+		// meta.json must still exist
+		if _, err := os.Stat(filepath.Join(chDir, "meta.json")); err != nil {
+			t.Errorf("chapter %s: meta.json was unexpectedly deleted", chID)
+		}
+		// 001.jpg, 002.png, pages.json must not exist
+		if _, err := os.Stat(filepath.Join(chDir, "001.jpg")); !os.IsNotExist(err) {
+			t.Errorf("chapter %s: 001.jpg still exists", chID)
+		}
+		if _, err := os.Stat(filepath.Join(chDir, "pages.json")); !os.IsNotExist(err) {
+			t.Errorf("chapter %s: pages.json still exists", chID)
+		}
+	}
+
+	// Error when chapter dir doesn't exist
+	if err := lib.BatchDeleteChapterFiles(mangaID, LocalProviderID, []string{"non-existent-ch"}); err == nil {
+		t.Fatalf("expected error for non-existent chapter dir, got nil")
+	}
+}
+
+func TestChapterDownloadedPagesTracking(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-chapter-download-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "manga-track"
+	provID := "prov-test"
+
+	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Tracking Manga"}); err != nil {
+		t.Fatalf("failed to save manga: %v", err)
+	}
+
+	// 1. Chapter with 0 pages (no files on disk)
+	ch0 := "ch-zero"
+	if err := lib.SaveChapter(mangaID, provID, ch0, &ChapterMeta{
+		Title:     "Chapter 0",
+		Number:    0.0,
+		PageCount: 5,
+	}); err != nil {
+		t.Fatalf("failed to save ch0: %v", err)
+	}
+
+	// 2. Chapter with partial pages (3 files on disk, PageCount = 5)
+	chPartial := "ch-partial"
+	if err := lib.SaveChapter(mangaID, provID, chPartial, &ChapterMeta{
+		Title:     "Chapter Partial",
+		Number:    1.0,
+		PageCount: 5,
+	}); err != nil {
+		t.Fatalf("failed to save chPartial: %v", err)
+	}
+	chPartialDir := filepath.Join(tempDir, mangaID, provID, chPartial)
+	_ = os.WriteFile(filepath.Join(chPartialDir, "1.jpg"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(chPartialDir, "2.jpeg"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(chPartialDir, "3.png"), []byte("data"), 0o644)
+	// Non-images to exclude:
+	_ = os.WriteFile(filepath.Join(chPartialDir, "pages.json"), []byte("[]"), 0o644)
+	_ = os.WriteFile(filepath.Join(chPartialDir, "1.jpg.tmp.1234"), []byte("temp"), 0o644)
+	_ = os.WriteFile(filepath.Join(chPartialDir, "notes.txt"), []byte("text"), 0o644)
+	_ = os.MkdirAll(filepath.Join(chPartialDir, "subfolder"), 0o755)
+
+	// 3. Chapter with complete pages (5 files on disk, PageCount = 5)
+	chComplete := "ch-complete"
+	if err := lib.SaveChapter(mangaID, provID, chComplete, &ChapterMeta{
+		Title:        "Chapter Complete",
+		Number:       2.0,
+		PageCount:    5,
+		DownloadedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("failed to save chComplete: %v", err)
+	}
+	chCompleteDir := filepath.Join(tempDir, mangaID, provID, chComplete)
+	_ = os.WriteFile(filepath.Join(chCompleteDir, "1.webp"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(chCompleteDir, "2.gif"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(chCompleteDir, "3.avif"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(chCompleteDir, "4.jpg"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(chCompleteDir, "5.png"), []byte("data"), 0o644)
+
+	// 4. Chapter with 0 page count but downloaded files
+	chZeroMetaCount := "ch-zero-count"
+	if err := lib.SaveChapter(mangaID, provID, chZeroMetaCount, &ChapterMeta{
+		Title:     "Chapter Zero Count",
+		Number:    3.0,
+		PageCount: 0,
+	}); err != nil {
+		t.Fatalf("failed to save chZeroMetaCount: %v", err)
+	}
+	chZeroDir := filepath.Join(tempDir, mangaID, provID, chZeroMetaCount)
+	_ = os.WriteFile(filepath.Join(chZeroDir, "1.jpg"), []byte("data"), 0o644)
+
+	// Test CountDownloadedPages directly
+	if count := lib.CountDownloadedPages(mangaID, provID, ch0); count != 0 {
+		t.Errorf("ch0 expected 0 downloaded pages, got %d", count)
+	}
+	if count := lib.CountDownloadedPages(mangaID, provID, chPartial); count != 3 {
+		t.Errorf("chPartial expected 3 downloaded pages, got %d", count)
+	}
+	if count := lib.CountDownloadedPages(mangaID, provID, chComplete); count != 5 {
+		t.Errorf("chComplete expected 5 downloaded pages, got %d", count)
+	}
+	if count := lib.CountDownloadedPages(mangaID, provID, chZeroMetaCount); count != 1 {
+		t.Errorf("chZeroMetaCount expected 1 downloaded page, got %d", count)
+	}
+	if count := lib.CountDownloadedPages("nonexistent", provID, "nonexistent"); count != 0 {
+		t.Errorf("nonexistent chapter expected 0 downloaded pages, got %d", count)
+	}
+
+	// Test GetChapterFileStatus directly
+	tests := []struct {
+		mangaID       string
+		chapterID     string
+		metaPageCount int
+		wantPages     int
+		wantDownload  bool
+	}{
+		{mangaID, ch0, 5, 0, false},
+		{mangaID, chPartial, 5, 3, false},
+		{mangaID, chComplete, 5, 5, true},
+		{mangaID, chComplete, 3, 5, true},      // downloaded > metaPageCount
+		{mangaID, chZeroMetaCount, 0, 1, true}, // metaPageCount == 0, downloaded > 0
+		{mangaID, ch0, 0, 0, false},            // metaPageCount == 0, downloaded == 0
+	}
+
+	for _, tt := range tests {
+		pages, downloaded := lib.GetChapterFileStatus(tt.mangaID, provID, tt.chapterID, tt.metaPageCount)
+		if pages != tt.wantPages || downloaded != tt.wantDownload {
+			t.Errorf("GetChapterFileStatus(%s, %d) = (%d, %v), want (%d, %v)",
+				tt.chapterID, tt.metaPageCount, pages, downloaded, tt.wantPages, tt.wantDownload)
+		}
+	}
+
+	// Test ListChapters populates DownloadedPages and IsDownloaded
+	chapters, err := lib.ListChapters(mangaID, provID)
+	if err != nil {
+		t.Fatalf("ListChapters failed: %v", err)
+	}
+	if len(chapters) != 4 {
+		t.Fatalf("expected 4 chapters, got %d", len(chapters))
+	}
+
+	chMap := make(map[string]ChapterInfo)
+	for _, ch := range chapters {
+		chMap[ch.ID] = ch
+	}
+
+	if chMap[ch0].Meta.DownloadedPages != 0 || chMap[ch0].Meta.IsDownloaded != false {
+		t.Errorf("ch0 meta status mismatch: pages=%d, is_downloaded=%v",
+			chMap[ch0].Meta.DownloadedPages, chMap[ch0].Meta.IsDownloaded)
+	}
+	if chMap[chPartial].Meta.DownloadedPages != 3 || chMap[chPartial].Meta.IsDownloaded != false {
+		t.Errorf("chPartial meta status mismatch: pages=%d, is_downloaded=%v",
+			chMap[chPartial].Meta.DownloadedPages, chMap[chPartial].Meta.IsDownloaded)
+	}
+	if chMap[chComplete].Meta.DownloadedPages != 5 || chMap[chComplete].Meta.IsDownloaded != true {
+		t.Errorf("chComplete meta status mismatch: pages=%d, is_downloaded=%v",
+			chMap[chComplete].Meta.DownloadedPages, chMap[chComplete].Meta.IsDownloaded)
+	}
+	if chMap[chZeroMetaCount].Meta.DownloadedPages != 1 || chMap[chZeroMetaCount].Meta.IsDownloaded != true {
+		t.Errorf("chZeroMetaCount meta status mismatch: pages=%d, is_downloaded=%v",
+			chMap[chZeroMetaCount].Meta.DownloadedPages, chMap[chZeroMetaCount].Meta.IsDownloaded)
+	}
+
+	// Test DeleteChapterFiles resets DownloadedAt and meta.json
+	if err := lib.DeleteChapterFiles(mangaID, provID, chComplete); err != nil {
+		t.Fatalf("DeleteChapterFiles failed: %v", err)
+	}
+
+	metaAfterDelete, err := lib.GetChapter(mangaID, provID, chComplete)
+	if err != nil {
+		t.Fatalf("GetChapter failed after delete: %v", err)
+	}
+	if !metaAfterDelete.DownloadedAt.IsZero() {
+		t.Errorf("expected DownloadedAt to be zero after delete, got %v", metaAfterDelete.DownloadedAt)
+	}
+	if metaAfterDelete.DownloadedPages != 0 {
+		t.Errorf("expected DownloadedPages to be 0 after delete, got %d", metaAfterDelete.DownloadedPages)
+	}
+	if metaAfterDelete.IsDownloaded != false {
+		t.Errorf("expected IsDownloaded to be false after delete, got %v", metaAfterDelete.IsDownloaded)
+	}
+}
+
+func TestLibrary_PathTraversal(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+
+	traversalIDs := []string{
+		"../outside",
+		"../../etc/passwd",
+		"..",
+		"",
+		"/../../secret",
+	}
+
+	for _, badID := range traversalIDs {
+		if _, err := lib.GetManga(badID); err == nil {
+			t.Errorf("expected GetManga(%q) to fail with path traversal, got nil", badID)
+		}
+		if err := lib.SaveManga(badID, &MangaMeta{Title: "Bad"}); err == nil {
+			t.Errorf("expected SaveManga(%q) to fail with path traversal, got nil", badID)
+		}
+		if err := lib.DeleteManga(badID); err == nil {
+			t.Errorf("expected DeleteManga(%q) to fail with path traversal, got nil", badID)
+		}
+		if _, err := lib.ListChapters(badID); err == nil {
+			t.Errorf("expected ListChapters(%q) to fail with path traversal, got nil", badID)
+		}
+		if _, _, err := lib.FindChapter(badID, "ch-1"); err == nil {
+			t.Errorf("expected FindChapter(%q) to fail with path traversal, got nil", badID)
+		}
+		if err := lib.SaveChapter(badID, "prov", "ch-1", &ChapterMeta{Title: "Ch"}); err == nil {
+			t.Errorf("expected SaveChapter(%q) to fail with path traversal, got nil", badID)
+		}
+		if _, err := lib.GetChapter(badID, "prov", "ch-1"); err == nil {
+			t.Errorf("expected GetChapter(%q) to fail with path traversal, got nil", badID)
+		}
+	}
+}

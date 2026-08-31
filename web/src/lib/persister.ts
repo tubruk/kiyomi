@@ -43,6 +43,9 @@ export const shouldDehydrateQuery = (query: Query): boolean => {
     if (queryKey[0] === 'system' && queryKey[1] === 'cache') {
       return false;
     }
+    if (queryKey[0] === 'jobs') {
+      return false;
+    }
   }
 
   return true;

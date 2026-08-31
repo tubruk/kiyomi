@@ -31,9 +31,9 @@ func registerE2ERoutes(e *echo.Echo) {
 	fixturesDir := getMockFixturesDir()
 	v1 := e.Group("/api/v1/mock")
 
-	v1.GET("/:remoteID/:chapterID/:pageIndex", func(c echo.Context) error {
-		remoteID := c.Param("remoteID")
-		chapterID := c.Param("chapterID")
+	v1.GET("/:remoteId/:chapterId/:pageIndex", func(c echo.Context) error {
+		remoteID := c.Param("remoteId")
+		chapterID := c.Param("chapterId")
 		pageIndex := c.Param("pageIndex")
 
 		if fixturesDir != "" {
@@ -52,8 +52,8 @@ func registerE2ERoutes(e *echo.Echo) {
 		return c.Blob(http.StatusOK, "image/png", transparent1x1PNG)
 	})
 
-	v1.GET("/covers/:remoteID", func(c echo.Context) error {
-		remoteID := c.Param("remoteID")
+	v1.GET("/covers/:remoteId", func(c echo.Context) error {
+		remoteID := c.Param("remoteId")
 
 		if fixturesDir != "" {
 			fpath := filepath.Join(fixturesDir, fmt.Sprintf("cover-%s.png", remoteID))

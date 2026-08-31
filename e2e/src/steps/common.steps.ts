@@ -157,7 +157,7 @@ When('I click the first result', async function () {
 
   const firstCard = page
     .locator('a[href*="/manga/"]')
-    .filter({ hasNotText: /^(Explore|Library|Downloads|Workers|Settings)$/i })
+    .filter({ hasNotText: /^(Explore|Library|Pulls|Workers|Settings)$/i })
     .first();
 
   await firstCard.waitFor({ state: 'visible', timeout: 10000 });

@@ -213,11 +213,11 @@ Response: []Page{Index, Source, URL?}
 
 **`is_downloaded` remains chapter-level** for listing/filtering UX. It is `true` when all pages have `Source = disk`. Per-page state is computed on demand via filesystem stat.
 
-**"Refresh" = re-enqueue missing pages.** The Refresh UI action iterates the chapter's page list and enqueues `DownloadPageArgs` for every page where `Source ≠ disk`. This is not a separate job kind — it is the original download job re-issued. Existing pages are left alone; only missing pages are fetched.
+**"Pull" = re-enqueue missing pages.** The Pull UI action iterates the chapter's page list and enqueues `pull_page` jobs for every page where `Source ≠ disk`. This is not a separate job kind — it is the original pull job re-issued. Existing pages are left alone; only missing pages are fetched.
 
 ---
 
-## Refresh & Sync Flow
+## Refresh Flow
 
 ### Refresh from Provider (Replaces Current Card #484 Spec)
 
@@ -243,7 +243,7 @@ Response: []Page{Index, Source, URL?}
 6. Edge case: if remote returns 0 chapters:
    ABORT. Surface error to user. Local data untouched.
 7. Update meta.json last_synced_at
-8. Surface last refreshed time in manga detail / chapter list toolbar
+8. Surface last synced time in manga detail / chapter list toolbar
 9. Update DB to reflect new state
 ```
 
@@ -285,14 +285,14 @@ Page URLs are **not persisted** in `chapter meta.json`. They are:
 | `number` | `meta.json` | Normalized, stable |
 | `volume` | `meta.json` | User-displayed, stable |
 | `page_count` | `meta.json` | Derived from provider, set during refresh |
-| `page_format` | `meta.json` | Set when first page downloaded |
+| `page_format` | `meta.json` | Set when first page pulled |
 | `content` | `meta.json` | `{ provider_id, chapter_ref }` for re-fetching |
 | `downloaded_at` | `meta.json` | Written by indexer after page lands |
 | `is_downloaded` | `kiyomi.db` | **Derived from filesystem scan**, not from meta.json |
 
 **First-time add from provider:**
 - Refresh flow writes `meta.json` per chapter with `page_count` and `page_format` set
-- Page files are NOT downloaded unless user explicitly triggers download
+- Page files are NOT pulled unless user explicitly triggers pull
 - Page URLs not fetched until reader opens
 
 **`is_downloaded` derivation:**
@@ -324,12 +324,12 @@ All provider-based discoveries and library additions happen via the **Explore Vi
    - **Add to Library** — status left unset
 5. Kiyomi creates `library/<manga_id>/meta.json` with `content` populated.
 6. Chapter list is fetched, and `library/<manga_id>/<chapter_id>/meta.json` is created per chapter.
-7. Page files are NOT downloaded unless user triggers download.
+7. Page files are NOT pulled unless user triggers pull.
 8. Manga appears in library immediately.
 
-### Path 2: Download (Existing)
+### Path 2: Pull (Existing)
 
-1. User triggers download on chapter(s)
+1. User triggers pull on chapter(s)
 2. Page files written to `library/<manga_id>/<chapter_id>/NNN.<ext>`
 3. `meta.json` `page_count`, `downloaded_at` updated
 4. DB `chapters.is_downloaded = 1`
@@ -407,8 +407,8 @@ Chapter list supports checkbox-based multi-select with helpers:
 
 **Actions on selection:**
 - Mark as read / unread
-- Download selected
-- Delete download (remove pages from disk)
+- Pull selected
+- Delete files (remove pages from disk)
 - (Future: move to collection, change reading direction)
 
 Selection persists while navigating between chapter pages. Action buttons live in chapter list toolbar.
@@ -428,14 +428,14 @@ Selection persists while navigating between chapter pages. Action buttons live i
 - Card #484: Feature: Chapter/Page Cache and Refresh
 - Card #487: Feature: Import/Use already downloaded library
 - Sibling design docs:
-  - `docs/design/workers.md` — background job framework, download worker is library-aware
+  - `docs/design/workers.md` — background job framework, pull worker is library-aware
   - `docs/design/providers.md` — provider contract, `has_stable_chapter_id`
   - `docs/design/reader.md` — page source resolution model
   - `docs/design/cache.md` — page cache (middle tier: disk → cache → provider)
   - `docs/design/api.md` — REST surface for library
 - Superseded docs (marked with deprecation notices at top):
   - `docs/developer/library_architecture.md` — prior DB-centric design, deprecated
-  - `docs/developer/permanent_download_plan.md` — Phase 1 schema obsolete; worker/dispatcher concepts still relevant in spirit
+  - `docs/developer/permanent_download_plan.md` — initial schema obsolete; worker/dispatcher concepts still relevant in spirit
 - Related still-current docs:
   - `docs/developer/architecture.md` — system overview; "Disk Storage" section marked superseded
   - `docs/plugin_developer/` — provider SDK documentation

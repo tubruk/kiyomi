@@ -42,6 +42,21 @@ const (
 	// EnvDNSResolvers overrides the system DNS resolver for all outbound HTTP.
 	// Comma-separated list of URLs: dns://, tls://, https://. Empty = system resolver.
 	EnvDNSResolvers = "KIYOMI_DNS_RESOLVERS"
+
+	// EnvQueueDriver, EnvQueueDBPath, EnvQueueConcurrency define background job queue settings
+	EnvQueueDriver           = "KIYOMI_QUEUE_DRIVER"
+	EnvQueueDBPath           = "KIYOMI_QUEUE_DB_PATH"
+	EnvQueueConcurrency      = "KIYOMI_QUEUE_CONCURRENCY"
+	EnvQueueCleanupEnabled   = "KIYOMI_QUEUE_CLEANUP_ENABLED"
+	EnvQueueCleanupInterval  = "KIYOMI_QUEUE_CLEANUP_INTERVAL"
+	EnvQueueCompletedTTL     = "KIYOMI_QUEUE_COMPLETED_TTL"
+	EnvQueueFailedTTL        = "KIYOMI_QUEUE_FAILED_TTL"
+	EnvQueueCleanupBatchSize = "KIYOMI_QUEUE_CLEANUP_BATCH_SIZE"
+
+	// EnvAllowPrivateNetworks opts the SSRF guard out of blocking private,
+	// loopback, and link-local address ranges. Intended for local development
+	// against 127.0.0.1 or LAN-hosted providers. Defaults to false.
+	EnvAllowPrivateNetworks = "KIYOMI_ALLOW_PRIVATE_NETWORKS"
 )
 
 // Config holds all static, process-wide paths and runtime knobs for the
@@ -108,6 +123,28 @@ type Config struct {
 	// DNSResolvers is the parsed value of KIYOMI_DNS_RESOLVERS.
 	// Empty means "use system resolver".
 	DNSResolvers []string
+
+	// QueueDriver specifies the background job queue driver ("sqlite", "inmemory", "machinery"). Defaults to "sqlite".
+	QueueDriver string
+	// QueueDBPath specifies the file path to the sqlite queue database. Defaults to "<home>/jobs.db".
+	QueueDBPath string
+	// QueueConcurrency specifies the number of concurrent queue workers. Defaults to 4.
+	QueueConcurrency int
+	// QueueCleanupEnabled specifies whether automatic job pruning is enabled. Defaults to true.
+	QueueCleanupEnabled bool
+	// QueueCleanupInterval specifies how frequently cleanup runs. Defaults to 1 hour.
+	QueueCleanupInterval time.Duration
+	// QueueCompletedTTL specifies retention duration for completed jobs. Defaults to 24 hours.
+	QueueCompletedTTL time.Duration
+	// QueueFailedTTL specifies retention duration for failed jobs. Defaults to 168 hours (7 days).
+	QueueFailedTTL time.Duration
+	// QueueCleanupBatchSize specifies the max number of jobs to prune per cycle. Defaults to 500.
+	QueueCleanupBatchSize int
+
+	// AllowPrivateNetworks toggles the SSRF guard's private-address blocking
+	// for outbound cover and image fetches. Defaults to false; flip to true
+	// in local development when providers serve from 127.0.0.1 or LAN hosts.
+	AllowPrivateNetworks bool
 }
 
 // Load builds a Config from the process environment. It never returns an
@@ -234,6 +271,27 @@ func Load() *Config {
 			slog.Int("count", len(cfg.DNSResolvers)),
 		)
 	}
+
+	cfg.QueueDriver = strings.TrimSpace(os.Getenv(EnvQueueDriver))
+	if cfg.QueueDriver == "" {
+		cfg.QueueDriver = "sqlite"
+	}
+
+	qdb := strings.TrimSpace(os.Getenv(EnvQueueDBPath))
+	if qdb == "" {
+		cfg.QueueDBPath = filepath.Join(cfg.Home, "jobs.db")
+	} else {
+		cfg.QueueDBPath = resolveAgainstHome(cfg.Home, qdb)
+	}
+
+	cfg.QueueConcurrency = parsePositiveInt(EnvQueueConcurrency, 4)
+	cfg.QueueCleanupEnabled = parseBool(EnvQueueCleanupEnabled, true)
+	cfg.QueueCleanupInterval = parseDuration(EnvQueueCleanupInterval, 1*time.Hour)
+	cfg.QueueCompletedTTL = parseDuration(EnvQueueCompletedTTL, 24*time.Hour)
+	cfg.QueueFailedTTL = parseDuration(EnvQueueFailedTTL, 168*time.Hour)
+	cfg.QueueCleanupBatchSize = parsePositiveInt(EnvQueueCleanupBatchSize, 500)
+
+	cfg.AllowPrivateNetworks = parseBool(EnvAllowPrivateNetworks, false)
 
 	return cfg
 }
@@ -372,6 +430,27 @@ func (c *Config) Validate() error {
 	if c.CacheMaxBytes <= 0 {
 		return errors.New("config: cache max bytes must be greater than zero")
 	}
+	if strings.TrimSpace(c.QueueDriver) == "" {
+		return errors.New("config: queue driver is empty")
+	}
+	if strings.TrimSpace(c.QueueDBPath) == "" {
+		return errors.New("config: queue db path is empty")
+	}
+	if c.QueueConcurrency <= 0 {
+		return errors.New("config: queue concurrency must be greater than zero")
+	}
+	if c.QueueCleanupInterval <= 0 {
+		return errors.New("config: queue cleanup interval must be greater than zero")
+	}
+	if c.QueueCompletedTTL <= 0 {
+		return errors.New("config: queue completed ttl must be greater than zero")
+	}
+	if c.QueueFailedTTL <= 0 {
+		return errors.New("config: queue failed ttl must be greater than zero")
+	}
+	if c.QueueCleanupBatchSize <= 0 {
+		return errors.New("config: queue cleanup batch size must be greater than zero")
+	}
 	return nil
 }
 
@@ -382,8 +461,8 @@ func (c *Config) String() string {
 		return "<nil config>"
 	}
 	return fmt.Sprintf(
-		"home=%s download_dir=%s cache_dir=%s library_dir=%s web_dist=%s port=%s global_concurrency=%d provider_concurrency=%d provider_config=%s plugin_dir=%s cache_max_bytes=%d",
-		c.Home, c.DownloadDir, c.CacheDir, c.LibraryDir, c.WebDist, c.Port, c.GlobalConcurrency, c.ProviderConcurrency, c.ProviderConfigPath, c.PluginDir, c.CacheMaxBytes,
+		"home=%s download_dir=%s cache_dir=%s library_dir=%s web_dist=%s port=%s global_concurrency=%d provider_concurrency=%d provider_config=%s plugin_dir=%s cache_max_bytes=%d queue_driver=%s queue_db_path=%s queue_concurrency=%d queue_cleanup_enabled=%t queue_cleanup_interval=%s queue_completed_ttl=%s queue_failed_ttl=%s queue_cleanup_batch_size=%d allow_private_networks=%t",
+		c.Home, c.DownloadDir, c.CacheDir, c.LibraryDir, c.WebDist, c.Port, c.GlobalConcurrency, c.ProviderConcurrency, c.ProviderConfigPath, c.PluginDir, c.CacheMaxBytes, c.QueueDriver, c.QueueDBPath, c.QueueConcurrency, c.QueueCleanupEnabled, c.QueueCleanupInterval, c.QueueCompletedTTL, c.QueueFailedTTL, c.QueueCleanupBatchSize, c.AllowPrivateNetworks,
 	)
 }
 
