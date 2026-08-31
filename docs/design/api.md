@@ -1,300 +1,429 @@
-# API
-
-> **Status**: Foundational design, scaffolding.
+# REST API
 
 ## Overview
 
-Kiyomi exposes a RESTful HTTP API consumed by the Web UI and any third-party client. The API is the contract between the server's internal subsystems (library, workers, providers) and external callers. Internal subsystems do not bypass the API; they share the same handler layer.
+Kiyomi exposes a RESTful HTTP API consumed by the Web UI and external clients. The API serves as the formal boundary and contract between the server subsystems (library storage, background job queue, content/metadata providers, plugins, and proxy engine) and user interfaces or automation tools.
 
-## Transport
+---
+
+## Transport & Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      HTTP Server                         │
-│                                                          │
-│   Middleware stack → Route group → Handler → Service     │
-│                                                          │
-│   - Logging                                             │
-│   - Recovery (panic → 500)                              │
-│   - Request ID                                          │
-│   - CORS                                                │
-│   - Content negotiation                                 │
+│                      HTTP Transport                     │
+│                                                         │
+│   Routing Engine → Request Validation → Service Layer   │
+│                                                         │
+│   - Request Context & ID Tracking                       │
+│   - Cross-Origin Resource Sharing (CORS)                │
+│   - Standard Error Envelope Formatting                  │
+│   - Selective Failure Logging                           │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
-                    ┌──────────────────┐
-                    │  Service layer   │
-                    │  (library, etc.) │
-                    └──────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                     Service Layer                       │
+│                                                         │
+│   - Library & Manifest Storage                          │
+│   - Provider Registry & Plugin Host                     │
+│   - Background Job Queue & Concurrency Scheduler        │
+│   - Reverse Proxy & SSRF Guard                          │
+│   - Ephemeral Image Disk Cache                          │
+└─────────────────────────────────────────────────────────┘
 ```
 
-REST over HTTP/1.1. JSON request/response bodies. No streaming endpoints for the core CRUD — WebSocket or SSE reserved for future progress streaming.
+- **Protocol**: REST over HTTP/1.1.
+- **Wire Format**: JSON request and response bodies.
+- **Base Prefix**: All API endpoints are served under `/api/v1/`.
+
+---
 
 ## Resource Model
 
-API resources map to library concepts:
+| Category | Endpoint URI | Method | Description |
+|---|---|---|---|
+| **System Info** | `/info` | `GET` | Server version, build metadata, and runtime status |
+| **System Cache** | `/system/cache` | `GET` | Disk image cache statistics (item count, total bytes, hit rates) |
+| | `/system/cache/clear` | `POST` | Flush and purge ephemeral disk image cache |
+| **Content Providers** | `/providers` | `GET` | List all registered content and metadata providers |
+| | `/providers/{providerId}/manga` | `GET` | Paginated catalog search and mode browsing (`q`, `mode`, `page`) |
+| | `/providers/{providerId}/popular` | `GET` | Popular manga catalog feed |
+| | `/providers/{providerId}/latest` | `GET` | Latest updated manga catalog feed |
+| | `/providers/{providerId}/search` | `GET` | Text search across provider catalog (`q`) |
+| | `/providers/{providerId}/manga/{remoteId}` | `GET` | Upstream manga details, synopsis, and metadata |
+| | `/providers/{providerId}/manga/{remoteId}/chapters` | `GET` | Upstream chapter release list |
+| **Provider Fingerprint** | `/providers/{providerId}/fingerprint` | `GET` | Retrieve active TLS fingerprint and cookie state |
+| | `/providers/{providerId}/fingerprint` | `PUT` | Update Cloudflare/anti-bot clearance cookies and fingerprint |
+| | `/providers/{providerId}/fingerprint` | `DELETE` | Clear stored session cookies and fingerprint |
+| **Plugin Management** | `/plugins` | `GET` | List loaded provider plugins and capabilities |
+| | `/plugins/reload` | `POST` | Hot-reload plugins from disk |
+| | `/plugins/{id}/logs` | `GET` | Retrieve runtime log output for a specific plugin |
+| | `/plugins/{id}/config` | `POST` | Update configuration settings for a plugin |
+| | `/plugins/collisions` | `GET` | List provider ID collisions between built-in and plugin sources |
+| | `/plugins/preference` | `POST` | Set preferred provider implementation for colliding IDs |
+| **Central Local Library Manga** | `/library/manga` | `GET` | List all local library manga entries |
+| | `/library/manga/{id}` | `GET` | Get detailed metadata for a local manga entry |
+| | `/library/manga` | `POST` | Create a new local library manga entry |
+| | `/library/manga/import` | `POST` | Import manga from provider by remote ID with initial manifests |
+| | `/library/manga/{id}/refresh` | `POST` | Refresh chapter metadata from active content provider |
+| | `/library/manga/{id}/pull` | `POST` | Enqueue background job (`pull_manga`) to pull all missing chapters |
+| | `/library/manga/{id}` | `PUT` | Full replacement update of manga manifest metadata |
+| | `/library/manga/{id}` | `PATCH` | Partial update of manga metadata and user tracking fields |
+| | `/library/manga/{id}` | `DELETE` | Delete manga and associated files from local library |
+| **Provider Bindings** | `/library/manga/{id}/providers` | `GET` | List bound providers for a manga |
+| | `/library/manga/{id}/providers` | `POST` | Bind a new metadata/content provider to manga |
+| | `/library/manga/{id}/providers/{providerId}/{providerMangaId}` | `DELETE` | Remove a provider binding from manga |
+| | `/library/manga/{id}/content` | `PATCH` | Switch active content provider namespace |
+| **Chapters & Pages** | `/library/manga/{id}/chapters` | `GET` | List chapters for manga (optional `?provider_id=...`) |
+| | `/library/manga/{id}/providers/{providerId}/chapters/{ch}` | `GET` | Get single chapter manifest metadata |
+| | `/library/manga/{id}/providers/{providerId}/chapters/{ch}` | `POST` | Create or update chapter manifest metadata |
+| | `/library/manga/{id}/providers/{providerId}/chapters/{ch}/progress` | `PATCH` | Update reading progress (`is_read`, `last_read_page`) |
+| | `/library/manga/{id}/providers/{providerId}/chapters/{ch}` | `DELETE` | Delete chapter manifest and downloaded files |
+| | `/library/manga/{id}/providers/{providerId}/chapters/{ch}/files` | `DELETE` | Delete downloaded page images only (preserves chapter metadata) |
+| | `/chapters/{ch}/pages` | `GET` | Get resolved page list (`index`, `url`, `source`) |
+| | `/library/manga/{id}/providers/{providerId}/chapters/{ch}/pull` | `POST` | Enqueue background job (`pull_chapter`) for single chapter |
+| **Batch Operations** | `/library/manga/{id}/providers/{providerId}/chapters/progress` | `PATCH` | Batch update reading progress for multiple chapters |
+| | `/library/manga/{id}/providers/{providerId}/chapters/pull` | `POST` | Batch enqueue pull jobs for multiple chapters |
+| | `/library/manga/{id}/providers/{providerId}/chapters/refresh` | `POST` | Batch refresh chapter manifests from upstream provider |
+| | `/library/manga/{id}/providers/{providerId}/chapters/files/delete` | `POST` | Batch delete page images for multiple chapters |
+| | `/library/manga/{id}/providers/{providerId}/chapters/files` | `DELETE` | Batch delete page images (alternative DELETE verb) |
+| | `/library/manga/{id}/providers/{providerId}/chapters/delete` | `POST` | Batch delete chapter manifests and files |
+| | `/library/manga/{id}/providers/{providerId}/chapters` | `DELETE` | Batch delete chapter manifests and files (alternative DELETE verb) |
+| **Reverse Proxy** | `/library/manga/{id}/chapters/{ch}/pages/{n}` | `GET` | Serve page image via 3-tier resolution (disk → cache → remote) |
+| | `/proxy/image` | `GET` | Direct image proxy with SSRF guard and TLS fingerprinting |
+| **Background Jobs** | `/jobs` | `GET` | List background jobs with filters (`status`, `type`, `metadata.*`) |
+| | `/jobs` | `POST` | Submit generic background job |
+| | `/jobs/{id}/cancel` | `POST` | Cancel/abort pending or running job and child jobs |
+| | `/jobs/{id}` | `DELETE` | Permanently remove job and child records (or cancel via `?action=cancel`) |
+| | `/jobs` | `DELETE` | Bulk cleanup finished jobs (`?status=completed,failed`) |
 
-| Resource | URI | Owner |
-|---|---|---|
-| Library manga | `/library/manga` | Library |
-| Manga details | `/library/manga/{id}` | Library |
-| Chapter list | `/library/manga/{id}/chapters` | Library |
-| Chapter detail | `/library/manga/{id}/chapters/{ch}` | Library |
-| Page list | `/library/manga/{id}/chapters/{ch}/pages` | Library |
-| Page image | `/library/manga/{id}/chapters/{ch}/pages/{n}` | Library/Reader |
-| Reading progress | `/progress/manga/{id}` | Library |
-| Chapter progress | `/progress/manga/{id}/chapters/{ch}` | Library |
-| Providers | `/providers` | Provider registry |
-| Provider search | `/providers/{id}/search` | Provider |
-| Provider metadata | `/providers/{id}/manga/{rid}` | Provider |
-| Explore | `/explore` | Provider |
-| Pulls | `/pulls` | Workers |
-| Jobs | `/jobs` | Workers |
-| Cache | `/cache` | Cache |
+---
 
-Mutations are explicit HTTP verbs. Each URI is a noun, verb on URL is forbidden.
+## Central Local Library Manga Endpoints
 
-### Library Entry Management (`PATCH /library/manga/{id}`)
+### 1. List Library Manga (`GET /library/manga`)
+Returns an array of local manga entries with metadata summary and active content provider.
 
-Clients can partially update user tracking and custom metadata fields for a library manga entry via `PATCH /api/v1/library/manga/{id}`:
-
+**Response (`200 OK`):**
 ```json
-PATCH /api/v1/library/manga/01JABCD1234EFGH5678IJKL90M
-Content-Type: application/json
+[
+  {
+    "id": "01JABCD1234EFGH5678IJKL90M",
+    "title": "Frieren: Beyond Journey's End",
+    "cover": "https://example.com/covers/cover.jpg",
+    "content_provider_id": "mangadex",
+    "reading_mode": "longstrip",
+    "meta": {
+      "title": "Frieren: Beyond Journey's End",
+      "user_status": "reading",
+      "user_favorite": true,
+      "user_rating": 9.5
+    }
+  }
+]
+```
 
+### 2. Get Library Manga Details (`GET /library/manga/{id}`)
+Returns full metadata manifest, aliases, tags, creator credits, and bound provider information.
+
+### 3. Create Library Manga (`POST /library/manga`)
+Creates a local manga entry manually without fetching from an external provider.
+
+**Request:**
+```json
 {
-  "user_status": "reading",
-  "user_favorite": true,
-  "user_rating": 8.0,
-  "user_notes": "Favorite arc starts around chapter 15."
+  "id": "01JABCD1234EFGH5678IJKL90M",
+  "meta": {
+    "title": "Custom Local Series",
+    "authors": ["Author Name"],
+    "user_status": "plan_to_read"
+  },
+  "content": {
+    "provider_id": "local",
+    "reading_mode": "rtl"
+  }
 }
 ```
 
-**Supported Fields:**
-- `user_status` (`string`): One of `unread`, `reading`, `completed`, `on_hold`, `dropped`, `plan_to_read`.
-- `user_favorite` (`boolean`): Toggles favorite / starred status.
-- `user_rating` (`number`): Floating point score between `0.0` and `10.0` (`0` represents unrated).
-- `user_notes` (`string`): Private freeform personal notes stored on local filesystem.
-- Metadata overrides (`title`, `aliases`, `description`, `authors`, `artists`, `tags`, `collections`, `content.reading_mode`, etc.).
+### 4. Import Manga from Provider (`POST /library/manga/import`)
+Fetches manga details and chapter lists from an upstream provider, initializing local library manifests.
 
-**Responses:**
-- `200 OK`: Returns updated manga object `{ "id": "<id>", "meta": <MangaMeta> }`.
-- `400 Bad Request`: If `user_status` is not a valid enum value or JSON is malformed.
-- `404 Not Found`: If manga ID does not exist in local library.
-
-## Request Lifecycle
-
-```
-1. Request arrives
-2. Middleware: log, recover, request-id, CORS, content-type check
-3. Route match → handler
-4. Handler validates input (shape, range, refs)
-5. Handler calls service layer
-6. Service returns result or domain error
-7. Handler maps to HTTP response:
-   - Success → 2xx + JSON body
-   - Domain error → 4xx + error envelope
-   - Server error → 5xx + error envelope
-8. Middleware: log response with timing
+**Request:**
+```json
+{
+  "provider_id": "mangadex",
+  "remote_id": "a1c7c817-4e59-4220-9e80-77114d5e2197",
+  "user_status": "reading"
+}
 ```
 
-## Versioning
+**Response (`201 Created`):** Returns the initialized manga entity.
 
-API version embedded in URI path:
+### 5. Refresh Manga Chapters (`POST /library/manga/{id}/refresh`)
+Queries the active content provider for updated chapter listings, creates manifests for newly released chapters, and flags orphaned entries.
 
-```
-/api/v1/library/manga
-/api/v2/library/manga
-```
-
-Major versions coexist. Deprecation announced in advance; v{N-1} continues serving for at least one minor version of v{N}.
-
-Versioning rule: any breaking change → new major version. Additive changes (new field, new endpoint) → existing version, no version bump.
-
-## Content Negotiation
-
-```
-Request:
-  Accept: application/json
-  Content-Type: application/json
-
-Response:
-  Content-Type: application/json; charset=utf-8
+**Response (`200 OK`):**
+```json
+{
+  "added": 3,
+  "orphaned": 0,
+  "updated": 0,
+  "provider_id": "mangadex",
+  "manga_id": "01JABCD1234EFGH5678IJKL90M"
+}
 ```
 
-No alternative formats (XML, msgpack) planned. JSON is the only wire format.
+### 6. Pull Manga (`POST /library/manga/{id}/pull`)
+Enqueues a background `pull_manga` job that resolves all chapters and schedules page downloads.
 
-## Error Envelope
-
-All error responses share one shape:
-
-```
-ErrorEnvelope:
-  code         machine-readable identifier
-  message      human-readable diagnostic
-  details      optional structured context (validation errors, etc.)
-  request_id   for log correlation
+**Response (`202 Accepted`):**
+```json
+{
+  "job_id": "3c988a38-51b6-4df0-ba9e-5e3e2cf63470",
+  "provider_id": "mangadex"
+}
 ```
 
-HTTP status code mirrors error kind:
+### 7. Update Library Manga (`PUT /library/manga/{id}`) & (`PATCH /library/manga/{id}`)
+- `PUT` performs a full replacement of the manga manifest.
+- `PATCH` applies partial updates to metadata overrides and user tracking fields.
 
-| Status | When |
+**Supported User Tracking Fields:**
+- `user_status` (`string`): `unread`, `reading`, `completed`, `on_hold`, `dropped`, `plan_to_read`.
+- `user_favorite` (`boolean`): Favorite / starred toggle.
+- `user_rating` (`number`): Score rating (`0.0` to `10.0`, `0` = unrated).
+- `user_notes` (`string`): Freeform personal notes.
+- Metadata overrides (`title`, `aliases`, `description`, `authors`, `artists`, `tags`, `collections`, `content.reading_mode`).
+
+---
+
+## Provider Bindings Endpoints
+
+### 1. List Providers (`GET /library/manga/{id}/providers`)
+Returns all metadata and content providers bound to this manga.
+
+### 2. Add Provider Binding (`POST /library/manga/{id}/providers`)
+Binds an external provider to the library entry.
+
+**Request:**
+```json
+{
+  "provider_id": "mangafox",
+  "provider_manga_id": "frieren_beyond_journeys_end",
+  "manga_title": "Sousou no Frieren",
+  "set_as_content": true
+}
+```
+
+### 3. Remove Provider Binding (`DELETE /library/manga/{id}/providers/{providerId}/{providerMangaId}`)
+Unbinds a provider from the manga. If the provider is currently the active content provider, the operation is rejected unless another content-capable provider remains.
+
+### 4. Switch Content Provider (`PATCH /library/manga/{id}/content`)
+Switches the active content provider namespace used for chapter indexing and reading.
+
+**Request:**
+```json
+{
+  "provider_id": "mangafox",
+  "provider_manga_id": "frieren_beyond_journeys_end"
+}
+```
+
+---
+
+## Chapters & Pages Endpoints
+
+### 1. List Chapters (`GET /library/manga/{id}/chapters`)
+Returns the chapter list for a manga. When `?provider_id=` is omitted, it defaults to the active content provider. Chapters belonging to other provider namespaces are flagged with `"orphaned": true`.
+
+**Response (`200 OK`):**
+```json
+{
+  "chapters": [
+    {
+      "id": "ch-101",
+      "manga_id": "01JABCD1234EFGH5678IJKL90M",
+      "title": "Chapter 101",
+      "number": 101.0,
+      "volume": 11,
+      "uploadDate": "2026-08-01T00:00:00Z",
+      "sourceOrder": 101,
+      "provider_id": "mangadex",
+      "is_downloaded": true,
+      "downloaded_pages": 18,
+      "page_count": 18,
+      "downloaded_at": "2026-08-02T12:00:00Z",
+      "meta": {
+        "title": "Chapter 101",
+        "number": 101.0,
+        "is_read": true,
+        "last_read_page": 18,
+        "orphaned": false
+      }
+    }
+  ]
+}
+```
+
+### 2. Chapter Progress (`PATCH /library/manga/{id}/providers/{providerId}/chapters/{ch}/progress`)
+Updates the read status and last read page for a single chapter.
+
+**Request:**
+```json
+{
+  "is_read": true,
+  "last_read_page": 18
+}
+```
+
+### 3. Pull Chapter (`POST /library/manga/{id}/providers/{providerId}/chapters/{ch}/pull`)
+Enqueues a background `pull_chapter` job.
+
+**Response (`202 Accepted`):**
+```json
+{
+  "job_id": "84d79169-2f5a-4b92-93cb-339fa8a5a40b",
+  "chapter_id": "ch-101"
+}
+```
+
+### 4. Delete Chapter Files (`DELETE /library/manga/{id}/providers/{providerId}/chapters/{ch}/files`)
+Deletes downloaded page image files from the chapter directory while preserving the chapter manifest and reading progress.
+
+### 5. Get Chapter Pages (`GET /chapters/{chapterId}/pages`)
+Resolves page image URLs and source locations (`disk`, `cache`, or `provider`).
+
+**Response (`200 OK`):**
+```json
+{
+  "pages": [
+    {
+      "index": 1,
+      "url": "https://example.com/data/01.jpg",
+      "source": "library"
+    },
+    {
+      "index": 2,
+      "url": "https://example.com/data/02.jpg",
+      "source": "provider"
+    }
+  ]
+}
+```
+
+---
+
+## Batch Chapter Operations
+
+Multi-select batch endpoints for chapter management:
+
+| Operation | Path | Request Body |
+|---|---|---|
+| **Batch Progress** | `PATCH /library/manga/{id}/providers/{providerId}/chapters/progress` | `{ "chapter_ids": ["ch-1", "ch-2"], "is_read": true, "last_read_page": 0 }` |
+| **Batch Pull** | `POST /library/manga/{id}/providers/{providerId}/chapters/pull` | `{ "chapter_ids": ["ch-1", "ch-2", "ch-3"] }` |
+| **Batch Refresh** | `POST /library/manga/{id}/providers/{providerId}/chapters/refresh` | `{ "chapter_ids": ["ch-1", "ch-2"] }` |
+| **Batch Delete Files** | `POST /library/manga/{id}/providers/{providerId}/chapters/files/delete` (or `DELETE .../files`) | `{ "chapter_ids": ["ch-1", "ch-2"] }` |
+| **Batch Delete Chapters** | `POST /library/manga/{id}/providers/{providerId}/chapters/delete` (or `DELETE .../chapters`) | `{ "chapter_ids": ["ch-1", "ch-2"] }` |
+
+---
+
+## Reverse Proxy & Page Image Streaming
+
+### 1. Chapter Page Image Proxy (`GET /library/manga/{id}/chapters/{ch}/pages/{n}`)
+Resolves and streams a specific page image via the 3-tier resolution engine:
+1. **Disk**: Inspects local chapter directory for downloaded page file.
+2. **Ephemeral Cache**: Checks the disk image cache.
+3. **Live Remote Proxy**: Streams from upstream provider via TLS fingerprinting transport and SSRF guard.
+
+### 2. Direct Image Proxy (`GET /proxy/image`)
+Direct proxy endpoint for remote covers, banners, and image assets. Enforces SSRF validation and TLS fingerprint matching.
+
+---
+
+## Background Jobs Endpoints
+
+Background tasks (e.g. `pull_manga`, `pull_chapter`, `pull_page`, `metadata_refresh`) are managed through the generic job queue:
+
+### 1. List Jobs (`GET /jobs`)
+Retrieves job records with query filters (`status`, `type`, `parent_id`, `all`, `metadata.*`).
+
+**Response (`200 OK`):**
+```json
+[
+  {
+    "id": "84d79169-2f5a-4b92-93cb-339fa8a5a40b",
+    "parent_id": "3c988a38-51b6-4df0-ba9e-5e3e2cf63470",
+    "type": "pull_chapter",
+    "status": "running",
+    "max_retries": 3,
+    "retries": 0,
+    "concurrency_group": "pull:mangadex",
+    "metadata": {
+      "manga_id": "01JABCD...",
+      "provider_id": "mangadex",
+      "chapter_id": "ch-101"
+    },
+    "created_at": "2026-08-31T05:00:00Z",
+    "updated_at": "2026-08-31T05:00:02Z"
+  }
+]
+```
+
+### 2. Submit Generic Job (`POST /jobs`)
+Submits a generic background job payload for scheduling.
+
+### 3. Cancel Job (`POST /jobs/{id}/cancel` or `DELETE /jobs/{id}?action=cancel`)
+Aborts a pending or running job and recursively cancels all child jobs.
+
+### 4. Delete Job (`DELETE /jobs/{id}`)
+Permanently deletes the job record and its descendants from the job database.
+
+### 5. Cleanup Jobs (`DELETE /jobs?status=...`)
+Bulk deletes finished jobs by status criteria (`completed`, `failed`, `finished`, `all`).
+
+---
+
+## Error Handling & Status Codes
+
+All API errors return a standard JSON error envelope:
+
+```json
+{
+  "error": "human-readable diagnostic error message",
+  "provider_id": "optional provider identifier",
+  "kind": "optional error classification (transient | auth | permanent | rate_limit)"
+}
+```
+
+| HTTP Status | Semantics |
 |---|---|
-| 200 | Success |
-| 201 | Resource created |
-| 204 | Success, no body |
-| 400 | Validation failure |
-| 404 | Resource not found |
-| 409 | Conflict (duplicate, stale state) |
-| 422 | Domain rule violation |
-| 429 | Rate limited |
-| 500 | Server error |
-| 502 | Provider error |
-| 503 | Dependency unavailable |
+| `200 OK` | Request succeeded; payload returned in body. |
+| `201 Created` | Resource successfully created. |
+| `202 Accepted` | Asynchronous job scheduled and enqueued. |
+| `204 No Content` | Request succeeded with no body returned. |
+| `400 Bad Request` | Input validation failed or malformed JSON payload. |
+| `404 Not Found` | Requested manga, chapter, job, or provider does not exist. |
+| `409 Conflict` | Resource conflict (e.g. duplicate provider binding, removing last content provider). |
+| `429 Too Many Requests` | Upstream or local rate limit exceeded. |
+| `500 Internal Server Error` | Unhandled server error. |
+| `502 Bad Gateway` | Upstream provider failure or network error. |
+| `503 Service Unavailable` | Subsystem not configured or temporarily offline. |
 
-## Pagination
+---
 
-List endpoints use cursor or offset pagination:
+## Security & Observability
 
-```
-?page=1&limit=20       offset-based, default 20, max 100
-?cursor=<token>&limit=20  cursor-based for large/unstable lists
-```
+1. **SSRF Guard**: Direct and proxy image requests validate destination addresses against private, loopback, and cloud metadata IP ranges.
+2. **TLS Fingerprint Spoofing**: Upstream requests replicate standard browser TLS Client Hello signatures and headers.
+3. **Structured Error Logging**: Handlers log failed requests (`status >= 400` or internal errors) with route URI, provider ID, status code, and underlying error cause.
 
-Response includes pagination metadata:
-
-```
-Pagination:
-  total       total count (when known)
-  page        current page
-  limit       page size
-  has_next    boolean
-  next_cursor or next_page
-```
-
-## Filtering & Sorting
-
-Filter params are field-prefixed:
-
-```
-?filter[user_status]=reading
-?filter[user_favorite]=true
-?sort=-updated_at
-```
-
-Sort syntax: field name, `-` prefix for descending.
-
-## Authentication & Authorization
-
-Single-user local app. No auth on local-host. Remote access requires reverse proxy with auth (out of scope for API design).
-
-When multi-user or remote access is added:
-- Bearer token in `Authorization` header
-- Token issued via login endpoint
-- All endpoints require valid token except `/health`
-
-## Idempotency
-
-Mutations are idempotent where possible:
-- POST /resource → uses client-provided UUID or server-generated
-- PUT /resource/{id} → upsert semantics
-- DELETE /resource/{id} → 204 either way (subsequent calls idempotent)
-
-Job creation: client supplies `idempotency_key`, server dedupes within 24h window.
-
-## Caching Headers
-
-Library resources are mostly server-state, no client caching:
-
-```
-Cache-Control: no-store
-```
-
-Provider responses may include:
-
-```
-Cache-Control: max-age=300  (metadata cache respects this)
-ETag: <hash>               (for conditional GET)
-```
-
-## Long-Running Operations
-
-Pulls, library scans, sync operations are async. API returns immediately:
-
-```
-POST /pulls
-→ 202 Accepted
-  Location: /jobs/<job_id>
-  body: { job_id, status: "pending" }
-```
-
-Client polls `/jobs/<job_id>` or subscribes via SSE (future).
-
-## Rate Limiting
-
-Per-client rate limits (when remote access enabled):
-
-```
-RateLimit-Limit: 100
-RateLimit-Remaining: 99
-RateLimit-Reset: <unix-timestamp>
-```
-
-Per-provider limits are configured separately, enforced by workers framework.
-
-## Streaming
-
-Reader pages served as static files (already on disk). No streaming endpoint needed for pages.
-
-Cover art served with proper `Content-Type` and caching headers.
-
-## Observability
-
-Every request logged:
-
-```
-Log entry:
-  request_id
-  method
-  path
-  status
-  latency_ms
-  user_agent
-  ip
-  error (if any)
-```
-
-Structured logging (JSON) for machine parsing. Log aggregation out of scope.
-
-## OpenAPI / Schema
-
-API schema published as OpenAPI 3.1 spec. Source of truth for both server validation and client generation.
-
-```
-docs/design/api/openapi.yaml  (canonical)
-```
-
-Generated types in client (TypeScript) and server (Go validation structs) derive from spec.
-
-## Migration Path
-
-Current API in `internal/api/handler.go` and `docs/developer/api.md`:
-- URI patterns largely compatible with new design
-- Response shapes need consolidation (current uses mixed envelopes)
-- Error handling needs standardization (current ad-hoc)
-- OpenAPI spec to be authored during the API redesign
-
-## Open Questions
-
-1. GraphQL or gRPC for internal services? Out of scope, REST over HTTP.
-2. Server-Sent Events vs WebSocket for progress streaming? SSE simpler, defer choice.
-3. Batch operations endpoint (`POST /batch/manga`) for bulk library imports?
-4. Webhook system for external integrations (similar to Fizzy model)?
+---
 
 ## References
 
-- `docs/design/library.md` — primary domain
-- `docs/design/workers.md` — job API endpoints
-- `docs/design/providers.md` — provider query endpoints
-- `docs/design/reader.md` — page image endpoints
-- `docs/developer/api.md` — current API docs (will be superseded once OpenAPI spec lands)
+- [Multi-Content Provider Library](./multi_content_provider_library.md) — Filesystem layout and provider namespaces.
+- [Background Job Queue](./background_jobs.md) — Generic background task runner and queue schema.
+- [Content Pull System](./content_pull.md) — Chapter and page pull architecture.
+- [Reader Design](./reader.md) — 3-tier page resolution and reading modes.
+- [Providers Design](./providers.md) — Provider SDK contracts and capabilities.
+- [Anti-Bot Strategy](./antibot.md) — Browser fingerprinting and session management.

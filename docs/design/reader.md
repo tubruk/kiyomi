@@ -1,33 +1,40 @@
 # Reader
 
-> **Status**: Foundational design, scaffolding.
-
 ## Overview
 
-The reader is the user-facing reading experience. It loads pages from local files when available, falls back to remote providers when not, tracks reading progress, and provides navigation controls.
+The reader is the user-facing reading experience in Kiyomi. It loads pages from local files when available, seamlessly falls back to ephemeral cache or remote content providers when not, tracks granular reading progress, and provides responsive navigation controls.
+
+---
 
 ## Conceptual Model
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     Reader Runtime                         │
-│                                                           │
-│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│   │  Page Loader │    │  Navigator   │    │  Progress   │  │
-│   │             │    │             │    │  Tracker    │  │
-│   └─────────────┘    └─────────────┘    └─────────────┘  │
-│         │                  │                  │            │
-│         ▼                  ▼                  ▼            │
-│   ┌─────────────────────────────────────────────────────┐ │
-│   │           Page Source Resolver (cache → fs → remote)│ │
-│   └─────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-              ┌─────────────────────────────┐
-              │   Library + Cache + Provider │
-              └─────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                             Reader Runtime                              │
+│                                                                         │
+│   ┌─────────────┐            ┌─────────────┐            ┌─────────────┐ │
+│   │ Page Loader │            │  Navigator  │            │  Progress   │ │
+│   │             │            │             │            │   Tracker   │ │
+│   └──────┬──────┘            └──────┬──────┘            └──────┬──────┘ │
+│          │                          │                          │        │
+│          ▼                          ▼                          ▼        │
+│   ┌───────────────────────────────────────────────────────────────────┐ │
+│   │               3-Tier Page Source Resolution Engine                │ │
+│   │            (Disk Library → Ephemeral Cache → Remote Proxy)        │ │
+│   └───────────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │
+                                     ▼
+     ┌───────────────────────────────┼───────────────────────────────┐
+     ▼                               ▼                               ▼
+┌──────────────┐             ┌──────────────┐             ┌─────────────────────┐
+│ Tier 1: Disk │             │Tier 2: Cache │             │  Tier 3: Provider   │
+│ Local Files  │             │Ephemeral Disk│             │  Remote Stream via  │
+│  (library/)  │             │   (cache/)   │             │ Reverse Proxy (TLS) │
+└──────────────┘             └──────────────┘             └─────────────────────┘
 ```
+
+---
 
 ## Reading Modes
 
@@ -35,190 +42,137 @@ Kiyomi supports multiple reading layouts per chapter, driven by `library/<manga_
 
 | Mode Enum | UI Display Label | Layout & Behavior |
 |---|---|---|
-| `rtl` | Right to Left (Manga) | Traditional manga, pages navigate right-to-left |
-| `ltr` | Left to Right (Comic) | Western comics, pages navigate left-to-right |
-| `vertical` | Vertical (Gapped) | Paged vertical layout with margins between pages |
-| `longstrip` | Longstrip (Webtoon) | Continuous seamless vertical scroll without page padding |
+| `rtl` | Right to Left (Manga) | Traditional manga; pages navigate right-to-left. |
+| `ltr` | Left to Right (Comic) | Western comics; pages navigate left-to-right. |
+| `vertical` | Vertical (Gapped) | Paged vertical layout with configurable margins between pages. |
+| `longstrip` | Longstrip (Webtoon) | Continuous seamless vertical scroll without inter-page padding. |
 
-The reading mode is normalized per-manga in `manga.content.reading_mode`. If omitted or unspecified (`""`), the reader falls back to the user's default reading preference.
+The reading mode is configured per-manga in `manga.content.reading_mode`. If omitted or unspecified, the reader falls back to the user's default reading preference.
 
-## Page Resolution
+---
 
-In the initial implementation, since the library is metadata-only (no pulled page files in `library/` folders yet), page images are resolved live by streaming from the remote provider through the Kiyomi backend reverse proxy (`/api/v1/library/manga/{id}/chapters/{ch}/pages/{n}`). The backend uses the TLS fingerprinting engine (`pkg/fingerprint`) to fetch remote page streams securely.
+## 3-Tier Fallback Page Resolution
 
-*Full Fallback Chain*:
+Pages are resolved on-demand through a resilient 3-tier fallback chain:
+
 ```
-Page resolution order:
-  1. Disk (library)  — library/<manga_id>/<chapter_id>/<index>.<ext>
-  2. Cache (ephemeral) — cache/pages/<provider_id>/<sha256(url)>.<ext>
-  3. Provider (live)  — fetch from provider via backend proxy
+Page Resolution Order:
+  1. Disk (Local Library)   — library/<manga_id>/<provider_id>/<chapter_id>/<index>.<ext>
+  2. Cache (Ephemeral Disk) — cache/ (hashed key lookup with TTL and LRU eviction)
+  3. Remote Provider (Live) — Fetched via backend reverse proxy with TLS fingerprinting & SSRF guard
 ```
 
-## Page Source Resolution
+### 1. Tier 1: Local Library Disk
+- Target path: `<library_root>/<manga_id>/<provider_id>/<chapter_id>/<index>.<ext>`
+- Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.avif`.
+- When found, the local file is served directly with `Cache-Control: public, max-age=86400`.
 
-Each page carries a `Source ∈ {disk, cache, provider}` state, determined at read time by filesystem stat + cache lookup. Source state is **per-page**, not aggregated at chapter level — a chapter may have some pages from disk, some from cache, and some from provider simultaneously.
+### 2. Tier 2: Ephemeral Disk Cache
+- If the page image has not been pulled to the permanent local library, Kiyomi queries the ephemeral image disk cache (`cache/`).
+- Cached items are indexed by remote image URL and managed with TTL expiration, maximum byte limits, and periodic background LRU cleanup workers.
+- Avoids redundant network roundtrips for recently read chapters.
 
-**UI surfaces per-page source:**
-- Disk pages: no action needed
-- Cache pages: "Save to library" action available
-- Provider pages: "Pull (to library)" action available
+### 3. Tier 3: Live Remote Reverse Proxy
+- If absent from both local library disk and ephemeral cache, the backend reverse proxy (`/api/v1/library/manga/{id}/chapters/{ch}/pages/{n}` or `/api/v1/proxy/image`) fetches the image stream live from the upstream provider.
+- Successful responses are simultaneously written to the ephemeral cache and streamed to the client reader.
 
-Both actions enqueue `pull_page` jobs targeting the library path. The reader **never blocks on pull** — it reads whatever source is currently available and re-observes state on the next page visit.
+---
 
-**Source derivation (no DB change):**
-- `disk` — `stat(library/<manga_id>/<chapter_id>/<index>.<ext>)` succeeds
-- `cache` — `disk` absent AND `stat(cache/pages/<provider_id>/<sha256(url)>.<ext>)` succeeds
-- `provider` — neither disk nor cache present; fetch live
+## Page Source Derivation & State
+
+Each page carries an independent `source ∈ {disk, cache, provider}` state determined at read time:
+
+| Source State | Detection Rule | UI Capabilities |
+|---|---|---|
+| `disk` (or `library`) | Local file exists at `library/<manga_id>/<provider_id>/<chapter_id>/<index>.<ext>` | Offline reading; fully persisted |
+| `cache` | Disk absent, but item exists in ephemeral disk cache | "Save to Library" action enqueues pull |
+| `provider` | Neither disk nor cache present; fetched live | "Pull Chapter" action enqueues background job |
+
+Source state is tracked **per-page**, not aggregated at chapter level — a chapter may have partial pages downloaded on disk while the remainder stream on demand. The reader never blocks on pull operations; it reads whatever source is currently available.
+
+---
+
+## Security & Proxy Engine
+
+All remote image requests routed through the reader reverse proxy are protected by security layers:
+
+```
+Incoming Request → SSRF Validation → Header & Cookie Injection → TLS Fingerprinted Transport → Upstream Provider
+```
+
+### 1. SSRF Protection
+- Remote URLs are validated against the SSRF guard before any socket connection is attempted.
+- Rejects private IP addresses (RFC 1918), IPv6 unique local addresses (RFC 4193), loopback addresses (`127.0.0.0/8`, `::1`), link-local metadata addresses (`169.254.169.254`, `fe80::/10`), and non-HTTP protocols.
+- Private network access is blocked by default unless explicitly allowed via server configuration.
+
+### 2. Direct Data URI Handling
+- Data URIs (e.g. `data:image/jpeg;base64,...`) returned by specialized providers are decoded in-memory and served directly with appropriate `Content-Type` and `Content-Length` headers, bypassing the network transport.
+
+### 3. TLS Browser Fingerprinting
+- Upstream HTTP requests mirror realistic browser TLS Client Hello signatures using the TLS browser fingerprinting engine.
+- Custom cipher suites, ALPN protocols, and elliptic curves evade anti-bot heuristics (Cloudflare, Akamai, DDOS-GUARD).
+- Integrates stored provider cookies (`cf_clearance`, `__cf_bm`, session tokens) and upstream referer headers.
+
+---
 
 ## Reading Progress Tracking
 
-Per-chapter progress is stored in the database (NOT in filesystem, deliberately — user data):
+Reading progress is tracked independently per chapter and manga:
 
-```
+### Chapter Progress Schema:
+```yaml
 ChapterProgress:
-  manga_id
-  chapter_id
-  last_page       1-based, last page viewed
-  total_pages     derived from chapter meta
-  status          unread | in_progress | read
-  updated_at
+  manga_id: string
+  provider_id: string
+  chapter_id: string
+  is_read: boolean
+  last_read_page: integer
+  updated_at: timestamp
 ```
 
-Aggregated per-manga progress (`reading_progress` table) caches the latest read chapter for fast "continue reading" surfaces.
+### Tracking Behavior:
+- **Independent Namespaces**: Reading progress for a chapter in one provider namespace (e.g. `mangadex`) is isolated from other provider namespaces (e.g. `mangafox`).
+- **Debounced Updates**: Progress is debounced during active scrolling and page flipping (flushed on page turn, chapter change, or reader close).
+- **Crash Resilience**: Reading state persists to local storage immediately, enabling seamless resumption upon app restart.
 
-Update cadence:
-- Debounced — every 2 seconds while active, or on chapter close, or on page nav
-- Resumable — process crash mid-chapter, last read position persists on next open
+---
 
-## Navigation
+## Navigation & Chapter Transitions
 
-| Action | Web | Mobile |
-|---|---|---|
-| Next page | Arrow right / scroll / tap right | Tap right / swipe left |
-| Previous page | Arrow left / scroll up | Tap left / swipe right |
-| Next chapter | End of current | Swipe up on last page |
-| Previous chapter | Beginning of current | Swipe down on first page |
-| Jump to chapter | Quick chapter drawer | Sheet picker |
-| Open settings | Reader toolbar | Toolbar |
-| Exit reader | Back button | Back button |
+Navigation adapts seamlessly across reading modes and client input modalities:
 
-Navigation state lives in the URL/route. Closing reader = leaving route. Reopening = same chapter and page from progress data.
+- **Paged Navigation (`rtl`, `ltr`)**: Incremental forward/backward step actions driven by reading direction.
+- **Continuous Scrolling (`vertical`, `longstrip`)**: Fluid vertical progression with position preservation.
+- **Chapter Boundary Transitions**: Advancing past the final page or before the first page navigates to adjacent chapters in sequence.
+- **Chapter Navigation Overlay**: Rapid jumping across the chapter list via an on-demand index menu or drawer.
 
-## Chapter Transitions
+### Seamless Transition & Preloading
+- When approaching chapter boundaries, the reader preloads adjacent chapter assets in the background to ensure uninterrupted reading sessions.
 
-When reader reaches end of chapter:
+---
 
-```
-On last page reached:
-  if next chapter exists in library:
-    preload first page (image)
-    on user action (button / swipe), navigate
-  else:
-    show "end of series" / "no next chapter" indicator
-```
+## Offline Reading
 
-Preload keeps transitions snappy. No full chapter prefetch (bandwidth + memory cost outweighs UX gain for most).
+When all pages of a chapter exist on disk (`library/<manga_id>/<provider_id>/<chapter_id>/`):
+- Reader functions entirely offline with zero network connectivity.
+- Reading progress updates are saved directly to the local database and filesystem manifests.
 
-## Offline Behavior
+---
 
-When all pages of a chapter are pulled locally, reader runs fully offline:
+## Image Formats & Memory Management
 
-```
-Network state: offline
-  - All reads from filesystem or cache
-  - Progress writes queue (write-through to local DB)
-  - No provider calls
-```
+- **Supported Formats**: JPEG, PNG, WebP, GIF, AVIF.
+- **Viewport Virtualization**: Longstrip and vertical modes virtualize page rendering, decoding only visible pages plus a 2-page buffer in memory to keep browser RAM usage low during long chapters (100+ pages).
 
-Progress writes always succeed locally (DB is local). No cloud sync = no offline failure mode.
-
-## Image Format Support
-
-```
-Primary:  JPG, PNG, WebP
-Fallback: AVIF (decoded via browser)
-Archive:  CBZ, CBR (browser-native or WASM unzip)
-```
-
-CBZ handling — open `.cbz` file, unzip in browser or via WASM unzip module, treat contents as page list. Caching strategy for CBZ differs (whole archive = single cache key).
-
-## Caching Strategy
-
-| Source | Cache? | TTL |
-|---|---|---|
-| Cover art | Yes | 7 days (re-validate weekly) |
-| Page (live fetch) | Yes | Until library sync confirms filesystem copy |
-| Page (filesystem) | No (read directly) | n/a |
-| Thumbnail | Yes | 30 days |
-
-Cache invalidation tied to library events: when a chapter is pulled (filesystem copy), cache entries can be evicted. When removed from library, cache purges.
-
-## Memory & Performance
-
-Large chapters (1000+ pages, rare but possible) need careful handling:
-
-```
-Virtual scroll / lazy load:
-  - Render only pages in viewport + 2-page buffer
-  - Decoded images held in memory cache, LRU eviction
-  - Disk-backed cache for "scrolled away" pages
-```
-
-Browser native image decoding. No custom decoder unless AVIF requires it.
-
-## Accessibility
-
-- Keyboard navigation (arrows, page up/down, home/end)
-- Screen reader labels for page index, chapter name
-- Reduced motion preference honored (no auto-flip animations)
-- High contrast / dark mode via CSS variables
-
-## Reading Settings (Per-User)
-
-```
-Settings (per manga or global):
-  - reading direction (override manga default)
-  - fit mode (width, height, original)
-  - gap between pages (none, small, large)
-  - background color (black, gray, sepia, white)
-  - tap zones configuration
-```
-
-Per-manga override wins over global. Stored in user config, not in library metadata.
-
-## Pre-rendering & SSR
-
-Reader is a SPA route. Initial page render needs:
-- Chapter metadata (from cache or filesystem)
-- First page image (preloaded)
-- Progress data (from DB)
-
-Subsequent page navigation is client-side. No additional server roundtrip per page.
-
-## Migration Considerations
-
-Reader behavior depends on:
-- Where pages live (filesystem vs cache vs remote)
-- Reading direction (in `meta.json`)
-- Progress data (in DB)
-
-Migrating existing libraries to filesystem-first model requires:
-- Cover/banner migration into `library/<manga_id>/`
-- Chapter folder migration
-- Progress remains in DB, no change
-
-## Open Questions
-
-1. Webtoon (long strip) reader for vertical mode — same component or separate?
-2. Two-page spread mode for tablet/landscape?
-3. Image preprocessing pipeline (resize, format conversion) at pull time?
-4. Reading statistics (time spent, pages per session)? Adds tracking, defer.
-5. Cloud sync of progress across devices — via tracking providers, separate from library.
+---
 
 ## References
 
-- `docs/design/library.md` — page file layout, `meta.json` schema, page source model
-- `docs/design/cache.md` — page cache (middle tier of fallback chain)
-- `docs/design/workers.md` — pull worker, `pull_page` jobs
-- `docs/design/providers.md` — remote page fallback
-- `docs/developer/design.md` — current UI design system, reader toolbar specs
+- [Multi-Content Provider Library](./multi_content_provider_library.md) — Multi-provider filesystem layout and chapter directories.
+- [Filesystem-First Library](./library.md) — Manga and chapter manifest schemas.
+- [Background Job Queue](./background_jobs.md) — Asynchronous pull queue and job execution.
+- [Content Pull System](./content_pull.md) — Chapter and page pull workflows.
+- [Providers Design](./providers.md) — Provider SDK contracts and stream capabilities.
+- [Anti-Bot Strategy](./antibot.md) — Cloudflare clearance and TLS fingerprint matching.
+- [REST API](./api.md) — Reader page image proxy and chapter progress endpoints.
+

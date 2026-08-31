@@ -2,72 +2,76 @@
 
 ## Overview
 
-Kiyomi is shifting from a provider-centric model (Tachiyomi/Mihon-style, where external providers are authoritative) to a **filesystem-first, library-centric model**. The local manga library is the product; providers become optional enrichment services.
+Kiyomi implements a **filesystem-first, library-centric model**. The local filesystem is the authoritative source of truth for all manga metadata, reading progress, and content. External metadata and content providers serve as optional enrichment and acquisition services.
 
 ### Core Principle
 
-> **Filesystem is the sole source of truth.**
+> **The filesystem is the sole source of truth.**
 
-This enables:
-- True offline operation (library works without providers)
-- Native backup, sync, and migration via `cp -r library/`
-- Import/export between Kiyomi instances
-- Recovery from corruption without data loss
-- Adoption of existing manga collections (later, lower priority)
+This architecture provides:
+- **Offline operation**: The entire library and downloaded content remain fully accessible without internet access or active provider connections.
+- **Native backup and migration**: Backing up, transferring, or synchronizing the library requires only standard filesystem operations (e.g. `cp -r library/`).
+- **Resilience and self-healing**: In-memory and SQLite cache indexes can be rebuilt entirely by scanning manifests on disk.
+- **Multi-provider co-existence**: Chapters from multiple content providers live side-by-side without naming collisions or fragile cross-provider correlations.
 
 ---
 
 ## Directory Layout
 
+The library directory organizes manga and chapters hierarchically by manga ID and content provider ID:
+
 ```
-$KIYOMI_HOME/
-├── library/                          # canonical manga storage (was: downloads/)
-│   └── <manga_id>/
-│       ├── meta.json                 # manga manifest
-│       ├── cover.<ext>               # cover image
-│       ├── banner.<ext>              # banner image (optional)
-│       └── <chapter_id>/
-│           ├── meta.json             # chapter manifest
-│           ├── 001.jpg               # page images (zero-padded, 3+ digits)
-│           ├── 002.jpg
-│           └── ...
-├── cache/                           # transient: thumbnails, provider images
-└── ...
+<library_root>/
+└── <manga_id>/
+    ├── meta.json                     # Manga manifest
+    ├── cover.<ext>                   # Cover image (e.g. cover.jpg, cover.webp)
+    ├── banner.<ext>                  # Banner image (optional)
+    └── <provider_id>/                # Grouped by content provider (e.g. mangadex, mangafox, local)
+        └── <chapter_id>/             # Local chapter ID
+            ├── meta.json             # Chapter manifest
+            ├── pages.json            # Page list manifest
+            ├── 1.jpg                 # Page images (1-based index)
+            ├── 2.jpg
+            └── ...
 ```
 
-### ID Conventions
+### Identifier Conventions
 
-- `<manga_id>` — ULID/KSUID, locally generated, **stable across renames**
-- `<chapter_id>` — ULID, locally generated, **stable across renumbering**
-- `<manga_id>` is NOT the provider slug; slug can change, ID stays
+Kiyomi maintains four distinct identifier spaces:
 
-### Page File Naming
+| Identifier | Generation / Format | Storage Location | Scope |
+|---|---|---|---|
+| **Local Manga ID** (`manga_id`) | ULID or URL-safe slug | Folder name (`<library_root>/<manga_id>/`) | Local filesystem |
+| **Provider ID** (`provider_id`) | Alphanumeric identifier (`mangadex`, `mangafox`, `local`) | Folder name (`<library_root>/<manga_id>/<provider_id>/`) | System-wide |
+| **Local Chapter ID** (`chapter_id`) | ULID or provider chapter reference | Folder name (`<provider_id>/<chapter_id>/`) | Local provider namespace |
+| **Provider Remote ID** (`provider_manga_id` / `chapter_ref`) | Opaque upstream string | `meta.json` (`providers[]`, `content`) | Upstream provider |
 
-- Zero-padded to 3 digits minimum: `001.jpg`, `002.jpg`, ... `024.jpg`
-- Single format per chapter (enforced via `meta.json` `page_format` field)
-- Gap in numbering = incomplete download, flagged during scan
+#### Rules:
+1. **Implicit Manga ID**: The folder name `<manga_id>` is authoritative; no redundant `manga_id` field is stored at the top level of `meta.json`.
+2. **Provider Isolation**: Chapters are partitioned under `<provider_id>/` subdirectories. Different providers for the same manga never collide or overwrite each other's chapter files.
+3. **The `local` Provider**: The special provider ID `local` is reserved for chapters imported manually (e.g. CBZ/ZIP extractions, local scans, or provider-less chapters).
+4. **URL Safety**: Provider identifiers and remote references must be URL-safe strings without base64 wrapper encoding.
 
-### Edge Cases (during scan)
+### Page File Naming and Formats
 
-| State | Detection | Result |
-|---|---|---|
-| Missing `meta.json` | folder exists, no manifest | Orphan, flagged |
-| Missing page files | chapter in DB, no images | `is_downloaded=0` |
-| Page gap (001, 003, no 002) | numbered scan | Incomplete, flagged |
-| Extra files (`.DS_Store`, thumbs) | filename not matching `NNN.ext` | Ignored, logged |
-| Chapter folder, manga missing | parent dir gone | Stale, deleted |
+- Page image files are named by 1-based page index with their native extension: `1.jpg`, `2.png`, `3.webp`, etc. (or zero-padded equivalents such as `001.jpg`).
+- Supported image extensions: `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.avif`.
+- `pages.json` stores the ordered list of page URLs and resolution sources.
+- Partial downloads are detected by counting existing on-disk page images against `meta.json` `page_count`.
 
 ---
 
 ## Metadata Schemas
 
-### `library/<manga_id>/meta.json`
+### Manga Manifest (`<library_root>/<manga_id>/meta.json`)
+
+The manga manifest defines series metadata, provider bindings, and user tracking information.
 
 ```json
 {
   "title": "Sample Manga",
   "aliases": ["Sample", "サンプル"],
-  "description": "...",
+  "description": "A detailed description of the manga series.",
   "authors": ["Yamada, Kanehito"],
   "artists": ["Abe, Tsukasa"],
   "tags": ["type:manga", "demographic:shounen", "Fantasy", "Magic"],
@@ -78,60 +82,77 @@ $KIYOMI_HOME/
   "start_date": "2020-04-06",
   "end_date": "",
   "country": "JP",
-
-  "providers": [
-    { "provider_id": "kitsu", "provider_manga_id": "abc123", "manga_title": "Kitsu Title" },
-    { "provider_id": "mal", "provider_manga_id": "xyz789", "manga_title": "MAL Title" }
-  ],
-
+  "cover_url": "https://uploads.mangadex.org/covers/abc/cover.jpg",
   "content": {
-    "provider_id": "kitsu",
+    "provider_id": "mangadex",
     "provider_manga_id": "abc123",
     "reading_mode": "longstrip",
     "last_synced_at": "2026-08-06T10:00:00Z"
   },
-
+  "providers": [
+    {
+      "provider_id": "mangadex",
+      "provider_manga_id": "abc123",
+      "manga_title": "Sample Manga (MangaDex)"
+    },
+    {
+      "provider_id": "kitsu",
+      "provider_manga_id": "xyz789",
+      "manga_title": "Sample Manga (Kitsu)"
+    }
+  ],
   "user_status": "plan_to_read",
   "user_rating": 8.5,
   "user_favorite": true,
   "user_notes": "Great world building and story pacing.",
-
+  "last_read_chapter_id": "ch-001",
+  "last_read_at": "2026-08-06T10:15:00Z",
   "added_at": "2026-07-01T00:00:00Z",
   "updated_at": "2026-08-06T10:00:00Z"
 }
 ```
 
-**Notes:**
-- `providers` is an array of all known provider references for this manga. Each entry contains `provider_id`, `provider_manga_id` (provider's ID for this manga), and `manga_title` (provider's canonical title at time of add, for display only).
-- `providers` is optional (user can add manga without any provider binding).
-- `content` is optional (user can add manga without provider binding). When present, `content.provider_id` and `content.provider_manga_id` MUST match an entry in `providers`.
-- `user_status` enum: `unread` | `reading` | `completed` | `on_hold` | `dropped` | `plan_to_read` (backend lowercase, UI renders as title case labels)
-- `user_favorite` boolean: marks entry as favorite / starred series
-- `user_rating` float (0.0–10.0): user score evaluation (0 represents unrated)
-- `user_notes` string: freeform private notes stored locally on filesystem
-- `user_*` fields are pure user data, never overwritten by provider sync
-- `tags` follows existing taxonomy (structural prefix + flat descriptors)
-- `collections` is user-owned, untouched by syncs
+#### Field Specifications
 
-### Identifier Convention
+| Field | Type | Description |
+|---|---|---|
+| `title` | string | Canonical display title of the series |
+| `aliases` | string[] | Alternative titles, transliterations, or localized names |
+| `description` | string | Synopsis or plot summary |
+| `authors` | string[] | Story writers / authors |
+| `artists` | string[] | Illustrators / artists |
+| `tags` | string[] | Normalized taxonomy tags (e.g. `type:manga`, `Fantasy`) |
+| `collections` | string[] | User-assigned collections / shelves (e.g. `Favorites`) |
+| `content_rating` | string | Content rating: `safe`, `suggestive`, `erotica`, `pornographic` |
+| `publisher` | string | Publishing imprint or magazine |
+| `release_year` | integer | Publication release year |
+| `start_date` | string | Publication start date (`YYYY-MM-DD`) |
+| `end_date` | string | Publication end date (`YYYY-MM-DD`) or empty if ongoing |
+| `country` | string | ISO country code of origin (`JP`, `KR`, `CN`, etc.) |
+| `cover_url` | string | Upstream remote URL for cover art fallback / refresh |
+| `content` | object | Active content provider source configuration (optional) |
+| `content.provider_id` | string | Active content provider identifier |
+| `content.provider_manga_id` | string | Active provider series remote identifier |
+| `content.reading_mode` | string | Series layout direction: `ltr`, `rtl`, `vertical`, `longstrip` |
+| `content.last_synced_at` | timestamp | ISO 8601 timestamp of last upstream chapter reconciliation |
+| `providers` | object[] | Array of all bound provider references |
+| `providers[].provider_id` | string | Bound provider identifier |
+| `providers[].provider_manga_id` | string | Remote series identifier on that provider |
+| `providers[].manga_title` | string | Canonical series title reported by provider |
+| `user_status` | string | Reading status: `unread`, `reading`, `completed`, `on_hold`, `dropped`, `plan_to_read` |
+| `user_rating` | number | User score (0.0 to 10.0; 0 indicates unrated) |
+| `user_favorite` | boolean | Favorite / starred series indicator |
+| `user_notes` | string | User's private freeform notes |
+| `last_read_chapter_id` | string | Local chapter ID of the most recently read chapter |
+| `last_read_at` | timestamp | ISO 8601 timestamp of last reading activity |
+| `added_at` | timestamp | ISO 8601 timestamp when manga was added to library |
+| `updated_at` | timestamp | ISO 8601 timestamp of last metadata modification |
 
-Kiyomi maintains four distinct ID spaces:
+---
 
-| ID | Generation | Storage | Scope |
-|---|---|---|---|
-| Local manga ID | ULID/KSUID, generated on add | Folder name (`library/<id>/`) | Local only |
-| Local chapter ID | ULID, generated on add | Folder name | Local only |
-| Provider manga ID | Provider's opaque ref | `providers[].provider_manga_id`, `content.provider_manga_id` | Provider |
-| Provider chapter ref | Provider's opaque ref | `content.chapter_ref` | Provider |
+### Chapter Manifest (`<library_root>/<manga_id>/<provider_id>/<chapter_id>/meta.json`)
 
-**Rules:**
-- Top-level `manga_id` in `meta.json` is **implicit** — the folder name is the source of truth. No `manga_id` field appears at the top level of `meta.json`.
-- `provider_manga_id` appears **only** inside `providers[]` entries and `content` blocks.
-- `chapter_ref` appears **only** inside `content` block at chapter level.
-- Always pair `provider_id` with `provider_manga_id` when crossing layer boundaries (e.g., when looking up a provider binding).
-- Local IDs are never exposed to or sourced from providers.
-
-### `library/<manga_id>/<chapter_id>/meta.json`
+The chapter manifest records release metadata, provider synchronization coordinates, download state, and reading progress.
 
 ```json
 {
@@ -140,302 +161,210 @@ Kiyomi maintains four distinct ID spaces:
   "volume": 1,
   "language": "en",
   "upload_date": "2026-07-15T00:00:00Z",
-
+  "source_order": 1,
   "content": {
-    "provider_id": "kitsu",
+    "provider_id": "mangadex",
     "chapter_ref": "ch-abc-001",
     "last_synced_at": "2026-08-06T10:00:00Z"
   },
-
   "page_count": 24,
   "page_format": "jpg",
-  "downloaded_at": "2026-08-06T10:05:00Z"
+  "downloaded_at": "2026-08-06T10:05:00Z",
+  "downloaded_pages": 24,
+  "is_downloaded": true,
+  "orphaned": false,
+  "is_read": false,
+  "last_read_page": 0,
+  "last_read_at": ""
 }
 ```
 
-**Notes:**
-- `content` is single (no array, no history). `content.provider_id` must match an entry in the manga's `providers[]` array.
-- `number_mapping` is optional, populated only when LLM-assisted normalization runs
-- Refresh reads `content.provider_id` only, never walks history
-- Migration overwrites `content`, no audit trail in filesystem
+#### Field Specifications
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | string | Chapter title or name |
+| `number` | float | Normalized chapter number (e.g. `1.0`, `10.5`) |
+| `volume` | integer | Volume number (0 if unassigned) |
+| `language` | string | ISO language code (e.g. `en`) |
+| `upload_date` | timestamp | Original upload/release timestamp from upstream |
+| `source_order` | integer | Ordinal index in provider's chapter list |
+| `content` | object | Provider source coordinates |
+| `content.provider_id` | string | Content provider identifier |
+| `content.chapter_ref` | string | Provider's opaque chapter identifier |
+| `content.last_synced_at` | timestamp | ISO 8601 timestamp of last chapter metadata sync |
+| `page_count` | integer | Total page count for this chapter |
+| `page_format` | string | File extension of downloaded pages (e.g. `jpg`, `png`, `webp`) |
+| `downloaded_at` | timestamp | ISO 8601 timestamp when pages were pulled |
+| `downloaded_pages` | integer | On-disk count of downloaded page image files (computed) |
+| `is_downloaded` | boolean | `true` when all pages are stored on disk (computed) |
+| `orphaned` | boolean | `true` if chapter is from an inactive provider or no longer listed upstream |
+| `is_read` | boolean | User read status for this chapter |
+| `last_read_page` | integer | Last read page index (1-based) |
+| `last_read_at` | timestamp | ISO 8601 timestamp when chapter was last read |
 
 ---
 
-## Provider Contract Changes
+### Chapter Page List (`<library_root>/<manga_id>/<provider_id>/<chapter_id>/pages.json`)
 
-### New Capability Flag: `has_stable_chapter_id`
+The page list manifest maps each page index to its resolved upstream URL and resolution source.
 
-Add `has_stable_chapter_id bool` to the provider `Content` capability interface. This declares whether the provider's chapter reference (API ID) survives renumbering.
-
-| Provider `has_stable_chapter_id` | Refresh correlation strategy |
-|---|---|
-| `true` | Match by `provider_chapter_ref`. Renumbering auto-detected via ID continuity. |
-| `false` | Fallback to normalized title/number pattern matching, then ordinal position with low-confidence warning. |
-
-```go
-type ContentProvider interface {
-    HasStableChapterID() bool
-    FetchChapters(ctx, mangaRemoteID) ([]Chapter, error)
-    FetchPages(ctx, mangaRemoteID, chapterRemoteID) ([]Page, error)
-    FetchPageStream(ctx, page) (io.ReadCloser, error)
-}
+```json
+[
+  {
+    "index": 1,
+    "url": "https://uploads.mangadex.org/data/hash/1-abc.jpg",
+    "source": "provider"
+  },
+  {
+    "index": 2,
+    "url": "https://uploads.mangadex.org/data/hash/2-xyz.jpg",
+    "source": "provider"
+  }
+]
 ```
 
-**Why this matters:** manga-level `content.provider_manga_id` is the manga identity used to fetch the chapter list. Chapter-level `content.chapter_ref` is what's used to fetch page URLs from the provider API. When the provider's chapter IDs are stable across renumbering, the same `content.chapter_ref` refers to the same chapter over time; when not, renumbering breaks correlation and fallback heuristics apply. No separate stable-id field is stored in `meta.json` — the provider capability flag tells us whether `content.chapter_ref` itself is durable.
+#### Field Specifications
 
-### `number_mapping` (Open Extension Point)
-
-The chapter-level `meta.json` does NOT include any number mapping field by default. The reasoning: the value `number` already holds the normalized kiyomi number that the UI displays; if heuristic correlation (title/number pattern) succeeds, no extra metadata is needed. If it fails or produces low-confidence results, an extension point for richer metadata may be added later (e.g. LLM-assisted normalization, manual overrides, provenance). Schema kept minimal until a concrete use case demands it.
+| Field | Type | Description |
+|---|---|---|
+| `index` | integer | 1-based page order index |
+| `url` | string | Upstream image URL for live streaming or pull acquisition |
+| `source` | string | Page source state: `"provider"` (resolved upstream) or `"library"` (stored on disk) |
 
 ---
-
 
 ## Page Source Resolution
 
-Page bytes are resolved at read time from a fallback chain:
+When reading a chapter, page bytes are resolved through a three-tier fallback hierarchy:
 
 ```
-Reader page source order:
-  1. Disk (library)      — library/<manga_id>/<chapter_id>/<index>.<ext>
-  2. Cache (ephemeral)   — cache/pages/<provider_id>/<sha256(url)>.<ext>
-  3. Provider (live)     — fetched on demand
+Reader Page Source Resolution Order:
+  1. Disk (Library)    → <library_root>/<manga_id>/<provider_id>/<chapter_id>/<index>.<ext>
+  2. Cache (Ephemeral) → cache/images/<sha256(url)>.<ext>
+  3. Live Stream Proxy → HTTP reverse proxy with TLS fingerprinting & SSRF guard
 ```
 
-**Per-page source state, not chapter-level.** Each page carries its own `Source ∈ {disk, cache, provider}` state. The reader queries filesystem stat + cache lookup to determine source at runtime.
-
-**API contract** for page list:
-```
-GET /manga/{id}/chapter/{cid}/pages
-Response: []Page{Index, Source, URL?}
-  Source ∈ {disk, cache, provider}
-  URL present only when Source = provider (transient signed URL)
-```
-
-**`is_downloaded` remains chapter-level** for listing/filtering UX. It is `true` when all pages have `Source = disk`. Per-page state is computed on demand via filesystem stat.
-
-**"Pull" = re-enqueue missing pages.** The Pull UI action iterates the chapter's page list and enqueues `pull_page` jobs for every page where `Source ≠ disk`. This is not a separate job kind — it is the original pull job re-issued. Existing pages are left alone; only missing pages are fetched.
+1. **Disk Check**: The server inspects `<library_root>/<manga_id>/<provider_id>/<chapter_id>/` for matching image extensions (`.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.avif`). If present, the file is served directly with static cache headers.
+2. **Cache Check**: If not on disk, the server checks the ephemeral disk cache for previously fetched and cached page images.
+3. **Live Proxy Stream**: If not cached, the server fetches the page from the upstream provider URL via the request builder (applying appropriate Referer headers, anti-bot TLS fingerprinting, and SSRF address validation), optionally populating the cache.
 
 ---
 
-## Refresh Flow
+## Background Pull Queue Architecture
 
-### Refresh from Provider (Replaces Current Card #484 Spec)
+Content acquisition in Kiyomi is managed by the asynchronous Background Job Queue (see [background_jobs.md](./background_jobs.md) and [content_pull.md](./content_pull.md)).
 
 ```
-1. User clicks "Refresh" on manga
-2. Read <manga_id>/meta.json content.provider_id
-3. Fetch chapters from provider
-4. Begin merge transaction:
-   for each remote chapter:
-     if provider.has_stable_chapter_id():
-       match by content.chapter_ref
-     else:
-       match by normalized title/number pattern
-       if no match: ordinal fallback, mark low confidence
-     if match found in local:
-       update chapter meta (number, title, page_count)
-       replace pages wholesale (no correlation)
-     else:
-       insert new chapter (chapter_id = new ULID)
-5. Compare local chapters to remote:
-   for each local not in remote:
-     set is_orphan = 1
-6. Edge case: if remote returns 0 chapters:
-   ABORT. Surface error to user. Local data untouched.
-7. Update meta.json last_synced_at
-8. Surface last synced time in manga detail / chapter list toolbar
-9. Update DB to reflect new state
+┌─────────────────────────────────────────────────────────────┐
+│                       pull_manga                            │
+│  - Fetches chapter list from upstream provider              │
+│  - Creates chapter manifests for missing chapters           │
+│  - Enqueues pull_cover (if cover not on disk)               │
+│  - Enqueues pull_chapter for each chapter                   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      pull_chapter                           │
+│  - Fetches page list from upstream provider                 │
+│  - Writes pages.json and updates meta.json page_count       │
+│  - Enqueues pull_page for each page index                   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                       pull_page                             │
+│  - Fetches single page image with SSRF validation           │
+│  - Writes atomically to <chapter_dir>/<index>.<ext>         │
+│  - Updates chapter downloaded_at in chapter meta.json       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Three-State Indicator (Chapter List UI)
+### Pull Job Types
 
-| State | Color | Meaning |
-|---|---|---|
-| Synced | Green | Local matches provider |
-| Warning | Yellow | Missing from provider but downloaded (read offline) |
-| Error/Orphan | Red/Gray | Missing from provider, no local files |
+1. **`pull_manga`**:
+   - Fetches the chapter list from the provider API.
+   - Saves new chapter manifests under `<library_root>/<manga_id>/<provider_id>/<chapter_id>/meta.json`.
+   - Enqueues a `pull_chapter` job for each new chapter.
+   - Enqueues a `pull_cover` job if the manga has no cover on disk, using a sentinel check to avoid duplicate acquisitions.
+   - Stamps the manga manifest's `content.last_synced_at` timestamp.
 
-Orphan count shown in chapter list toolbar (not surfaced on manga card). User can filter to show orphans only.
+2. **`pull_chapter`**:
+   - Queries the provider API for the full page list.
+   - Writes `pages.json` to `<library_root>/<manga_id>/<provider_id>/<chapter_id>/pages.json` and updates `page_count` in `meta.json`.
+   - Enqueues a `pull_page` job for every page in the chapter.
 
-### Zero-Chapters Failure Handling
+3. **`pull_page`**:
+   - Validates the page URL with SSRF protection.
+   - Fetches the image from the provider and writes it atomically using a temporary file.
+   - Saves the final image at `<library_root>/<manga_id>/<provider_id>/<chapter_id>/<index>.<ext>`.
+   - Updates `downloaded_at` in the chapter's `meta.json`.
 
-Refresh returning 0 chapters = **error state**, not success. Possible causes:
-- Provider outage
-- Content takedown
-- Auth failure
-- Geo-restriction
+4. **`pull_cover`**:
+   - Validates the cover URL with SSRF protection.
+   - Fetches the cover image and writes it atomically to `<library_root>/<manga_id>/cover.<ext>`.
 
-Behavior:
-- Log warning, surface error to user
-- Local data untouched (no wipe)
-- User can retry, manual override, or unlink provider
+### Concurrency and Rate Limiting
 
-### Page URL Persistence
-
-Page URLs are **not persisted** in `chapter meta.json`. They are:
-- Ephemeral: signed URLs, token-bound, may expire
-- Provider-authoritative: returned fresh on each chapter open
-- Fetched live on reader open, with short cache (see `cache.md` §Page-List Cache)
-
-**Chapter metadata that is persisted:**
-
-| Field | Stored In | Rationale |
-|---|---|---|
-| `title` | `meta.json` | User-displayed, stable |
-| `number` | `meta.json` | Normalized, stable |
-| `volume` | `meta.json` | User-displayed, stable |
-| `page_count` | `meta.json` | Derived from provider, set during refresh |
-| `page_format` | `meta.json` | Set when first page pulled |
-| `content` | `meta.json` | `{ provider_id, chapter_ref }` for re-fetching |
-| `downloaded_at` | `meta.json` | Written by indexer after page lands |
-| `is_downloaded` | `kiyomi.db` | **Derived from filesystem scan**, not from meta.json |
-
-**First-time add from provider:**
-- Refresh flow writes `meta.json` per chapter with `page_count` and `page_format` set
-- Page files are NOT pulled unless user explicitly triggers pull
-- Page URLs not fetched until reader opens
-
-**`is_downloaded` derivation:**
-```
-is_downloaded = (page files exist in chapter folder)
-              ≠ meta.json downloaded_at  // meta.json may lag
-```
-
-This avoids the inconsistency where `downloaded_at` is set but pages were later deleted externally.
+- **Provider Concurrency Group**: All pull jobs targeting an upstream provider share the concurrency key `pull:<provider_id>`. The scheduler guarantees that at most `N` concurrent connections are made per provider.
+- **Cover Concurrency Group**: Cover fetches use the dedicated concurrency group `pull:cover`.
+- **Throttling**: Handlers apply delays based on the provider's rate limiting specifications to prevent upstream IP blocks.
 
 ---
 
-## Onboarding Paths
+## Refresh and Reconciliation Flow
 
-### Empty Library State (Onboarding CTA)
+Refreshing a manga reconciles local chapter manifests with the latest release list from the upstream provider:
 
-When the local library is empty, the UI displays a clean onboarding message with a **"Start Exploring"** call-to-action (CTA) button. Clicking this button redirects the user directly to the **Explore View**.
-
-### Path 1: Explore & Add from Provider
-
-All provider-based discoveries and library additions happen via the **Explore View**:
-1. User opens Explore view (or is redirected via the empty library CTA).
-2. User searches provider by tag or text, selects a manga.
-3. Kiyomi displays a manga preview/details page.
-4. User clicks "Add to Library" or picks a status from the dropdown:
-   - **Plan to Read** — sets status to `plan_to_read`
-   - **Currently Reading** — sets status to `reading`
-   - **Already Read** — sets status to `completed`
-   - **Add to Library** — status left unset
-5. Kiyomi creates `library/<manga_id>/meta.json` with `content` populated.
-6. Chapter list is fetched, and `library/<manga_id>/<chapter_id>/meta.json` is created per chapter.
-7. Page files are NOT pulled unless user triggers pull.
-8. Manga appears in library immediately.
-
-### Path 2: Pull (Existing)
-
-1. User triggers pull on chapter(s)
-2. Page files written to `library/<manga_id>/<chapter_id>/NNN.<ext>`
-3. `meta.json` `page_count`, `downloaded_at` updated
-4. DB `chapters.is_downloaded = 1`
-
-### Path 4: Mounting & Rebuilding an Existing Library
-
-1. User points Kiyomi configuration to an existing `library/` directory.
-2. Kiyomi scans the folder tree (e.g. on startup or via command-line database rebuild trigger).
-3. Each manga and chapter `meta.json` file is read and indexed into the DB.
-4. Local cover and banner files are resolved and matched.
-5. Downloaded pages are verified to derive `is_downloaded = true` state.
+```
+1. Client triggers POST /api/v1/library/manga/:mangaId/refresh.
+2. Read manga-level meta.json to identify active content provider (content.provider_id).
+3. Fetch latest chapter list from the upstream provider API.
+4. Read existing chapter manifests from <library_root>/<manga_id>/<provider_id>/.
+5. Compare upstream list with local manifests:
+   a. For new upstream chapters: create <chapter_id>/meta.json with initial metadata.
+   b. For existing chapters: update metadata (title, number, upload_date) if changed.
+   c. For local chapters not returned upstream: flag as orphaned (orphaned: true).
+6. If the provider returns 0 chapters (potential error/takedown):
+   - Abort reconciliation and surface error to client.
+   - Preserve all local files and manifests without modification.
+7. Update content.last_synced_at in manga-level meta.json.
+```
 
 ---
 
+## Multi-Content Provider Switching
 
+Kiyomi supports binding multiple content providers to a single manga entry without cross-correlating chapter IDs:
 
----
-
-## Migration Path from Current Architecture
-
-### User-Facing Changes
-
-1. Existing `downloads/` → move to `library/`
-2. DB rebuild from filesystem (one-time migration)
-3. Existing `manga` rows reconstitute into `library/<id>/meta.json`
-4. Cover/banner files moved from `covers/`, `banners/` into manga folder
-5. `shelves` field renamed to `collections` in meta.json (key name change)
-5. Downloads moved from flat `downloads/<manga>/<chapter>/` to new structure
-
-### Code Changes Made / Required
-
-- `internal/library/library.go` — filesystem operations, manifest scanning, `collections` field, page list caching, and chapter progress updates
-- `internal/api/library_handler.go` — API endpoints serving from filesystem-cached state and managing refresh/progress operations
-- `plugin-sdk/provider.go` — defines `ContentProvider` interface including `HasStableChapterID()` flag and `FetchPages()` parameters
-- `plugins/mangadex/` and `plugins/mangafox/` — built-in standalone plugins implementing the provider interfaces and handlers
-
-### Backward Compatibility
-
-- Old DB format can be migrated: scan `downloads/`, generate `meta.json`, move files
-- One-time migration tool or auto-detect on startup
-- After migration, old `downloads/` and `covers/` directories removed
+1. **Add Provider Binding**: Appends a new `{ provider_id, provider_manga_id, manga_title }` entry to `providers[]` in manga `meta.json`.
+2. **Switch Active Provider**: Updates `content.provider_id` and `content.provider_manga_id` in manga `meta.json`.
+3. **Isolation**: Chapter manifests and downloaded images for the previous provider remain untouched on disk under `<library_root>/<manga_id>/<old_provider_id>/`.
+4. **No Deletions**: Switching providers never deletes downloaded files or reading progress from other providers.
 
 ---
 
-## Provider Migration
+## Bulk Chapter Operations and Maintenance
 
-When user switches manga's content provider (e.g., provider taken down, user prefers different):
+### Reading Progress Updates
+- Updates `is_read`, `last_read_page`, and `last_read_at` in chapter `meta.json`.
+- Simultaneously updates `last_read_chapter_id` and `last_read_at` in the manga `meta.json`.
 
-1. User picks new provider in manga detail UI
-2. Kiyomi adds new entry to `providers[]` with `{ provider_id, provider_manga_id, manga_title }`
-3. Kiyomi updates `content` to point to new provider for page fetching
-4. Kiyomi re-fetches chapter list from new provider
-5. Chapter correlation runs:
-   - If `has_stable_chapter_id=true` for new provider: match by `chapter_ref`
-   - If `has_stable_chapter_id=false`: fallback to title/number heuristic matching, low-confidence matches flagged
-6. Orphan chapters handled manually by user (list via filter, keep or remove)
+### Delete Chapter Files
+- Removes downloaded page images (`*.jpg`, `*.png`, etc.) and `pages.json` from the chapter directory.
+- Preserves `meta.json` and reading progress. The chapter remains in the UI and can be streamed live or re-pulled.
 
-**Design decisions:**
-- `providers[]` accumulates all known provider references over time. Old entries are never auto-deleted.
-- `content` always points to the currently active content provider.
-- Both `content.provider_id` and `content.provider_manga_id` must match an entry in `providers[]`.
-- Orphan chapters are kept permanently unless manually removed by the user.
-
-## Bulk Chapter Operations
-
-Chapter list supports checkbox-based multi-select with helpers:
-
-**Selection helpers:**
-- Select this chapter
-- Select this and above
-- Select this and below
-- Select all downloaded
-- Select all undownloaded
-- Clear selection
-
-**Actions on selection:**
-- Mark as read / unread
-- Pull selected
-- Delete files (remove pages from disk)
-- (Future: move to collection, change reading direction)
-
-Selection persists while navigating between chapter pages. Action buttons live in chapter list toolbar.
-
-## Open Questions
-
-1. Should chapter folders support loose files (jpg, png, webp) mixed? Or enforce single format?
-2. Library scan on startup — full or incremental? Incremental is faster but adds complexity.
-3. Concurrent access — multiple Kiyomi instances on same library? Single-writer lock?
-4. Storage backend abstraction — pure filesystem vs pluggable (S3, etc.)? Start filesystem-only, abstract later.
-5. When orphan chapters have downloaded pages — should we offer a "download provider-less chapter" action using cached page bytes as source?
+### Delete Chapters
+- Completely deletes the chapter directory `<library_root>/<manga_id>/<provider_id>/<chapter_id>/`.
 
 ---
 
 ## References
 
-- Card #484: Feature: Chapter/Page Cache and Refresh
-- Card #487: Feature: Import/Use already downloaded library
-- Sibling design docs:
-  - `docs/design/workers.md` — background job framework, pull worker is library-aware
-  - `docs/design/providers.md` — provider contract, `has_stable_chapter_id`
-  - `docs/design/reader.md` — page source resolution model
-  - `docs/design/cache.md` — page cache (middle tier: disk → cache → provider)
-  - `docs/design/api.md` — REST surface for library
-- Superseded docs (marked with deprecation notices at top):
-  - `docs/developer/library_architecture.md` — prior DB-centric design, deprecated
-  - `docs/developer/permanent_download_plan.md` — initial schema obsolete; worker/dispatcher concepts still relevant in spirit
-- Related still-current docs:
-  - `docs/developer/architecture.md` — system overview; "Disk Storage" section marked superseded
-  - `docs/plugin_developer/` — provider SDK documentation
+- [Multi-Content Provider Library](./multi_content_provider_library.md) — Multi-provider architecture and UI interaction model
+- [Background Jobs](./background_jobs.md) — Generic background job scheduler and worker engine
+- [Content Pull System](./content_pull.md) — High-level content pull workflow and naming rationale
+- [Providers](./providers.md) — Built-in provider contracts and capability model
+- [Reader](./reader.md) — Web reader architecture and reading mode specifications
+- [REST API Reference](./api.md) — Complete library and provider HTTP API endpoints

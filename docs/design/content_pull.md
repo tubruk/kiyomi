@@ -1,88 +1,228 @@
-# Content Pull System
+# Content Acquisition & Pull Pipeline
 
 ## Overview
 
-Content pull acquires manga content from upstream providers and persists it into the local Kiyomi library. This is a high-level feature document; the underlying job queue infrastructure is documented in [background_jobs.md](./background_jobs.md).
+The **Content Pull System** orchestrates the retrieval of manga metadata, chapter lists, page images, and cover art from external upstream providers into Kiyomi's local filesystem-first library. Built on top of the [Generic Background Job Queue](./background_jobs.md), the pull pipeline operates as a granular, multi-tiered hierarchy of asynchronous tasks with strict rate-limiting, SSRF security validation, cache deduplication, and atomic filesystem persistence.
 
 ---
 
-## Pull Naming Rationale
+## 1. Pull Naming Rationale
 
-"Pull" is used instead of "download" to distinguish server-to-upstream acquisition from client-initiated downloads. "Download" implies the client is pulling a file to their device. "Pull" conveys the server fetching content from an external source into the local library, avoiding user confusion about the direction of data flow.
-
----
-
-## Pull Operations
-
-### `pull_manga`
-
-Fetches the chapter list from a provider and schedules pulls for all chapters not yet in the library.
-
-**Trigger**: User-initiated "Pull manga" action, or background sync when library auto-pull is enabled.
-
-**Flow**:
-1. Query provider API for chapter list for given manga.
-2. Compare against existing local manifest.
-3. Enqueue `pull_chapter` jobs for each missing chapter.
-
-### `pull_chapter`
-
-Resolves the full page list for a chapter and schedules individual page pulls.
-
-**Trigger**: Enqueued by `pull_manga`, or user-initiated "Pull chapter".
-
-**Flow**:
-1. Query provider API for page URLs.
-2. Store resolved page list in local manifest.
-3. Enqueue `pull_page` jobs for each page.
-
-### `pull_page`
-
-Fetches a single page image from the upstream provider and writes it to the local filesystem.
-
-**Path structure**: `<library_root>/<manga_id>/<provider_id>/<chapter_id>/<page_number>.<ext>`
-
-**Behavior**:
-- Fetch page image via HTTP.
-- Write to target path atomically (write-then-rename to avoid partial reads).
-- Update local page manifest on success.
-- Retry with backoff on transient failures.
-- Mark failed after max retries; log error details.
+"Pull" is used instead of "download" to distinguish server-to-upstream acquisition from client-initiated downloads:
+- **Download**: Implies a client device is retrieving files from the Kiyomi server.
+- **Pull**: Conveys that the Kiyomi server is fetching content from an upstream provider into its local storage, clarifying data flow direction for users and API consumers.
 
 ---
 
-## Provider Integration
+## 2. Pipeline Hierarchy & Flow
 
-Each provider implements a common interface contract:
+The content pull pipeline decomposes manga acquisition into distinct, specialized jobs that cascade down from the manga level to individual page files:
 
-- **ListChapters**: Returns all chapter metadata for a manga from the provider.
-- **ListPages**: Returns resolved page image URLs for a chapter.
-- **FetchPage**: Performs the HTTP fetch for a single page.
+```mermaid
+flowchart TD
+    User["User / Background Sync"] -->|"Enqueue pull_manga"| MangaJob["pull_manga\n(Provider Chapter Sync)"]
+    
+    MangaJob -->|"List chapters from Provider"| ChCompare{"Compare with Local Manifest"}
+    ChCompare -->|"Missing Chapters"| ChJob["pull_chapter\n(Page List Resolution)"]
+    ChCompare -->|"Missing Cover Art\n(Claim Lock)"| CoverJob["pull_cover\n(Cover Image Fetch)"]
 
-Providers may implement additional methods for authentication, rate limiting, and Cloudflare challenge handling.
+    ChJob -->|"Fetch Page Manifest"| SaveManifest["Save pages.json"]
+    SaveManifest --> EnqueuePages["Enqueue pull_page\n(per page index)"]
+
+    EnqueuePages --> PageJob["pull_page\n(Individual Image Fetch)"]
+
+    subgraph DownloadPipeline ["Single Image Download & Verification"]
+        PageJob --> SSRF1["SSRF Guard\n(Block Private/Loopback IPs)"]
+        CoverJob --> SSRF2["SSRF Guard\n(Block Private/Loopback IPs)"]
+        
+        SSRF1 --> CacheCheck1{"Check Image Cache"}
+        SSRF2 --> CacheCheck2{"Check Image Cache"}
+        
+        CacheCheck1 -->|"Cache Hit"| Link1["Hardlink / File Copy\n(Zero Network / Dedup)"]
+        CacheCheck2 -->|"Cache Hit"| Link2["Hardlink / File Copy\n(Zero Network / Dedup)"]
+        
+        CacheCheck1 -->|"Cache Miss"| Upstream1["HTTP Client\n(TLS Fingerprinting / Anti-bot)"]
+        CacheCheck2 -->|"Cache Miss"| Upstream2["HTTP Client\n(TLS Fingerprinting / Anti-bot)"]
+        
+        Upstream1 --> AtomicWrite1["Atomic File Write\n<library_root>/<manga>/<provider>/<ch>/<idx>.<ext>"]
+        Upstream2 --> AtomicWrite2["Atomic File Write\n<library_root>/<manga>/cover.<ext>"]
+    end
+
+    AtomicWrite1 --> StampCh["Stamp Chapter downloaded_at"]
+    AtomicWrite2 --> ReleaseCover["Release Cover Lock"]
+```
 
 ---
 
-## Concurrency
+## 3. Pull Operations Specification
 
-Pull operations are scoped to a **provider concurrency key**: `pull:<provider_id>`. Only `N` pulls from the same provider run concurrently, preventing IP bans or rate-limit hits from upstream providers.
+### A. `pull_manga` (Provider Reconciliation)
 
-The job queue concurrency system (documented in background_jobs.md) enforces this via concurrency group keys on the handler.
+Reconciles the chapter list and cover art for a manga from the designated content provider.
+
+- **Concurrency Group**: `pull:<provider_id>`
+- **Payload Schema**:
+  ```json
+  {
+    "manga_id": "01HGW1...",
+    "provider_id": "mangadex",
+    "provider_manga_id": "a1b2c3d4",
+    "cover_url": "https://uploads.mangadex.org/covers/..."
+  }
+  ```
+- **Execution Flow**:
+  1. Queries the provider's `FetchChapters` API using `provider_manga_id`.
+  2. Acquires an entity lock for `manga_id` to prevent concurrent reconciliations from creating duplicate tasks.
+  3. Compares provider chapters against local chapters in `<library_root>/<manga_id>/<provider_id>/`.
+  4. For each missing chapter, creates chapter metadata (`meta.json`) and enqueues a child `pull_chapter` job.
+  5. If `cover_url` is provided and the manga does not have a cover on disk, attempts to acquire the cover acquisition lock. If acquired, enqueues a child `pull_cover` job.
+  6. Updates `content.last_synced_at` on the manga manifest (`meta.json`).
+
+### B. `pull_chapter` (Page Manifest Resolution)
+
+Resolves the full list of page URLs for a specific chapter and persists the chapter page manifest.
+
+- **Concurrency Group**: `pull:<provider_id>`
+- **Payload Schema**:
+  ```json
+  {
+    "manga_id": "01HGW1...",
+    "provider_id": "mangadex",
+    "chapter_id": "ch_001"
+  }
+  ```
+- **Execution Flow**:
+  1. Resolves provider chapter reference and provider manga reference from chapter/manga manifests.
+  2. Queries the provider's `FetchPages` API to obtain the ordered list of page URLs.
+  3. Persists the resolved list to `pages.json` in the chapter directory.
+  4. Enqueues a child `pull_page` job for every page index in the resolved list, tagging each with metadata (`manga_id`, `provider_id`, `chapter_id`, `page_index`).
+
+### C. `pull_page` (Single Page Acquisition)
+
+Downloads a single page image file and saves it to the chapter's filesystem storage.
+
+- **Concurrency Group**: `pull:<provider_id>`
+- **Payload Schema**:
+  ```json
+  {
+    "manga_id": "01HGW1...",
+    "provider_id": "mangadex",
+    "chapter_id": "ch_001",
+    "page_index": 1,
+    "page_url": "https://example.com/data/001.jpg"
+  }
+  ```
+- **Execution Flow**:
+  1. Validates `page_url` using the SSRF Guard. If blocked, returns a permanent error.
+  2. Checks the ephemeral image cache for `page_url`. If cached, links or copies the file directly to the target destination without network overhead.
+  3. If not cached, fetches the image via the HTTP client (applying TLS fingerprinting, custom user-agent, session headers, and referrers).
+  4. Detects image extension from URL path and HTTP `Content-Type` header (defaults to `.jpg`).
+  5. Atomically writes the page image to `<page_index>.<ext>`.
+  6. Updates the chapter's `downloaded_at` timestamp in `meta.json` under the manga entity lock.
+
+### D. `pull_cover` (Canonical Cover Acquisition)
+
+Downloads the manga's primary cover art and stores it at the root of the manga folder.
+
+- **Concurrency Group**: `pull:cover`
+- **Payload Schema**:
+  ```json
+  {
+    "manga_id": "01HGW1...",
+    "cover_url": "https://example.com/covers/cover.jpg",
+    "provider_id": "mangadex"
+  }
+  ```
+- **Execution Flow**:
+  1. Validates `cover_url` using the SSRF Guard.
+  2. Checks image cache for existing cached asset; links or copies if available.
+  3. Otherwise, fetches cover image via the HTTP client.
+  4. Atomically writes image to `<library_root>/<manga_id>/cover.<ext>`.
+  5. Releases the cover acquisition lock upon completion (or failure).
 
 ---
 
-## Error Handling
+## 4. Storage Hierarchy & Manifests
 
-| Error type | Behavior |
-|------------|----------|
-| Transient (timeout, 5xx) | Retry with exponential backoff |
-| Permanent (404, auth failure) | Fail immediately, mark job failed |
-| Provider-specific (CF challenge, captcha) | Handled by provider implementation; may defer or skip |
+Content is organized under a multi-provider directory layout:
+
+```
+<library_root>/
+└── <manga_id>/
+    ├── meta.json                     # Manga manifest (title, provider bindings, sync state)
+    ├── cover.<ext>                   # Manga cover image
+    └── <provider_id>/                # Provider namespace (e.g. mangadex, local)
+        └── <chapter_id>/             # Local chapter directory
+            ├── meta.json             # Chapter metadata (number, title, download status)
+            ├── pages.json            # Resolved page manifest
+            ├── 0.jpg                 # Page images (<page_index>.<ext>)
+            ├── 1.jpg
+            └── ...
+```
+
+### Chapter Page Manifest (`pages.json`)
+
+```json
+[
+  {
+    "index": 0,
+    "url": "https://uploads.mangadex.org/data/ch1/0.jpg",
+    "source": "provider"
+  },
+  {
+    "index": 1,
+    "url": "https://uploads.mangadex.org/data/ch1/1.jpg",
+    "source": "provider"
+  }
+]
+```
 
 ---
 
-## Persistence
+## 5. Security & SSRF Protection
 
-**On disk**: `<library_root>/<manga_id>/<provider_id>/<chapter_id>/<page_number>.<ext>`
+All outbound HTTP requests for pages and covers pass through a dedicated **SSRF Guard**:
 
-**In manifest**: `manifest.json` at the chapter level stores resolved page metadata. This enables re-verification and re-pull of corrupt pages without re-resolving page URLs from the provider.
+- **Target Address Validation**: Blocks outbound requests targeting private IP networks, loopback addresses, link-local ranges, cloud metadata address spaces, shared address space (CGNAT), and multicast or unspecified address ranges.
+- **DNS Resolution & Rebinding Protection**: Resolves hostnames with a bounded timeout and inspects all resolved IP addresses before initiating connections to guard against DNS rebinding attacks.
+- **Configurable Network Restrictions**: Supports configuration overrides for testing against local mock servers or development environments.
+- **Error Propagation**: SSRF violations are classified as permanent errors, aborting retries immediately.
+
+---
+
+## 6. Ephemeral Image Cache Integration
+
+Kiyomi integrates an ephemeral image cache with the pull pipeline:
+
+1. **Deduplication Between Stream & Pull**: If a user reads a chapter online (populating the image cache), a subsequent "Pull Chapter" action checks the cache before issuing network requests.
+2. **Filesystem Linking Optimization**: If the cache and library reside on the same filesystem volume, the pull worker links the cached file directly to the library target path. This eliminates network bandwidth and avoids consuming duplicate disk space.
+3. **File Copy Fallback**: If linking is unavailable across storage boundaries or filesystem types, the worker falls back to an atomic file copy.
+
+---
+
+## 7. Concurrency, Throttling & Locking
+
+To prevent upstream provider rate-limit bans and race conditions:
+
+| Mechanism | Target | Behavior |
+| :--- | :--- | :--- |
+| **Provider Concurrency Group** (`pull:<provider_id>`) | `pull_manga`, `pull_chapter`, `pull_page` | Limits active concurrent requests per provider according to provider rate limits. |
+| **Cover Concurrency Group** (`pull:cover`) | `pull_cover` | Dedicated rate bucket to avoid competing with or starving page downloads. |
+| **Manga Entity Lock** | `pull_manga`, `pull_page` | Serializes metadata updates and prevents duplicate child job creation for the same manga. |
+| **Cover Acquisition Lock** | `pull_cover` | Atomic locking ensuring only one cover pull is enqueued at a time per manga. |
+
+---
+
+## 8. Error Classification & Resilience
+
+The pull pipeline maps upstream responses to job queue error policies:
+
+| Upstream Status / Condition | Classification | Behavior |
+| :--- | :--- | :--- |
+| HTTP 200 OK | Success | File written atomically, manifest timestamp updated. |
+| HTTP 400, 401, 403, 404, 410 | Permanent | Job marked `failed` immediately; retries aborted. |
+| SSRF Violation | Permanent | Job marked `failed` immediately; retries aborted. |
+| Malformed Payload / Missing Fields | Permanent | Job marked `failed` immediately; retries aborted. |
+| HTTP 429 (Too Many Requests), 5xx | Transient | Exponential backoff retry up to `max_retries`. |
+| Network Timeout / Socket Error | Transient | Exponential backoff retry up to `max_retries`. |
+
