@@ -5,7 +5,8 @@ web/dist
 web/dev-dist
 tmp
 bin
-pkg/webui/dist
+pkg/webui/dist/*
+!pkg/webui/dist/index.html
 *.tsbuildinfo
 
 # Environment & IDE

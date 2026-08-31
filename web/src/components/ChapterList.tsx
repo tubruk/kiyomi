@@ -1,18 +1,24 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Link } from '@tanstack/react-router';
-import { ArrowDown, ArrowUp, BookOpen, Search, MoreVertical, RefreshCw, Trash2, AlertCircle, Check } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  BookOpen,
+  HardDrive,
+  ListChecks,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
 import { Chapter } from '../types/api';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Skeleton } from './ui/skeleton';
 import { cn } from '../lib/utils';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
+import { Pagination } from './Pagination';
+import { ChapterRow } from './chapter-list/ChapterRow';
+import { BatchActionBar } from './chapter-list/BatchActionBar';
+import { BatchRemoveDialog } from './chapter-list/BatchRemoveDialog';
 
 const sortOptions: Record<string, string> = {
   source: 'Source Order',
@@ -20,7 +26,7 @@ const sortOptions: Record<string, string> = {
   date: 'Upload Date',
 };
 
-interface ChapterListProps {
+export interface ChapterListProps {
   chapters: Chapter[];
   mangaId: string;
   sortBy: string;
@@ -38,7 +44,26 @@ interface ChapterListProps {
   remoteId?: string;
   onRefreshChapters?: () => void;
   isRefreshing?: boolean;
-  onRemoveChapter?: (chapterId: string) => void;
+  onRemoveChapter?: (chapterId: string, providerId?: string) => void;
+  onDeleteFiles?: (chapterId: string, providerId: string) => void;
+  onPullChapter?: (chapterId: string, providerId: string) => void;
+  isDeletingFiles?: boolean;
+  isPullingChapter?: boolean;
+  isRemovingChapter?: boolean;
+  pullingChapterIds?: string[];
+  deletingFilesChapterIds?: string[];
+  removingChapterIds?: string[];
+  // Batch Mutations props
+  onBatchUpdateProgress?: (chapterIds: string[], progress: { is_read?: boolean; last_read_page?: number }) => void;
+  isBatchUpdatingProgress?: boolean;
+  onBatchPull?: (chapterIds: string[]) => void;
+  isBatchPulling?: boolean;
+  onBatchRefresh?: (chapterIds: string[]) => void;
+  isBatchRefreshing?: boolean;
+  onBatchDeleteFiles?: (chapterIds: string[]) => void;
+  isBatchDeletingFiles?: boolean;
+  onBatchRemove?: (chapterIds: string[]) => void;
+  isBatchRemoving?: boolean;
 }
 
 export const ChapterList: React.FC<ChapterListProps> = ({
@@ -60,11 +85,43 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   onRefreshChapters,
   isRefreshing = false,
   onRemoveChapter,
+  onDeleteFiles,
+  onPullChapter,
+  pullingChapterIds = [],
+  deletingFilesChapterIds = [],
+  removingChapterIds = [],
+  onBatchUpdateProgress,
+  isBatchUpdatingProgress = false,
+  onBatchPull,
+  isBatchPulling = false,
+  onBatchRefresh,
+  isBatchRefreshing = false,
+  onBatchDeleteFiles,
+  isBatchDeletingFiles = false,
+  onBatchRemove,
+  isBatchRemoving = false,
 }) => {
   const [filterQuery, setFilterQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
+
+  // Selection Mode State
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const [isConfirmRemoveOpen, setIsConfirmRemoveOpen] = useState(false);
+
+  const pullingSet = useMemo(() => new Set(pullingChapterIds), [pullingChapterIds]);
+  const deletingFilesSet = useMemo(() => new Set(deletingFilesChapterIds), [deletingFilesChapterIds]);
+  const removingSet = useMemo(() => new Set(removingChapterIds), [removingChapterIds]);
+
+  // Reset selection mode when manga changes
+  useEffect(() => {
+    setIsSelectionMode(false);
+    setSelectedChapterIds(new Set());
+    setLastSelectedId(null);
+  }, [mangaId]);
 
   const filteredChapters = useMemo(() => {
     let result = chapters.map((ch, idx) => ({
@@ -97,16 +154,142 @@ export const ChapterList: React.FC<ChapterListProps> = ({
     });
   }, [chapters, filterQuery, sortBy, order]);
 
-  // Reset to page 1 when filtered list shrinks
-  useEffect(() => {
-    setPage(1);
-  }, [filteredChapters.length]);
-
   const totalPages = Math.ceil(filteredChapters.length / PAGE_SIZE);
   const safePage = Math.min(Math.max(1, page), totalPages || 1);
   const paginatedChapters = filteredChapters.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const resolvedProviderName = contentProviderName;
+
+  const downloadedCount = useMemo(() => {
+    return chapters.reduce((count, c) => {
+      const isDownloaded = Boolean(
+        c.is_downloaded ??
+        (c as any).isDownloaded ??
+        c.meta?.is_downloaded ??
+        c.isDownloaded
+      );
+      return isDownloaded ? count + 1 : count;
+    }, 0);
+  }, [chapters]);
+
+  // Selection Helpers
+  const selectedCount = selectedChapterIds.size;
+
+  const hasDownloadedInSelection = useMemo(() => {
+    if (selectedChapterIds.size === 0) return false;
+    return chapters.some((c) => {
+      if (!selectedChapterIds.has(c.id)) return false;
+      const isDownloaded = Boolean(
+        c.is_downloaded ??
+        (c as any).isDownloaded ??
+        c.meta?.is_downloaded ??
+        c.isDownloaded
+      );
+      const downloadedPages =
+        c.downloaded_pages ??
+        (c as any).downloadedPages ??
+        c.meta?.downloaded_pages ??
+        c.downloadedPages ??
+        0;
+      return isDownloaded || downloadedPages > 0 || Boolean(c.meta?.downloaded_at);
+    });
+  }, [chapters, selectedChapterIds]);
+
+  const handleSelectAll = useCallback(() => {
+    const allFilteredIds = filteredChapters.map((c) => c.id);
+    setSelectedChapterIds(new Set(allFilteredIds));
+  }, [filteredChapters]);
+
+  const handleSelectNone = useCallback(() => {
+    setSelectedChapterIds(new Set());
+    setLastSelectedId(null);
+  }, []);
+
+  const handleInvertSelection = useCallback(() => {
+    const next = new Set<string>();
+    filteredChapters.forEach((c) => {
+      if (!selectedChapterIds.has(c.id)) {
+        next.add(c.id);
+      }
+    });
+    setSelectedChapterIds(next);
+  }, [filteredChapters, selectedChapterIds]);
+
+  const handleExitSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedChapterIds(new Set());
+    setLastSelectedId(null);
+  }, []);
+
+  const handleToggleRow = useCallback(
+    (chapterId: string, event?: React.MouseEvent | React.KeyboardEvent) => {
+      if (event && 'shiftKey' in event && event.shiftKey && lastSelectedId !== null) {
+        const idx1 = filteredChapters.findIndex((c) => c.id === lastSelectedId);
+        const idx2 = filteredChapters.findIndex((c) => c.id === chapterId);
+        if (idx1 !== -1 && idx2 !== -1) {
+          const start = Math.min(idx1, idx2);
+          const end = Math.max(idx1, idx2);
+          const rangeIds = filteredChapters.slice(start, end + 1).map((c) => c.id);
+          setSelectedChapterIds((prev) => {
+            const next = new Set(prev);
+            rangeIds.forEach((id) => next.add(id));
+            return next;
+          });
+          setLastSelectedId(chapterId);
+          return;
+        }
+      }
+
+      setSelectedChapterIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(chapterId)) {
+          next.delete(chapterId);
+        } else {
+          next.add(chapterId);
+        }
+        return next;
+      });
+      setLastSelectedId(chapterId);
+    },
+    [filteredChapters, lastSelectedId]
+  );
+
+  const handleBatchUpdateProgress = useCallback(
+    (progress: { is_read?: boolean; last_read_page?: number }) => {
+      if (selectedChapterIds.size === 0 || !onBatchUpdateProgress) return;
+      onBatchUpdateProgress(Array.from(selectedChapterIds), progress);
+    },
+    [onBatchUpdateProgress, selectedChapterIds]
+  );
+
+  const handleBatchRefresh = useCallback(() => {
+    if (selectedChapterIds.size === 0 || !onBatchRefresh) return;
+    onBatchRefresh(Array.from(selectedChapterIds));
+  }, [onBatchRefresh, selectedChapterIds]);
+
+  const handleBatchPull = useCallback(() => {
+    if (selectedChapterIds.size === 0 || !onBatchPull) return;
+    onBatchPull(Array.from(selectedChapterIds));
+  }, [onBatchPull, selectedChapterIds]);
+
+  const handleBatchDeleteFiles = useCallback(() => {
+    if (
+      selectedChapterIds.size === 0 ||
+      !onBatchDeleteFiles ||
+      !hasDownloadedInSelection
+    )
+      return;
+    onBatchDeleteFiles(Array.from(selectedChapterIds));
+  }, [onBatchDeleteFiles, hasDownloadedInSelection, selectedChapterIds]);
+
+  const handleConfirmRemove = useCallback(() => {
+    if (!onBatchRemove) return;
+    const ids = Array.from(selectedChapterIds);
+    onBatchRemove(ids);
+    setIsConfirmRemoveOpen(false);
+    setSelectedChapterIds(new Set());
+    setLastSelectedId(null);
+  }, [onBatchRemove, selectedChapterIds]);
 
   if (hasNoContentProvider) {
     return (
@@ -147,12 +330,44 @@ export const ChapterList: React.FC<ChapterListProps> = ({
 
   return (
     <div className="flex flex-col gap-4 mt-8">
+      {/* Selection Mode Active Toolbar */}
+      {isSelectionMode && (
+        <BatchActionBar
+          selectedCount={selectedCount}
+          totalCount={filteredChapters.length}
+          hasDownloadedInSelection={hasDownloadedInSelection}
+          onSelectAll={handleSelectAll}
+          onSelectNone={handleSelectNone}
+          onInvertSelection={handleInvertSelection}
+          onExitSelectionMode={handleExitSelectionMode}
+          onBatchUpdateProgress={onBatchUpdateProgress ? handleBatchUpdateProgress : undefined}
+          isBatchUpdatingProgress={isBatchUpdatingProgress}
+          onBatchPull={onBatchPull ? handleBatchPull : undefined}
+          isBatchPulling={isBatchPulling}
+          onBatchRefresh={onBatchRefresh ? handleBatchRefresh : undefined}
+          isBatchRefreshing={isBatchRefreshing}
+          onBatchDeleteFiles={onBatchDeleteFiles ? handleBatchDeleteFiles : undefined}
+          isBatchDeletingFiles={isBatchDeletingFiles}
+          onOpenRemoveDialog={() => setIsConfirmRemoveOpen(true)}
+          isBatchRemoving={isBatchRemoving}
+          canPull={Boolean(onBatchPull)}
+          canDeleteFiles={Boolean(onBatchDeleteFiles)}
+          canRemove={Boolean(onBatchRemove)}
+        />
+      )}
+
       {/* Header & Controls Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/50 pb-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-xl font-bold tracking-tight text-foreground">
             Chapters ({chapters.length})
           </h2>
+          {isInLibrary && chapters.length > 0 && downloadedCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <HardDrive className="size-3 text-emerald-500" />
+              {downloadedCount}/{chapters.length} downloaded
+            </span>
+          )}
           {onRefreshChapters && (
             <Button
               variant="outline"
@@ -167,14 +382,33 @@ export const ChapterList: React.FC<ChapterListProps> = ({
               {isRefreshing ? 'Refreshing…' : 'Refresh'}
             </Button>
           )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
           {resolvedProviderName && (
             <span className="text-xs text-muted-foreground">
               Provided by <span className="font-medium text-foreground">{resolvedProviderName}</span>
             </span>
           )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Select Mode Button (when in library and has chapters) */}
+          {isInLibrary && chapters.length > 0 && !isSelectionMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setIsSelectionMode(true);
+                setSelectedChapterIds(new Set());
+                setLastSelectedId(null);
+              }}
+              className="h-9 px-2.5 text-xs bg-card border-border gap-1.5 cursor-pointer"
+              title="Enter selection mode for batch actions"
+              aria-label="Select chapters"
+            >
+              <ListChecks className="size-4" />
+              Select
+            </Button>
+          )}
+
           {/* Filter Input */}
           <div className="relative min-w-[180px] flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" aria-hidden />
@@ -183,12 +417,23 @@ export const ChapterList: React.FC<ChapterListProps> = ({
               placeholder="Filter chapters..."
               className="h-9 pl-9 text-xs bg-card border-border"
               value={filterQuery}
-              onChange={(e) => setFilterQuery(e.target.value)}
+              onChange={(e) => {
+                setFilterQuery(e.target.value);
+                setPage(1);
+              }}
             />
           </div>
 
           {/* Sort Selector */}
-          <Select value={sortBy} onValueChange={(val) => val && onSortByChange(val)}>
+          <Select
+            value={sortBy}
+            onValueChange={(val) => {
+              if (val) {
+                onSortByChange(val);
+                setPage(1);
+              }
+            }}
+          >
             <SelectTrigger className="h-9 w-[130px] text-xs bg-card border-border">
               <SelectValue placeholder="Sort order">
                 {sortOptions[sortBy] || sortBy}
@@ -206,7 +451,10 @@ export const ChapterList: React.FC<ChapterListProps> = ({
             variant="outline"
             size="icon"
             className="h-9 w-9 bg-card border-border cursor-pointer"
-            onClick={onOrderToggle}
+            onClick={() => {
+              onOrderToggle();
+              setPage(1);
+            }}
             title={order === 'desc' ? 'Sort descending' : 'Sort ascending'}
             aria-label={order === 'desc' ? 'Sort descending' : 'Sort ascending'}
           >
@@ -233,144 +481,57 @@ export const ChapterList: React.FC<ChapterListProps> = ({
           </div>
         ) : (
           paginatedChapters.map((c) => {
-            const dateVal = c.uploadDate || c.uploadedAt;
-            const dateStr = dateVal
-              ? new Date(dateVal).toLocaleDateString()
-              : '';
-            const chapterTitleDisplay = c.title || c.name || `Chapter ${c.number}`;
-            const isRead = Boolean(c.meta?.is_read ?? (c as any).is_read);
-            const lastReadPage = c.meta?.last_read_page ?? (c as any).last_read_page ?? 0;
-            const pageCount = c.meta?.page_count ?? (c as any).page_count ?? 0;
-            const isInProgress = !isRead && lastReadPage > 1;
+            const isPulling = pullingSet.has(c.id);
+            const isDeletingFiles = deletingFilesSet.has(c.id);
+            const isRemoving = removingSet.has(c.id);
+            const isProcessing = isPulling || isDeletingFiles || isRemoving;
+            const isSelected = selectedChapterIds.has(c.id);
 
             return (
-              <div
+              <ChapterRow
                 key={c.id}
-                className={cn(
-                  "group flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-sm transition-colors hover:border-primary/50 hover:bg-accent/50",
-                  isRead && "opacity-60 bg-card/60"
-                )}
-              >
-                {!isInLibrary && providerId && remoteId ? (
-                  <Link
-                    to="/providers/$providerId/manga/$remoteId/chapter/$chapterId"
-                    params={{ providerId, remoteId, chapterId: c.id }}
-                    search={isInProgress ? { page: lastReadPage } : undefined}
-                    className="flex items-center gap-2.5 flex-1 min-w-0"
-                  >
-                    <span className={cn(
-                      "inline-flex items-center justify-center font-mono font-semibold text-xs px-2 py-0.5 rounded shrink-0 border border-border/50 gap-1",
-                      isRead ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-secondary text-secondary-foreground"
-                    )}>
-                      {c.number}
-                      {isRead && <Check className="size-3 text-emerald-500 stroke-[3]" aria-label="Read" />}
-                    </span>
-
-                    <span className={cn(
-                      "font-medium truncate",
-                      isRead ? "text-muted-foreground" : "text-foreground group-hover:text-primary"
-                    )}>
-                      {chapterTitleDisplay}
-                    </span>
-
-                    {isInProgress && (
-                      <span className="inline-flex items-center rounded bg-primary/10 border border-primary/25 px-1.5 py-0.5 text-[10px] font-semibold text-primary shrink-0">
-                        Page {lastReadPage}{pageCount > 0 ? `/${pageCount}` : ''}
-                      </span>
-                    )}
-                  </Link>
-                ) : (
-                  <Link
-                    to="/manga/$mangaId/chapter/$chapterId"
-                    params={{ mangaId, chapterId: c.id }}
-                    search={isInProgress ? { page: lastReadPage } : undefined}
-                    className="flex items-center gap-2.5 flex-1 min-w-0"
-                  >
-                    <span className={cn(
-                      "inline-flex items-center justify-center font-mono font-semibold text-xs px-2 py-0.5 rounded shrink-0 border border-border/50 gap-1",
-                      isRead ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-secondary text-secondary-foreground"
-                    )}>
-                      {c.number}
-                      {isRead && <Check className="size-3 text-emerald-500 stroke-[3]" aria-label="Read" />}
-                    </span>
-
-                    <span className={cn(
-                      "font-medium truncate",
-                      isRead ? "text-muted-foreground" : "text-foreground group-hover:text-primary"
-                    )}>
-                      {chapterTitleDisplay}
-                    </span>
-
-                    {isInProgress && (
-                      <span className="inline-flex items-center rounded bg-primary/10 border border-primary/25 px-1.5 py-0.5 text-[10px] font-semibold text-primary shrink-0">
-                        Page {lastReadPage}{pageCount > 0 ? `/${pageCount}` : ''}
-                      </span>
-                    )}
-                  </Link>
-                )}
-
-                <div className="flex items-center gap-3 shrink-0 ml-4">
-                  {dateStr && (
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {dateStr}
-                    </span>
-                  )}
-
-                  {isInLibrary && onRemoveChapter && (
-                    <DropdownMenu open={openMenuId === c.id} onOpenChange={(open) => setOpenMenuId(open ? c.id : null)}>
-                      <DropdownMenuTrigger
-                        className="inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground shrink-0 size-8 transition-colors cursor-pointer"
-                        aria-label="Chapter Actions"
-                      >
-                        <MoreVertical className="size-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44 p-1">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            onRemoveChapter(c.id);
-                            setOpenMenuId(null);
-                          }}
-                          className="w-full text-xs cursor-pointer justify-center font-medium h-8 text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="size-3.5 mr-1.5" />
-                          Remove Chapter
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
-              </div>
+                chapter={c}
+                mangaId={mangaId}
+                providerId={providerId}
+                remoteId={remoteId}
+                isInLibrary={isInLibrary}
+                isUnavailable={isUnavailable}
+                hasNoContentProvider={hasNoContentProvider}
+                isSelectionMode={isSelectionMode}
+                isSelected={isSelected}
+                isProcessing={isProcessing}
+                isPulling={isPulling}
+                isDeletingFiles={isDeletingFiles}
+                isRemoving={isRemoving}
+                openMenuId={openMenuId}
+                onOpenMenuChange={setOpenMenuId}
+                onToggleSelect={handleToggleRow}
+                onPullChapter={onPullChapter}
+                onDeleteFiles={onDeleteFiles}
+                onRemoveChapter={onRemoveChapter}
+              />
             );
           })
         )}
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 pt-4 pb-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={safePage <= 1}
-              className="h-8 px-3 text-xs cursor-pointer"
-            >
-              Prev
-            </Button>
-            <span className="text-xs text-muted-foreground font-mono">
-              {safePage} / {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage >= totalPages}
-              className="h-8 px-3 text-xs cursor-pointer"
-            >
-              Next
-            </Button>
-          </div>
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
         )}
       </div>
+
+      {/* Batch Remove Confirmation Dialog */}
+      <BatchRemoveDialog
+        open={isConfirmRemoveOpen}
+        onOpenChange={setIsConfirmRemoveOpen}
+        selectedCount={selectedCount}
+        onConfirm={handleConfirmRemove}
+        isRemoving={isBatchRemoving}
+      />
     </div>
   );
 };

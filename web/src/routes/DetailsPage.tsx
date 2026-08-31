@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useLocation, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { jobsQueryOptions } from '../lib/queryOptions';
 
 import {
   ArrowLeft,
@@ -26,6 +27,11 @@ import {
   useProviderChapterList,
   useUpdateLibraryMangaMutation,
   useDeleteLibraryMangaMutation,
+  useBatchUpdateChapterProgressMutation,
+  useBatchPullChaptersMutation,
+  useBatchRefreshChaptersMutation,
+  useBatchDeleteChapterFilesMutation,
+  useBatchDeleteChaptersMutation,
 } from '../api/hooks';
 import { useToast } from '../context/ToastContext';
 import { Manga, UserStatus, Chapter, ProviderRef } from '../types/api';
@@ -98,6 +104,7 @@ export const DetailsPage: React.FC = () => {
   const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
   const [isImportMetadataOpen, setIsImportMetadataOpen] = useState(false);
   const [isProvidersCollapsed, setIsProvidersCollapsed] = useState(true);
+  const [optimisticPullIds, setOptimisticPullIds] = useState<Set<string>>(new Set());
 
   // 1. Fetch Library List to check if in Library
   const { data: libraryManga = [] } = useLibraryManga();
@@ -112,6 +119,20 @@ export const DetailsPage: React.FC = () => {
 
   const isInLibrary = Boolean(libraryEntry);
   const targetMangaId = libraryEntry?.id || params.mangaId || '';
+
+  // Query background jobs for the current manga
+  const { data: mangaJobs = [] } = useQuery({
+    ...jobsQueryOptions({ 'metadata.manga_id': targetMangaId, all: true }),
+    enabled: Boolean(targetMangaId && isInLibrary),
+  });
+
+  const activeJobChapterIds = useMemo(() => {
+    return mangaJobs
+      .filter((j) => j.type === 'pull_chapter' && (j.status === 'pending' || j.status === 'running') && j.metadata?.chapter_id)
+      .map((j) => j.metadata!.chapter_id);
+  }, [mangaJobs]);
+
+  const hasActivePullJobs = activeJobChapterIds.length > 0 || optimisticPullIds.size > 0;
 
   // 2. Fetch Manga Details (Remote vs Local)
   const { data: localDetailsManga, isLoading: isLocalMangaLoading } = useMangaDetails(targetMangaId, {
@@ -152,6 +173,7 @@ export const DetailsPage: React.FC = () => {
     isError: isLocalChaptersError,
   } = useChapterList(targetMangaId, {
     enabled: (!isRemoteRoute || isInLibrary) && Boolean(targetMangaId),
+    hasActivePullJobs,
   });
 
   const {
@@ -165,6 +187,28 @@ export const DetailsPage: React.FC = () => {
   const chaptersData = isRemoteRoute && !isInLibrary ? remoteChaptersData : localChaptersData;
   const isChaptersLoading = isRemoteRoute && !isInLibrary ? isRemoteChaptersLoading : isLocalChaptersLoading;
   const isChaptersError = isRemoteRoute && !isInLibrary ? isRemoteChaptersError : isLocalChaptersError;
+
+  // Cleanup optimistic pull IDs when chapter is downloaded or background job finishes
+  useEffect(() => {
+    setOptimisticPullIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of prev) {
+        const ch = chaptersData?.chapters?.find((c) => c.id === id);
+        const isDownloaded = Boolean(ch?.is_downloaded ?? (ch as any)?.isDownloaded ?? ch?.meta?.is_downloaded);
+        const job = mangaJobs.find(
+          (j) => j.type === 'pull_chapter' && j.metadata?.chapter_id === id
+        );
+        const isJobFinished = job && (job.status === 'completed' || job.status === 'failed');
+        if (isDownloaded || isJobFinished) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [chaptersData, mangaJobs]);
 
   // Mutations
   const addToLibraryMutation = useMutation({
@@ -196,11 +240,12 @@ export const DetailsPage: React.FC = () => {
   const refreshChaptersMutation = useMutation({
     mutationFn: () => {
       if (!targetMangaId) throw new Error('No manga ID');
-      return api.refreshMangaChapters(targetMangaId);
+      return api.refreshLibraryManga(targetMangaId);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.library.refresh(targetMangaId) });
       if (data.added === 0) {
         showToast('Up to date', 'success');
       } else {
@@ -214,12 +259,17 @@ export const DetailsPage: React.FC = () => {
   });
 
   const removeChapterMutation = useMutation({
-    mutationFn: (chapterId: string) => {
+    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
       if (!targetMangaId) throw new Error('No manga ID');
-      return api.deleteChapter(targetMangaId, chapterId);
+      return api.deleteChapter(targetMangaId, chapterId, providerId);
     },
-    onSuccess: () => {
+    onSuccess: (_, { providerId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
+        });
+      }
       showToast('Chapter removed from library', 'success');
     },
     onError: (err: any) => {
@@ -227,6 +277,59 @@ export const DetailsPage: React.FC = () => {
       showToast(`Remove failed: ${err.message || 'An error occurred'}`, 'error', detail);
     },
   });
+
+  const deleteChapterFilesMutation = useMutation({
+    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
+      if (!targetMangaId) throw new Error('No manga ID');
+      return api.deleteChapterFiles(targetMangaId, providerId, chapterId);
+    },
+    onSuccess: (_, { providerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
+        });
+      }
+      showToast('Files deleted (chapter entry preserved)', 'success');
+    },
+    onError: (err: any) => {
+      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+      showToast(`Delete files failed: ${err.message || 'An error occurred'}`, 'error', detail);
+    },
+  });
+
+  const pullChapterMutation = useMutation({
+    mutationFn: ({ chapterId, providerId }: { chapterId: string; providerId: string }) => {
+      if (!targetMangaId) throw new Error('No manga ID');
+      return api.pullChapter(targetMangaId, providerId, chapterId);
+    },
+    onSuccess: (_, { chapterId, providerId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.chapters.pages(chapterId, targetMangaId, providerId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (providerId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, providerId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+      showToast('Chapter pulled from provider', 'success');
+    },
+    onError: (err: any) => {
+      const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+      showToast(`Pull failed: ${err.message || 'An error occurred'}`, 'error', detail);
+    },
+  });
+
+  const handlePullChapter = (chapterId: string, providerId: string) => {
+    setOptimisticPullIds((prev) => {
+      const next = new Set(prev);
+      next.add(chapterId);
+      return next;
+    });
+    pullChapterMutation.mutate({ chapterId, providerId });
+  };
 
   const removeProviderMutation = useMutation({
     mutationFn: (provider: ProviderRef) => {
@@ -249,10 +352,16 @@ export const DetailsPage: React.FC = () => {
       if (!targetMangaId) throw new Error('No manga ID');
       return api.switchContentProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
     },
-    onSuccess: () => {
+    onSuccess: (_, { provider }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chapters.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(targetMangaId) });
+      if (provider?.provider_id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.chapters.providerList(targetMangaId, provider.provider_id),
+        });
+      }
       showToast('Switched content provider', 'success');
     },
     onError: (err: any) => {
@@ -260,6 +369,188 @@ export const DetailsPage: React.FC = () => {
       showToast(`Switch failed: ${err.message || 'An error occurred'}`, 'error', detail);
     },
   });
+
+  // Batch Mutations
+  const batchUpdateProgressMutation = useBatchUpdateChapterProgressMutation();
+  const batchPullMutation = useBatchPullChaptersMutation();
+  const batchRefreshChaptersMutation = useBatchRefreshChaptersMutation();
+  const batchDeleteFilesMutation = useBatchDeleteChapterFilesMutation();
+  const batchDeleteChaptersMutation = useBatchDeleteChaptersMutation();
+
+  const handleBatchUpdateProgress = (chapterIds: string[], progress: { is_read?: boolean; last_read_page?: number }) => {
+    if (!targetMangaId || !activeContentProviderId) return;
+    batchUpdateProgressMutation.mutate(
+      {
+        mangaId: targetMangaId,
+        providerId: activeContentProviderId,
+        chapterIds,
+        progress,
+      },
+      {
+        onSuccess: (data) => {
+          const count = data?.updated ?? chapterIds.length;
+          showToast(
+            progress.is_read
+              ? `Marked ${count} chapter(s) as read`
+              : `Marked ${count} chapter(s) as unread`,
+            'success'
+          );
+        },
+        onError: (err: any) => {
+          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+          showToast(`Failed to update chapter progress: ${err.message || 'An error occurred'}`, 'error', detail);
+        },
+      }
+    );
+  };
+
+  const handleBatchPull = (chapterIds: string[]) => {
+    if (!targetMangaId || !activeContentProviderId) return;
+    setOptimisticPullIds((prev) => {
+      const next = new Set(prev);
+      chapterIds.forEach((id) => next.add(id));
+      return next;
+    });
+    batchPullMutation.mutate(
+      {
+        mangaId: targetMangaId,
+        providerId: activeContentProviderId,
+        chapterIds,
+      },
+      {
+        onSuccess: (data) => {
+          const count = data?.chapter_count ?? chapterIds.length;
+          queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+          showToast(`Pull enqueued for ${count} chapter(s)`, 'success');
+        },
+        onError: (err: any) => {
+          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+          showToast(`Failed to pull chapters: ${err.message || 'An error occurred'}`, 'error', detail);
+        },
+      }
+    );
+  };
+
+  const handleBatchRefresh = (chapterIds: string[]) => {
+    if (!targetMangaId || !activeContentProviderId) return;
+    batchRefreshChaptersMutation.mutate(
+      {
+        mangaId: targetMangaId,
+        providerId: activeContentProviderId,
+        chapterIds,
+      },
+      {
+        onSuccess: (data) => {
+          const count = data?.refreshed || chapterIds.length;
+          showToast(`Refreshed metadata for ${count} chapter(s)`, 'success');
+        },
+        onError: (err: any) => {
+          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+          showToast(`Failed to refresh chapter metadata: ${err.message || 'An error occurred'}`, 'error', detail);
+        },
+      }
+    );
+  };
+
+  const handleBatchDeleteFiles = (chapterIds: string[]) => {
+    if (!targetMangaId || !activeContentProviderId) return;
+    batchDeleteFilesMutation.mutate(
+      {
+        mangaId: targetMangaId,
+        providerId: activeContentProviderId,
+        chapterIds,
+      },
+      {
+        onSuccess: (data) => {
+          const count = data?.deleted ?? chapterIds.length;
+          showToast(`Deleted files for ${count} chapter(s)`, 'success');
+        },
+        onError: (err: any) => {
+          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+          showToast(`Failed to delete files: ${err.message || 'An error occurred'}`, 'error', detail);
+        },
+      }
+    );
+  };
+
+  const handleBatchRemove = (chapterIds: string[]) => {
+    if (!targetMangaId || !activeContentProviderId) return;
+    batchDeleteChaptersMutation.mutate(
+      {
+        mangaId: targetMangaId,
+        providerId: activeContentProviderId,
+        chapterIds,
+      },
+      {
+        onSuccess: (data) => {
+          const count = data?.removed ?? chapterIds.length;
+          showToast(`Removed ${count} chapter(s) from library`, 'success');
+        },
+        onError: (err: any) => {
+          const detail = err.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2)) : (err.stack || String(err));
+          showToast(`Failed to remove chapters: ${err.message || 'An error occurred'}`, 'error', detail);
+        },
+      }
+    );
+  };
+
+  const pullingChapterIds = useMemo(() => {
+    const set = new Set<string>(activeJobChapterIds);
+    optimisticPullIds.forEach((id) => {
+      const ch = chaptersData?.chapters?.find((c) => c.id === id);
+      const isDownloaded = Boolean(ch?.is_downloaded ?? (ch as any)?.isDownloaded ?? ch?.meta?.is_downloaded);
+      if (!isDownloaded) {
+        set.add(id);
+      }
+    });
+    if (pullChapterMutation.isPending && pullChapterMutation.variables?.chapterId) {
+      set.add(pullChapterMutation.variables.chapterId);
+    }
+    if (batchPullMutation.isPending && batchPullMutation.variables?.chapterIds) {
+      batchPullMutation.variables.chapterIds.forEach((id) => set.add(id));
+    }
+    return Array.from(set);
+  }, [
+    activeJobChapterIds,
+    optimisticPullIds,
+    chaptersData,
+    pullChapterMutation.isPending,
+    pullChapterMutation.variables,
+    batchPullMutation.isPending,
+    batchPullMutation.variables,
+  ]);
+
+  const deletingFilesChapterIds = useMemo(() => {
+    const ids: string[] = [];
+    if (deleteChapterFilesMutation.isPending && deleteChapterFilesMutation.variables?.chapterId) {
+      ids.push(deleteChapterFilesMutation.variables.chapterId);
+    }
+    if (batchDeleteFilesMutation.isPending && batchDeleteFilesMutation.variables?.chapterIds) {
+      ids.push(...batchDeleteFilesMutation.variables.chapterIds);
+    }
+    return ids;
+  }, [
+    deleteChapterFilesMutation.isPending,
+    deleteChapterFilesMutation.variables,
+    batchDeleteFilesMutation.isPending,
+    batchDeleteFilesMutation.variables,
+  ]);
+
+  const removingChapterIds = useMemo(() => {
+    const ids: string[] = [];
+    if (removeChapterMutation.isPending && removeChapterMutation.variables?.chapterId) {
+      ids.push(removeChapterMutation.variables.chapterId);
+    }
+    if (batchDeleteChaptersMutation.isPending && batchDeleteChaptersMutation.variables?.chapterIds) {
+      ids.push(...batchDeleteChaptersMutation.variables.chapterIds);
+    }
+    return ids;
+  }, [
+    removeChapterMutation.isPending,
+    removeChapterMutation.variables,
+    batchDeleteChaptersMutation.isPending,
+    batchDeleteChaptersMutation.variables,
+  ]);
 
   const handleUserMetadataChange = (updatedFields: Partial<Manga>) => {
     if (!targetMangaId) return;
@@ -905,7 +1196,7 @@ export const DetailsPage: React.FC = () => {
                     }
                   }}
                   onSwitchTo={(provider) => {
-                    if (confirm('Switching content provider will discard cached chapters and reading progress for this manga. Continue?')) {
+                    if (confirm(`Switch the default content provider to "${provider.manga_title || provider.provider_id}"? Chapters from the previous provider remain accessible — nothing is deleted.`)) {
                       switchToMutation.mutate({ provider });
                     }
                   }}
@@ -944,7 +1235,25 @@ export const DetailsPage: React.FC = () => {
           isInLibrary={isInLibrary}
           onRefreshChapters={isInLibrary ? () => refreshChaptersMutation.mutate() : undefined}
           isRefreshing={refreshChaptersMutation.isPending}
-          onRemoveChapter={isInLibrary ? (chId) => removeChapterMutation.mutate(chId) : undefined}
+          onRemoveChapter={isInLibrary ? (chId, providerId) => providerId && removeChapterMutation.mutate({ chapterId: chId, providerId }) : undefined}
+          onDeleteFiles={isInLibrary ? (chId, providerId) => deleteChapterFilesMutation.mutate({ chapterId: chId, providerId }) : undefined}
+          onPullChapter={isInLibrary ? handlePullChapter : undefined}
+          isDeletingFiles={deleteChapterFilesMutation.isPending}
+          isPullingChapter={pullChapterMutation.isPending}
+          isRemovingChapter={removeChapterMutation.isPending}
+          pullingChapterIds={pullingChapterIds}
+          deletingFilesChapterIds={deletingFilesChapterIds}
+          removingChapterIds={removingChapterIds}
+          onBatchUpdateProgress={isInLibrary && activeContentProviderId ? handleBatchUpdateProgress : undefined}
+          isBatchUpdatingProgress={batchUpdateProgressMutation.isPending}
+          onBatchPull={isInLibrary && activeContentProviderId ? handleBatchPull : undefined}
+          isBatchPulling={batchPullMutation.isPending}
+          onBatchRefresh={isInLibrary && activeContentProviderId ? handleBatchRefresh : undefined}
+          isBatchRefreshing={batchRefreshChaptersMutation.isPending}
+          onBatchDeleteFiles={isInLibrary && activeContentProviderId ? handleBatchDeleteFiles : undefined}
+          isBatchDeletingFiles={batchDeleteFilesMutation.isPending}
+          onBatchRemove={isInLibrary && activeContentProviderId ? handleBatchRemove : undefined}
+          isBatchRemoving={batchDeleteChaptersMutation.isPending}
         />
       )}
 

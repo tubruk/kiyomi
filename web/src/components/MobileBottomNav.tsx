@@ -9,7 +9,10 @@ export const MobileBottomNav: React.FC = () => {
   if (isReaderPage) return null;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-border bg-background/95 backdrop-blur-md md:hidden">
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-border bg-background/95 backdrop-blur-md md:hidden"
+      aria-label="Mobile navigation"
+    >
       <Link
         to="/"
         activeOptions={{ exact: true }}
@@ -39,7 +42,8 @@ export const MobileBottomNav: React.FC = () => {
       </Link>
 
       <Link
-        to="/settings/plugins"
+        to="/settings/$tab"
+        params={{ tab: 'plugins' }}
         activeOptions={{ exact: false }}
         activeProps={{
           className: 'flex flex-col items-center justify-center gap-1 text-xs font-medium transition-colors text-primary',

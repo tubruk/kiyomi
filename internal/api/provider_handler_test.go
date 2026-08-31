@@ -543,7 +543,7 @@ func TestProviderHandler_EchoErrorLogger_PropagatesHandlerError(t *testing.T) {
 		}
 	})
 
-	t.Run("502 provider failure logs handler_error in EchoErrorLogger", func(t *testing.T) {
+	t.Run("502 provider failure logs provider request failed and suppresses EchoErrorLogger duplicate", func(t *testing.T) {
 		buf.Reset()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/failprovider/popular", nil)
 		rec := httptest.NewRecorder()
@@ -554,16 +554,51 @@ func TestProviderHandler_EchoErrorLogger_PropagatesHandlerError(t *testing.T) {
 		}
 
 		out := buf.String()
-		if !strings.Contains(out, "HTTP request error") {
-			t.Errorf("expected 'HTTP request error' in log, got: %s", out)
+		if !strings.Contains(out, "provider request failed") {
+			t.Errorf("expected 'provider request failed' in log, got: %s", out)
+		}
+		if !strings.Contains(out, "provider_id=failprovider") {
+			t.Errorf("expected provider_id=failprovider in log, got: %s", out)
 		}
 		if !strings.Contains(out, "status=502") {
 			t.Errorf("expected status=502 in log, got: %s", out)
 		}
-		if !strings.Contains(out, "error=") {
-			t.Errorf("expected error attribute in log, got: %s", out)
+		if strings.Contains(out, "HTTP request error") {
+			t.Errorf("expected EchoErrorLogger duplicate 'HTTP request error' to be suppressed, got: %s", out)
 		}
 	})
+}
+
+func TestImportProviderManga_Validation(t *testing.T) {
+	_, e := setupTestHandler(t)
+
+	tests := []struct {
+		name       string
+		providerID string
+		remoteID   string
+	}{
+		{"empty provider_id", "", "remote-1"},
+		{"empty remote_id", "prov-1", ""},
+		{"both empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := map[string]string{
+				"provider_id": tt.providerID,
+				"remote_id":   tt.remoteID,
+			}
+			bodyBytes, _ := json.Marshal(body)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/import", bytes.NewReader(bodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 Bad Request, got %d", rec.Code)
+			}
+		})
+	}
 }
 
 func TestImportProviderManga_ConcurrentBatch(t *testing.T) {

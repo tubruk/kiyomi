@@ -149,7 +149,7 @@ func (w *PluginWatcher) buildPlugin(ctx context.Context, pluginName string) bool
 
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", outPath, ".")
 	cmd.Dir = pluginSrcPath
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

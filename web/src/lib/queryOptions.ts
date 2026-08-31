@@ -66,7 +66,7 @@ export const collisionsQueryOptions = () =>
 
 export const infoQueryOptions = () =>
   queryOptions({
-    queryKey: queryKeys.info,
+    queryKey: queryKeys.info.all,
     queryFn: () => api.getInfo(),
     staleTime: Infinity, // build info never changes at runtime
   });
@@ -75,4 +75,19 @@ export const cacheStatsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.system.cache,
     queryFn: api.getCacheStats,
+  });
+
+export const jobsQueryOptions = (filter?: any) =>
+  queryOptions({
+    queryKey: queryKeys.jobs.list(filter),
+    queryFn: () => api.getJobs(filter),
+    staleTime: 0,
+    gcTime: 1000 * 60 * 2,
+    refetchInterval: (query) => {
+      const jobs = query.state.data;
+      if (Array.isArray(jobs) && jobs.some((job) => job.status === 'running' || job.status === 'pending')) {
+        return 3000;
+      }
+      return false;
+    },
   });

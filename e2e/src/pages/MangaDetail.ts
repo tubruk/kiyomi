@@ -12,13 +12,13 @@ export class MangaDetailPage {
     return await this.page.locator('[data-testid="chapter-item"], .chapter-item, [class*="chapter"]').all();
   }
 
-  async downloadChapter(chapterNumber: number): Promise<void> {
+  async pullChapter(chapterNumber: number): Promise<void> {
     const chapterItem = this.page.locator(`[data-testid="chapter-item"], .chapter-item, [class*="chapter"]`).filter({
       hasText: new RegExp(`^(ch\\.?|chapter\\s*)?${chapterNumber}`, 'i'),
     }).first();
 
-    const downloadBtn = chapterItem.locator('button:has-text("Download"), [aria-label*="download" i]').first();
-    await downloadBtn.click();
+    const pullBtn = chapterItem.locator('button:has-text("Pull"), [aria-label*="pull" i]').first();
+    await pullBtn.click();
     await this.page.waitForTimeout(500);
   }
 

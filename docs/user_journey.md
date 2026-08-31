@@ -10,7 +10,7 @@
 
 **Providers are services, not landlords.** A manga lives in your library even if its provider goes down. You can switch to a different provider for the same manga later.
 
-**On-Demand Caching (Stream-First).** Pages are loaded directly from the provider when you read, and cached transiently. Offline downloading is low priority and postponed.
+**On-Demand Caching (Stream-First).** Pages are loaded directly from the provider when you read, and cached transiently. Offline pulling is low priority and postponed.
 
 ---
 
@@ -20,13 +20,13 @@
 |---|---|---|---|
 | 1 | Add manga to library | "I want to read X" | High |
 | 2 | Read manga | "Time to read" | High |
-| 3 | Download chapters | "Save for offline / better reading" | Postponed |
-| 4 | Download entire manga | "I want to keep this forever" | Postponed |
+| 3 | Pull chapters | "Save for offline / better reading" | Postponed |
+| 4 | Pull entire manga | "I want to keep this forever" | Postponed |
 | 5 | Organize | "Sort my library" | Medium |
 | 6 | Discover | "Show me something new to read" | High |
 | 7 | Switch provider | "This source is gone" | Medium |
 | 8 | Handle orphans | "Something disappeared from the source" | Low |
-| 9 | Refresh chapter list | "New chapters came out" | High |
+| 9 | Sync chapter list | "New chapters came out" | High |
 | 10 | Library manga details | "Inspect manga metadata and chapters" | High |
 
 ---
@@ -72,7 +72,7 @@ library/<manga_id>/
 **Flow:**
 
 1. User clicks manga card → Chapter list view
-2. Each chapter shows: title, number, download state icon
+2. Each chapter shows: title, number, pull state icon
    - Green dot = all pages on disk
    - Yellow dot = some pages in cache
    - No dot = pages on provider
@@ -84,7 +84,7 @@ library/<manga_id>/
 5. Per-page source shown in reader UI:
    - Disk pages: no action
    - Cache pages: "Save to library" button
-   - Provider pages: "Download" button
+   - Provider pages: "Pull (to library)" button
 6. User navigates pages → progress saved (debounced, 2s)
 7. User closes chapter → progress persisted, last page position remembered
 
@@ -104,7 +104,7 @@ library/<manga_id>/
 
 ---
 
-## Journey 3 — Download Chapters
+## Journey 3 — Pull Chapters
 
 **Trigger:** User wants chapters available offline for a flight, commute, or just to avoid provider slowdowns.
 
@@ -116,45 +116,45 @@ library/<manga_id>/
    - "Select this and above" / "Select this and below" helpers
    - "Select all downloaded" / "Select all undownloaded"
    - Clear selection
-3. User clicks action (Download, Mark read, Delete download) → chapters queued
+3. User clicks action (Pull, Mark read, Delete files) → chapters queued
 4. Background worker fetches each page, writes to `library/<manga_id>/<chapter_id>/NNN.ext`
 5. Progress visible per chapter (e.g., "12/24 pages")
 6. On completion: `meta.json` updated, `is_downloaded=1` in DB
 
-**What the user can download:**
+**What the user can pull:**
 - Single chapter
 - Range of chapters ("chapters 10–20")
 - All unread chapters
 - All chapters
 
-**Downloaded chapters show green dot in chapter list.**
+**Pulled chapters show green dot in chapter list.**
 
-**Cancellable:** User can cancel a download job mid-flight. Partial pages left on disk are cleaned up.
+**Cancellable:** User can cancel a pull job mid-flight. Partial pages left on disk are cleaned up.
 
-**Retry:** Failed page downloads go to DLQ after max attempts. User can retry individually or re-trigger chapter download.
+**Retry:** Failed page pulls go to DLQ after max attempts. User can retry individually or re-trigger chapter pull.
 
 **Edge cases:**
-- Disk full → download pauses, user notified, can free space and resume
+- Disk full → pull pauses, user notified, can free space and resume
 - Network drops → job retries on reconnect
 - Provider rate-limits → per-provider concurrency enforced, queue waits
 
 ---
 
-## Journey 4 — Download Entire Manga (Archive)
+## Journey 4 — Pull Entire Manga (Archive)
 
 **Trigger:** User loved the manga, wants it permanently offline for rereading.
 
 **Flow:**
 
 1. User opens manga detail
-2. User clicks "Download All" → confirms
-3. All chapters queued as download jobs (one page = one job)
+2. User clicks "Pull All" → confirms
+3. All chapters queued as pull jobs (one page = one job)
 4. Progress aggregated at manga level
 5. On completion: entire manga on disk, green dots on all chapters
 
-**"Download All" vs "Download Chapters":** Same mechanism, different scope. Download All is a bulk action.
+**"Pull All" vs "Pull Chapters":** Same mechanism, different scope. Pull All is a bulk action.
 
-**No automatic re-download of already-downloaded chapters.** If user re-triggers "Download All," existing pages are skipped (idempotent). Only missing pages are fetched.
+**No automatic re-pull of already-pulled chapters.** If user re-triggers "Pull All," existing pages are skipped (idempotent). Only missing pages are fetched.
 
 ---
 
@@ -198,7 +198,7 @@ User can add or remove tags. Tags are not owned by the user — they reflect wha
 ### Filtering & Sorting
 
 Library view supports:
-- Filter by: status, collection, tag, download state, provider
+- Filter by: status, collection, tag, pull state, provider
 - Sort by: title, last read, date added, last updated
 
 ---
@@ -221,7 +221,7 @@ Library view supports:
    - **Add to Library** → adds manga, keeps status unset
 7. Manga added, chapter list fetched (Journey 1)
 
-**"Add to library" does not download chapters.** User must explicitly download to read offline.
+**"Add to library" does not pull chapters.** User must explicitly pull to read offline.
 
 **Explore vs Library:** Explore pulls from providers. Library is the user's owned collection.
 
@@ -280,14 +280,14 @@ Library view supports:
 
 ---
 
-## Journey 9 — Refresh Chapter List
+## Journey 9 — Sync Chapter List
 
 **Trigger:** User wants latest chapter list from provider ("new chapters came out").
 
 **Flow:**
 
 1. User opens manga detail or chapter list
-2. User clicks "Refresh"
+2. User clicks "Sync"
 3. Kiyomi fetches chapter list from current provider
 4. Kiyomi merges with local state:
    - New chapters → added
@@ -295,9 +295,9 @@ Library view supports:
    - Updated metadata (title, number) → synced
 5. UI updates to show new state
 
-**Refresh is manual only.** No background auto-refresh in v1.
+**Sync is manual only.** No background auto-sync in v1.
 
-**First add includes a refresh** — when user adds manga, Kiyomi fetches chapter list automatically. Subsequent refreshes are user-triggered.
+**First add includes a sync** — when user adds manga, Kiyomi fetches chapter list automatically. Subsequent syncs are user-triggered.
 
 **Edge cases:**
 - Provider returns 0 chapters → error surfaced, local state untouched, user can retry
@@ -344,7 +344,7 @@ Scan is incremental by default (mtime check on `meta.json`). Full scan available
 
 ### Cache Eviction
 
-Cache pages expire by TTL (default 7 days). When a chapter is downloaded to library, its cached pages are invalidated.
+Cache pages expire by TTL (default 7 days). When a chapter is pulled to library, its cached pages are invalidated.
 
 Cache does not corrupt library data. Library files are never evicted.
 

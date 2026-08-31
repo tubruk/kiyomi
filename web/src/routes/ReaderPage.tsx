@@ -19,7 +19,7 @@ import { ReaderHint } from '../components/ReaderHint';
 import { CompletionPromptDialog } from '../components/CompletionPromptDialog';
 import { useReadingHint } from '../hooks/useReadingHint';
 import { useReaderFitMode } from '../hooks/useReaderFitMode';
-import { getProxyImageUrl, formatChapterTitleWithPage } from '../lib/utils';
+import { getProxyImageUrl, getPageImageUrl, formatChapterTitleWithPage } from '../lib/utils';
 import { Chapter } from '../types/api';
 
 interface ReaderSearch {
@@ -123,6 +123,7 @@ export const ReaderPage: React.FC = () => {
     enabled: Boolean(!effectiveMangaId && providerId && remoteId),
   });
   const manga = effectiveMangaId ? localManga : remoteManga;
+  const chapterProviderId = manga?.contentProviderId || manga?.meta?.content?.provider_id || providerId || '';
 
   // Fetch chapter pages
   const {
@@ -131,7 +132,7 @@ export const ReaderPage: React.FC = () => {
     isError: isPagesError,
   } = useChapterPages(chapterId, {
     mangaId: effectiveMangaId || remoteId || undefined,
-    providerId: manga?.contentProviderId || manga?.meta?.content?.provider_id || providerId,
+    providerId: chapterProviderId || undefined,
     enabled: Boolean(chapterId),
   });
 
@@ -241,6 +242,7 @@ export const ReaderPage: React.FC = () => {
   const isChapterRead = Boolean(currentChapter?.meta?.is_read ?? (currentChapter as any)?.is_read);
   const chapterLastReadPage = currentChapter?.meta?.last_read_page ?? (currentChapter as any)?.last_read_page ?? 0;
 
+  const activeChapterIdRef = useRef<string | null>(null);
   const hasMarkedRead = useRef(false);
   const hasResumed = useRef(false);
   const hasDismissedCompletion = useRef(false);
@@ -255,20 +257,23 @@ export const ReaderPage: React.FC = () => {
 
   // Reset chapter tracking state on chapter switch
   useEffect(() => {
-    hasMarkedRead.current = isChapterRead;
-    hasResumed.current = false;
-    hasDismissedCompletion.current = false;
-    lastReportedPage.current = 1;
-    setDragOffset(0);
-    setIsDragging(false);
-    setIsAnimating(false);
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
+    if (activeChapterIdRef.current !== chapterId) {
+      activeChapterIdRef.current = chapterId;
+      hasMarkedRead.current = isChapterRead;
+      hasResumed.current = false;
+      hasDismissedCompletion.current = false;
+      lastReportedPage.current = 1;
+      setDragOffset(0);
+      setIsDragging(false);
+      setIsAnimating(false);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      if (animTimeoutRef.current) {
+        clearTimeout(animTimeoutRef.current);
+      }
     }
-    if (animTimeoutRef.current) {
-      clearTimeout(animTimeoutRef.current);
-    }
-  }, [chapterId, isChapterRead]);
+  }, [chapterId]);
 
 
   // Restore initial reading position to last_read_page or requested target page when loading a chapter
@@ -327,6 +332,7 @@ export const ReaderPage: React.FC = () => {
         updateProgressMutation.mutate({
           mangaId: effectiveMangaId,
           chapterId,
+          providerId: chapterProviderId,
           progress: { is_read: true, last_read_page: currentPage },
         });
 
@@ -353,6 +359,7 @@ export const ReaderPage: React.FC = () => {
       updateProgressMutation.mutate({
         mangaId: effectiveMangaId,
         chapterId,
+        providerId: chapterProviderId,
         progress: { last_read_page: currentPage },
       });
     }, 1500);
@@ -402,13 +409,14 @@ export const ReaderPage: React.FC = () => {
       updateProgressMutation.mutate({
         mangaId: effectiveMangaId,
         chapterId,
+        providerId: chapterProviderId,
         progress: { is_read: true },
       });
     }
     if (hasNextChapter && nextChapter) {
       handleSelectChapter(nextChapter.id);
     }
-  }, [effectiveMangaId, chapterId, hasNextChapter, nextChapter, handleSelectChapter, updateProgressMutation]);
+  }, [effectiveMangaId, chapterId, hasNextChapter, nextChapter, handleSelectChapter, updateProgressMutation, chapterProviderId]);
 
   // Directional Paged Navigation Handlers
   const goToNextPage = useCallback(() => {
@@ -435,6 +443,7 @@ export const ReaderPage: React.FC = () => {
         updateProgressMutation.mutate({
           mangaId: effectiveMangaId,
           chapterId,
+          providerId: chapterProviderId,
           progress: { is_read: true, last_read_page: pages.length },
         });
       }
@@ -511,21 +520,21 @@ export const ReaderPage: React.FC = () => {
     if (nextIdx < pages.length) {
       const nextImg = new Image();
       const p = pages[nextIdx];
-      nextImg.src = p.assetUrl || getProxyImageUrl(p.url, manga?.url);
+      nextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
     }
     const nextNextIdx = currentPage + 1; // 0-indexed index for currentPage + 2
     if (nextNextIdx < pages.length) {
       const nextNextImg = new Image();
       const p = pages[nextNextIdx];
-      nextNextImg.src = p.assetUrl || getProxyImageUrl(p.url, manga?.url);
+      nextNextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
     }
     const prevIdx = currentPage - 2; // 0-indexed index for currentPage - 1
     if (prevIdx >= 0) {
       const prevImg = new Image();
       const p = pages[prevIdx];
-      prevImg.src = p.assetUrl || getProxyImageUrl(p.url, manga?.url);
+      prevImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
     }
-  }, [currentPage, isPaged, pages, manga?.url]);
+  }, [currentPage, isPaged, pages, effectiveMangaId, chapterId, chapterProviderId, manga?.url]);
 
   // Keyboard navigation for Paged mode
   useEffect(() => {
@@ -725,14 +734,21 @@ export const ReaderPage: React.FC = () => {
   const handleReadingModeChange = (mode: string) => {
     dismissReadingHint();
     if (effectiveMangaId) {
-      updateLibraryMangaMutation.mutate({
-        mangaId: effectiveMangaId,
-        fields: {
-          reading_mode: mode,
-          readingDirection: mode,
-          content: { reading_mode: mode },
+      updateLibraryMangaMutation.mutate(
+        {
+          mangaId: effectiveMangaId,
+          fields: {
+            reading_mode: mode,
+            readingDirection: mode,
+            content: { reading_mode: mode },
+          },
         },
-      });
+        {
+          onError: (err: any) => {
+            showToast(err?.message || 'Failed to update reading mode', 'error');
+          },
+        }
+      );
     }
   };
 
@@ -752,13 +768,14 @@ export const ReaderPage: React.FC = () => {
         return (
           <img
             key={`page-${currentPage - 1}`}
-            src={prevPageData.assetUrl || getProxyImageUrl(prevPageData.url, manga?.url)}
+            src={getPageImageUrl(prevPageData, effectiveMangaId, chapterId, chapterProviderId, manga?.url)}
             alt={`Page ${currentPage - 1}`}
             className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
             draggable={false}
             onError={(e) => {
-              if (prevPageData.url && e.currentTarget.src !== prevPageData.url) {
-                e.currentTarget.src = prevPageData.url;
+              const fallbackUrl = getProxyImageUrl(prevPageData.url, manga?.url);
+              if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
+                e.currentTarget.src = fallbackUrl;
               }
             }}
           />
@@ -778,13 +795,14 @@ export const ReaderPage: React.FC = () => {
         return (
           <img
             key={`page-${currentPage + 1}`}
-            src={nextPageData.assetUrl || getProxyImageUrl(nextPageData.url, manga?.url)}
+            src={getPageImageUrl(nextPageData, effectiveMangaId, chapterId, chapterProviderId, manga?.url)}
             alt={`Page ${currentPage + 1}`}
             className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
             draggable={false}
             onError={(e) => {
-              if (nextPageData.url && e.currentTarget.src !== nextPageData.url) {
-                e.currentTarget.src = nextPageData.url;
+              const fallbackUrl = getProxyImageUrl(nextPageData.url, manga?.url);
+              if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
+                e.currentTarget.src = fallbackUrl;
               }
             }}
           />
@@ -804,13 +822,14 @@ export const ReaderPage: React.FC = () => {
   const centerSlotContent = currentPageData ? (
     <img
       key={`page-${currentPage}`}
-      src={currentPageData.assetUrl || getProxyImageUrl(currentPageData.url, manga?.url)}
+      src={getPageImageUrl(currentPageData, effectiveMangaId, chapterId, chapterProviderId, manga?.url)}
       alt={`Page ${currentPage}`}
       className={getFitModeClasses('rounded-sm shadow-md select-none pointer-events-none')}
       draggable={false}
       onError={(e) => {
-        if (currentPageData.url && e.currentTarget.src !== currentPageData.url) {
-          e.currentTarget.src = currentPageData.url;
+        const fallbackUrl = getProxyImageUrl(currentPageData.url, manga?.url);
+        if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
+          e.currentTarget.src = fallbackUrl;
         }
       }}
     />
@@ -1012,7 +1031,7 @@ export const ReaderPage: React.FC = () => {
             {pages.map((p) => {
               const originalIndex = p.index;
               const pageNum = originalIndex + 1;
-              const imgSrc = p.assetUrl || getProxyImageUrl(p.url, manga?.url);
+              const imgSrc = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
 
               if (readingMode === 'longstrip') {
                 return (
@@ -1027,8 +1046,9 @@ export const ReaderPage: React.FC = () => {
                       className={getFitModeClasses('block transition-opacity duration-300 min-h-[100px]')}
                       loading="lazy"
                       onError={(e) => {
-                        if (p.url && e.currentTarget.src !== p.url) {
-                          e.currentTarget.src = p.url;
+                        const fallbackUrl = getProxyImageUrl(p.url, manga?.url);
+                        if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
+                          e.currentTarget.src = fallbackUrl;
                         }
                       }}
                     />
@@ -1048,8 +1068,9 @@ export const ReaderPage: React.FC = () => {
                     className={getFitModeClasses('rounded-sm shadow-md transition-opacity duration-300 min-h-[300px]')}
                     loading="lazy"
                     onError={(e) => {
-                      if (p.url && e.currentTarget.src !== p.url) {
-                        e.currentTarget.src = p.url;
+                      const fallbackUrl = getProxyImageUrl(p.url, manga?.url);
+                      if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
+                        e.currentTarget.src = fallbackUrl;
                       }
                     }}
                   />

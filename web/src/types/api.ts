@@ -117,9 +117,13 @@ export interface ChapterMeta {
   page_count?: number;
   page_format?: string;
   downloaded_at?: string;
+  downloaded_pages?: number;
+  is_downloaded?: boolean;
   is_read?: boolean;
   last_read_page?: number;
   last_read_at?: string;
+  orphaned?: boolean;
+  provider_id?: string;
 }
 
 export interface Chapter {
@@ -140,6 +144,17 @@ export interface Chapter {
   lastReadPage?: number;
   last_read_at?: string;
   lastReadAt?: string;
+  provider_id?: string;
+  providerId?: string;
+  orphaned?: boolean;
+  is_downloaded?: boolean;
+  isDownloaded?: boolean;
+  downloaded_pages?: number;
+  downloadedPages?: number;
+  downloaded_at?: string;
+  downloadedAt?: string;
+  page_count?: number;
+  pageCount?: number;
 }
 
 export interface Page {
@@ -243,3 +258,23 @@ export interface CacheStats {
   size_bytes: number;
   item_count: number;
 }
+
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
+export interface Job {
+  id: string;
+  parent_id?: string | null;
+  type: string;
+  payload?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  retries: number;
+  max_retries: number;
+  concurrency_group?: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  completed_at?: string;
+  metadata?: Record<string, string>;
+  child_count?: number;
+}
+
