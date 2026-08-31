@@ -5,10 +5,10 @@ WORKDIR /app
 # Copy root configurations and lockfile
 COPY package.json bun.lock ./
 # Copy web app files
-COPY web/package.json web/bun.lock ./web/
+COPY web/package.json ./web/
 
-# Install dependencies
-RUN bun install --frozen-lockfile && cd web && bun install --frozen-lockfile
+# Install dependencies across workspaces
+RUN bun install --frozen-lockfile
 
 # Copy web source code
 COPY web/ ./web/
