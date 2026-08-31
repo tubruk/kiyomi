@@ -1,36 +1,42 @@
 ---
 name: kiyomi-provider
-description: Guidelines, architectures, interfaces, and testing practices for developing metadata, content, and tracking providers (extensions) in Kiyomi.
+description: Guidelines, architectures, interfaces, and testing practices for developing metadata, content, and tracking providers (plugins) in Kiyomi.
 ---
 
-# Kiyomi Provider / Extension Development Skill
+# Kiyomi Provider / Plugin Development Skill
 
-This skill defines the operational standards, interface specifications, utility helper usage, and testing methodologies for building metadata, content, and tracking providers (extensions) in the Kiyomi project.
+This skill defines the operational standards, interface specifications, utility helper usage, and testing methodologies for building metadata, content, and tracking provider plugins in the Kiyomi project.
 
 ---
 
-## 1. Provider Capabilities & Interfaces
+## 1. Architecture Overview
 
-All Kiyomi providers live in `pkg/provider/` and implement capability interfaces defined in [`pkg/provider/sdk/capabilities.go`](./pkg/provider/sdk/capabilities.go).
+Kiyomi providers are decoupled, out-of-process Go plugin binaries built with HashiCorp `go-plugin` and gRPC over standard I/O:
+- **Location**: Standalone plugins live under `plugins/<plugin_id>/` as separate Go modules (e.g. `plugins/mangadex`, `plugins/mangafox`, `plugins/myanimelist`).
+- **SDK**: All plugins import and build against `github.com/tubruk/kiyomi/plugin-sdk`.
+- **Workspace Integration**: Every plugin module MUST be declared in the repository root `go.work` file.
+- **Host Discovery**: The Kiyomi server discovers and manages plugin subprocesses from `dev-plugins/` (or configured `KIYOMI_PLUGIN_DIR`) via its internal `PluginManager`.
 
-Every provider MUST implement the base `sdk.Provider` interface:
+---
+
+## 2. Plugin Interfaces & Capabilities
+
+Each plugin is an executable that implements the base `sdk.Plugin` lifecycle interface, along with one or more provider capability interfaces defined in [`plugin-sdk/provider.go`](./plugin-sdk/provider.go).
+
+### 2.1 Base `sdk.Plugin` Lifecycle
 ```go
-type Provider interface {
-	ID() string
-	Name() string
-	Icon() string
-	Capabilities() []string
-	ConfigKeys() []ConfigKeySpec
-	RequiresAuth() bool
-	State() ProviderState
+type Plugin interface {
+	Describe(ctx context.Context) (PluginDescriptor, error)
+	Init(ctx context.Context, config PluginConfig) error
 }
 ```
+* **`Describe`**: Returns self-describing metadata: `PluginID`, `PluginName`, `PluginVersion`, `SDKVersion`, configuration schemas (`SettingSpec`), and advertised `Providers` with their capabilities (`"metadata"`, `"content"`, `"tracking"`).
+* **`Init`**: Receives host-provided configurations, HTTP parameters (proxy, DNS resolvers, user agent, timeout), and provider-specific settings.
 
-### 1.1 `sdk.Metadata` Capability
-Supplies series search, details, cover art, and title aliases:
+### 2.2 `sdk.MetadataProvider` Capability
+Supplies series discovery, details, cover art, and title aliases:
 ```go
-type Metadata interface {
-	Provider
+type MetadataProvider interface {
 	Search(ctx context.Context, query string, opts SearchOptions) ([]SearchResult, error)
 	Details(ctx context.Context, remoteID string) (MangaMetadata, error)
 	Cover(ctx context.Context, remoteID string, size ImageSize) (ImageRef, error)
@@ -38,11 +44,10 @@ type Metadata interface {
 }
 ```
 
-### 1.2 `sdk.Content` Capability
+### 2.3 `sdk.ContentProvider` Capability
 Supplies chapter lists, page lists, and page image streams:
 ```go
-type Content interface {
-	Provider
+type ContentProvider interface {
 	HasStableChapterID() bool
 	FetchChapters(ctx context.Context, mangaRef string) ([]Chapter, error)
 	FetchPages(ctx context.Context, mangaRef, chapterRef string) ([]Page, error)
@@ -51,96 +56,102 @@ type Content interface {
 }
 ```
 
-### 1.3 `sdk.Tracking` Capability
-Synchronizes reading progress to external accounts (e.g. AniList, MyAnimeList, Kitsu):
+### 2.4 `sdk.Tracker` Capability
+Synchronizes reading progress with external accounts (e.g. AniList, MyAnimeList, Kitsu):
 ```go
-type Tracking interface {
-	Provider
+type Tracker interface {
 	Authenticate(ctx context.Context, creds UserCredentials) (Session, error)
 	PushProgress(ctx context.Context, remoteID string, n int) error
 	FetchProgress(ctx context.Context, remoteID string) (Progress, error)
-	IsAuthenticated() bool
+	IsAuthenticated(ctx context.Context) bool
 }
 ```
 
 ---
 
-## 2. HTTP Scraper Design with `sdk.HttpSource`
+## 3. Plugin Boilerplate & Entry Point
 
-When building scrapers targeting web pages, embed `*sdk.HttpSource` from [`pkg/provider/sdk/http_source.go`](./pkg/provider/sdk/http_source.go). It provides built-in:
-* **Cookie Management**: Set via `ProviderConfig.Cookies` (e.g., bypassing age gates or persistent settings).
-* **TLS Fingerprinting**: Configured automatically via `WithFingerprintStore` to evade bot detection.
-* **DNS Resolvers & Proxies**: Pluggable outbound transports configuration.
-* **Document Fetching**: `GetDocument(ctx, targetURL)` returns a parses `*goquery.Document`.
-* **URL Resolution**: `ResolveURL(relativePath)` resolves relative hrefs/srcs against `BaseURL`.
+Every plugin in `plugins/<plugin_id>/` defines a `main.go` using `sdk.ServePlugin`:
 
-### Initialization Example:
 ```go
-cfg := sdk.ProviderConfig{
-	ID:       "mysource",
-	Name:     "MySource",
-	BaseURL:  "https://example.com",
-	Language: "en",
-	Cookies: map[string]string{
-		"https://example.com": "isAdult=1",
-	},
+package main
+
+import (
+	sdk "github.com/tubruk/kiyomi/plugin-sdk"
+)
+
+func main() {
+	plug := NewMyPlugin()
+
+	sdk.ServePlugin(sdk.ServeOptions{
+		Plugin: plug,
+		MetadataProviders: map[string]sdk.MetadataProvider{
+			PluginID: plug,
+		},
+		ContentProviders: map[string]sdk.ContentProvider{
+			PluginID: plug,
+		},
+	})
 }
-base, err := sdk.NewHttpSource(cfg)
 ```
 
 ---
 
-## 3. Declarative HTML Extraction Helpers
+## 4. HTTP Client & Scraper Utilities
 
-Do not write raw DOM traversal boilerplate. Use the selector utilities in [`pkg/provider/sdk/selector.go`](./pkg/provider/sdk/selector.go):
-* **`sdk.ExtractText(selection, selector)`**: Retrieves trimmed text contents.
-* **`sdk.ExtractAttr(selection, selector, attr)`**: Safely retrieves an attribute value.
-* **`sdk.ExtractImageURL(selection, selector)`**: Automatically tries fallback lazy-load attributes (`src`, `data-src`, `data-original`, `data-lazy-src`).
-* **`sdk.ParseChapterNumber(title)`**: Strips volume markers and parses floating point numbers.
-* **`sdk.ParseDate(dateStr)`**: Standardizes various date string formats to Unix milliseconds.
+Plugins should use the utilities provided in `plugin-sdk`:
 
----
-
-## 4. Provider Registration
-
-Register new providers within the central `providerRegistry` inside [`cmd/kiyomi/main.go`](./cmd/kiyomi/main.go):
+### 4.1 Configured HTTP Client (`plugin-sdk/http`)
+Initialize HTTP clients during `Init` using `sdkhttp.NewClient`:
 ```go
-prov, err := mysource.NewProvider(mysource.Options{
-	Store:     providerConfigStore,
-	FpStore:   fpStore,
-	Transport: http.DefaultTransport,
-	Registry:  providerRegistry,
-})
-if err != nil {
-	slog.Error("failed to initialize MySource provider", slog.String("error", err.Error()))
-	os.Exit(1)
-}
-providerRegistry.Register(prov)
+httpClient := sdkhttp.NewClient(
+	sdkhttp.WithSDKGlobalHttpConfig(config.HTTPConfig),
+	sdkhttp.WithTimeout(timeout),
+).StandardClient()
 ```
+
+### 4.2 Logging (`plugin-sdk/logger`)
+Logs written to stderr via `sdklogger` are automatically captured, formatted, and forwarded through the host's log ring buffer and dashboard:
+```go
+logger := sdklogger.New(os.Stderr, &sdklogger.Options{Level: slog.LevelInfo})
+```
+
+### 4.3 HTML & JSON Scrapers (`plugin-sdk/scraper`)
+- `scraper.NewHTMLSource(cfg)`: Provides document fetching, CSS selectors, cookie jars, and URL resolution for HTML-based scrapers.
+- `scraper.NewJSONSource(cfg)`: Helper for structured REST API consumption.
 
 ---
 
 ## 5. Provider Authoring Guidelines
 
-When implementing a provider, authors MUST adhere to the following rules:
-
-### 5.1 Purpose of the Provider SDK: Abstracting Upstream Behavior
-- **Core Principle**: The primary purpose of the Provider SDK is to abstract away each provider's internal implementation details and ever-changing upstream behaviors (e.g., HTML scraping quirks, site layout variations, custom date string formats, or anti-bot protections).
-- **Internal Normalization**: All upstream site peculiarities (such as parsing `"Today"`, `"Yesterday"`, or `"Oct 12,2023"` into standard `time.Time`) MUST be handled and normalized internally within the provider package.
-- **Strict Native Types**: Provider methods MUST only return standard SDK types (such as native `time.Time` for `UploadDate`, clean `sdk.Chapter`, and `sdk.Page`). Raw upstream structures or unparsed strings MUST NEVER leak past the provider boundary into API handlers, database storage, or frontend UI callers.
+### 5.1 Abstracting Upstream Behavior
+- **Core Principle**: The primary purpose of the Provider SDK is to abstract away each provider's internal quirks and upstream behaviors (HTML scraping differences, site layout variations, custom date formats, or anti-bot protections).
+- **Internal Normalization**: All upstream site peculiarities (such as parsing relative dates like `"Today"` or `"2 hours ago"`, custom date formats into `time.Time`, or comic reading modes) MUST be normalized internally within the plugin.
+- **Strict Native Types**: Provider methods MUST only return standard SDK types (`time.Time` for `UploadDate`, `sdk.Chapter`, `sdk.Page`, `sdk.MangaMetadata`). Raw upstream structures or unparsed strings MUST NEVER leak past the provider boundary.
 
 ### 5.2 URL-Safe Clean Chapter IDs (`chapter_ref`)
-- Chapter IDs (`chapter_ref` / `remote_id`) MUST be clean, plain, URL-safe strings without Base64 encoding (e.g., plain UUIDs or transformed path strings like `ch-1` or `v01~c001~1.html`).
+- Chapter IDs (`chapter_ref` / `remote_id`) MUST be clean, plain, URL-safe strings without Base64 wrappers (e.g. plain UUIDs or sanitized slugs like `ch-1` or `v01-c001`).
 - Base64 encoding/decoding (`sdk.EncodeID` / `sdk.DecodeID`) MUST NOT be used for chapter IDs.
-- Any raw upstream identifier containing slashes, query parameters, spaces, or non-ASCII characters MUST be sanitized, encoded, or converted into a URL-safe format inside the provider implementation itself.
-- **No Leakage**: ID transformations are strictly an internal provider concern and MUST NEVER leak into REST API handlers or frontend UI callers.
+- Any raw upstream identifier containing slashes, query parameters, or spaces MUST be sanitized inside the provider implementation.
 
 ---
 
 ## 6. Testing & Verification
 
-1. **Unit Tests**: Place tests in `<provider>_test.go` and use standard Go assertions.
-2. **HTTP Mocking**: Do not make outbound requests during testing. Mock target pages or JSON responses.
-3. **Execution**:
-   * Run unit tests from the repository root: `go test -v ./pkg/provider/...`
-   * Run verification before completing provider updates: `go test -v ./...`
+1. **Unit Tests**: Place tests in `<plugin>_test.go` using `httptest.NewServer` to mock upstream REST APIs or HTML pages.
+2. **gRPC Integration Testing**: Test the plugin service and provider bindings over in-memory gRPC buffers (`google.golang.org/grpc/test/bufconn`):
+   ```go
+   lis := bufconn.Listen(1024 * 1024)
+   server := grpc.NewServer()
+   v1.RegisterPluginServiceServer(server, &sdk.GRPCPluginServer{Impl: plug})
+   v1.RegisterMetadataProviderServiceServer(server, &sdk.GRPCMetadataProviderServer{
+       Providers: map[string]sdk.MetadataProvider{PluginID: plug},
+   })
+   go func() { _ = server.Serve(lis) }()
+   defer server.Stop()
+   ```
+3. **Verification Commands**:
+   - In plugin module: `go test -v ./...`
+   - Whole repository: `go test -v ./...`
+   - Frontend build: `cd web && bun run build`
+   - Plugin compilation: `go build -o ../../dev-plugins/<plugin_id>-plugin .`
