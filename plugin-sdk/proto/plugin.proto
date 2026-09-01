@@ -111,14 +111,19 @@ message MangaMetadata {
   string cover_url = 4;
   string synopsis = 5;
   string status = 6;
-  string author = 7;
-  string artist = 8;
-  repeated string genres = 9;
+  repeated string authors = 7;
+  repeated string artists = 8;
+  repeated string tags = 9;
   int32 total_chapters = 10;
   string reading_mode = 11;
   float score = 12;
   string url = 13;
   string availability = 14;
+  repeated string publishers = 15;
+  int32 release_year = 16;
+  string start_date = 17;
+  string end_date = 18;
+  string country = 19;
 }
 
 message ImageRef {

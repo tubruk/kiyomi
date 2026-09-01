@@ -44,6 +44,34 @@ type MetadataProvider interface {
 }
 ```
 
+#### Normalized `sdk.MangaMetadata` Schema:
+```go
+type MangaMetadata struct {
+	RemoteID      string              `json:"remoteId"`
+	Title         string              `json:"title"`
+	Aliases       []string            `json:"aliases,omitempty"`
+	CoverURL      string              `json:"coverUrl,omitempty"`
+	Synopsis      string              `json:"synopsis,omitempty"`
+	Status        string              `json:"status,omitempty"`
+	Authors       []string            `json:"authors,omitempty"`
+	Artists       []string            `json:"artists,omitempty"`
+	Tags          []string            `json:"tags,omitempty"`
+	TotalChapters int                 `json:"totalChapters,omitempty"`
+	ReadingMode   ReadingMode         `json:"readingMode,omitempty"`
+	Score         float32             `json:"score,omitempty"`
+	URL           string              `json:"url,omitempty"`
+	Availability  ContentAvailability `json:"availability,omitempty"`
+	Publishers    []string            `json:"publishers,omitempty"`
+	ReleaseYear   int                 `json:"releaseYear,omitempty"`
+	StartDate     string              `json:"startDate,omitempty"`
+	EndDate       string              `json:"endDate,omitempty"`
+	Country       string              `json:"country,omitempty"`
+}
+```
+* **Unified Tags**: Always normalize upstream genres, themes, and demographics into `Tags []string` (there is no separate `genres` field).
+* **Array / Set Fields**: `Authors`, `Artists`, `Publishers`, `Aliases`, and `Tags` MUST be returned as discrete, deduplicated `[]string` slices (never joined with commas).
+* **Publication Dates & Origin**: `StartDate` and `EndDate` MUST preserve ISO-8601 day-level precision (`YYYY-MM-DD`) when provided by upstream sources, `ReleaseYear` as a 4-digit integer, and `Country` as a 2-letter ISO country code (e.g. `JP`, `KR`, `CN`, `US`).
+
 ### 2.3 `sdk.ContentProvider` Capability
 Supplies chapter lists, page lists, and page image streams:
 ```go

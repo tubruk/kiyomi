@@ -60,14 +60,19 @@ type MangaMetadata struct {
 	CoverURL      string              `json:"coverUrl,omitempty"`
 	Synopsis      string              `json:"synopsis,omitempty"`
 	Status        string              `json:"status,omitempty"`
-	Author        string              `json:"author,omitempty"`
-	Artist        string              `json:"artist,omitempty"`
-	Genres        []string            `json:"genres,omitempty"`
+	Authors       []string            `json:"authors,omitempty"`
+	Artists       []string            `json:"artists,omitempty"`
+	Tags          []string            `json:"tags,omitempty"`
 	TotalChapters int                 `json:"totalChapters,omitempty"`
 	ReadingMode   ReadingMode         `json:"readingMode,omitempty"`
 	Score         float32             `json:"score,omitempty"`
 	URL           string              `json:"url,omitempty"`
 	Availability  ContentAvailability `json:"availability,omitempty"`
+	Publishers    []string            `json:"publishers,omitempty"`
+	ReleaseYear   int                 `json:"releaseYear,omitempty"`
+	StartDate     string              `json:"startDate,omitempty"`
+	EndDate       string              `json:"endDate,omitempty"`
+	Country       string              `json:"country,omitempty"`
 }
 
 // ImageRef is a resolved cover image URL with optional dimension hints and headers.

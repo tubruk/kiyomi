@@ -11,6 +11,14 @@ func TestMangaMetadata(t *testing.T) {
 		RemoteID:     "116778",
 		Title:        "Chainsaw Man",
 		Aliases:      []string{"CSM", "チェンソーマン"},
+		Authors:      []string{"Tatsuki Fujimoto"},
+		Artists:      []string{"Tatsuki Fujimoto"},
+		Tags:         []string{"Action", "Supernatural"},
+		Publishers:   []string{"Shueisha"},
+		ReleaseYear:  2018,
+		StartDate:    "2018-12-03",
+		EndDate:      "2020-12-14",
+		Country:      "JP",
 		ReadingMode:  sdk.ReadingModeRTL,
 		Availability: sdk.AvailabilityAvailable,
 	}
@@ -20,6 +28,21 @@ func TestMangaMetadata(t *testing.T) {
 	}
 	if len(meta.Aliases) != 2 {
 		t.Errorf("expected 2 aliases, got %d", len(meta.Aliases))
+	}
+	if len(meta.Authors) != 1 || meta.Authors[0] != "Tatsuki Fujimoto" {
+		t.Errorf("expected authors [Tatsuki Fujimoto], got %v", meta.Authors)
+	}
+	if len(meta.Artists) != 1 || meta.Artists[0] != "Tatsuki Fujimoto" {
+		t.Errorf("expected artists [Tatsuki Fujimoto], got %v", meta.Artists)
+	}
+	if len(meta.Tags) != 2 {
+		t.Errorf("expected 2 tags, got %d", len(meta.Tags))
+	}
+	if len(meta.Publishers) != 1 || meta.Publishers[0] != "Shueisha" {
+		t.Errorf("expected publishers [Shueisha], got %v", meta.Publishers)
+	}
+	if meta.ReleaseYear != 2018 || meta.StartDate != "2018-12-03" || meta.EndDate != "2020-12-14" || meta.Country != "JP" {
+		t.Errorf("unexpected date/country metadata: %+v", meta)
 	}
 	if meta.ReadingMode != sdk.ReadingModeRTL {
 		t.Errorf("expected reading mode %s, got %s", sdk.ReadingModeRTL, meta.ReadingMode)

@@ -7,7 +7,6 @@ import {
   Plus,
   ArrowLeft,
   BookOpen,
-  Building2,
   Calendar,
   ShieldAlert,
   Globe,
@@ -51,6 +50,8 @@ interface MetadataCompareStepProps {
   onSelectAuthorsMode: (m: MultiChoice) => void;
   selectedArtistsMode: MultiChoice;
   onSelectArtistsMode: (m: MultiChoice) => void;
+  selectedPublishersMode: MultiChoice;
+  onSelectPublishersMode: (m: MultiChoice) => void;
   selectedExternalLinksMode: MultiChoice;
   onSelectExternalLinksMode: (m: MultiChoice) => void;
 
@@ -71,10 +72,12 @@ interface MetadataCompareStepProps {
   onAddAlias: (alias: string) => void;
   onRemoveAlias: (alias: string) => void;
 
-  selectedPublisher: Choice;
-  onSelectPublisher: (c: Choice) => void;
   selectedReleaseYear: Choice;
   onSelectReleaseYear: (c: Choice) => void;
+  selectedStartDate: Choice;
+  onSelectStartDate: (c: Choice) => void;
+  selectedEndDate: Choice;
+  onSelectEndDate: (c: Choice) => void;
   selectedContentRating: Choice;
   onSelectContentRating: (c: Choice) => void;
   selectedCountry: Choice;
@@ -110,6 +113,8 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   onSelectAuthorsMode,
   selectedArtistsMode,
   onSelectArtistsMode,
+  selectedPublishersMode,
+  onSelectPublishersMode,
   selectedExternalLinksMode,
   onSelectExternalLinksMode,
 
@@ -130,10 +135,12 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   onAddAlias,
   onRemoveAlias,
 
-  selectedPublisher,
-  onSelectPublisher,
   selectedReleaseYear,
   onSelectReleaseYear,
+  selectedStartDate,
+  onSelectStartDate,
+  selectedEndDate,
+  onSelectEndDate,
   selectedContentRating,
   onSelectContentRating,
   selectedCountry,
@@ -146,18 +153,20 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   const isDescDiff = diffs.description;
   const isAuthorsDiff = diffs.authors;
   const isArtistsDiff = diffs.artists;
+  const isPublishersDiff = diffs.publishers;
   const isTagsDiff = diffs.tags;
   const isAliasesDiff = diffs.aliases;
   const isExternalLinksDiff = diffs.externalLinks;
 
-  const isPublisherDiff = diffs.publisher;
   const isYearDiff = diffs.releaseYear;
+  const isStartDateDiff = diffs.startDate;
+  const isEndDateDiff = diffs.endDate;
   const isRatingDiff = diffs.contentRating;
   const isCountryDiff = diffs.country;
   const isReadingModeDiff = diffs.readingMode;
 
   const hasAnyAttributesDiff =
-    isPublisherDiff || isYearDiff || isRatingDiff || isCountryDiff || isReadingModeDiff;
+    isYearDiff || isStartDateDiff || isEndDateDiff || isRatingDiff || isCountryDiff || isReadingModeDiff;
 
   const hasAnyDiff =
     isCoverDiff ||
@@ -165,6 +174,7 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
     isDescDiff ||
     isAuthorsDiff ||
     isArtistsDiff ||
+    isPublishersDiff ||
     isTagsDiff ||
     isAliasesDiff ||
     isExternalLinksDiff ||
@@ -175,6 +185,7 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   const showDescSection = incomingValues.description && (!diffOnly || isDescDiff);
   const showAuthorsSection = incomingValues.authors.length > 0 && (!diffOnly || isAuthorsDiff);
   const showArtistsSection = incomingValues.artists.length > 0 && (!diffOnly || isArtistsDiff);
+  const showPublishersSection = incomingValues.publishers.length > 0 && (!diffOnly || isPublishersDiff);
   const showTagsSection = incomingValues.tags.length > 0 && (!diffOnly || isTagsDiff);
   const showAliasesSection =
     currentValues.aliases.length > 0 ||
@@ -436,9 +447,9 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
               </div>
             )}
 
-            {/* 6. Authors & Artists Comparison */}
-            {(showAuthorsSection || showArtistsSection) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {/* 6. Authors, Artists & Publishers Comparison */}
+            {(showAuthorsSection || showArtistsSection || showPublishersSection) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
                 {showAuthorsSection && (
                   <MetadataMultiChoiceField
                     type="strings"
@@ -458,6 +469,17 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
                     incomingItems={incomingValues.artists}
                     selectedMode={selectedArtistsMode}
                     onSelectMode={onSelectArtistsMode}
+                  />
+                )}
+
+                {showPublishersSection && (
+                  <MetadataMultiChoiceField
+                    type="strings"
+                    title="Publishers"
+                    currentItems={currentValues.publishers}
+                    incomingItems={incomingValues.publishers}
+                    selectedMode={selectedPublishersMode}
+                    onSelectMode={onSelectPublishersMode}
                   />
                 )}
               </div>
@@ -487,18 +509,6 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
                     <span>Incoming ({selectedProvider?.name})</span>
                   </div>
 
-                  {/* Publisher */}
-                  {(incomingValues.publisher || !diffOnly) && (
-                    <MetadataFieldRow
-                      label="Publisher"
-                      icon={<Building2 className="size-3.5" />}
-                      currentValue={currentValues.publisher}
-                      incomingValue={incomingValues.publisher}
-                      selectedValue={selectedPublisher}
-                      onSelect={onSelectPublisher}
-                    />
-                  )}
-
                   {/* Year */}
                   {(incomingValues.releaseYear > 0 || !diffOnly) && (
                     <MetadataFieldRow
@@ -508,6 +518,30 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
                       incomingValue={incomingValues.releaseYear}
                       selectedValue={selectedReleaseYear}
                       onSelect={onSelectReleaseYear}
+                    />
+                  )}
+
+                  {/* Start Date */}
+                  {(incomingValues.startDate || !diffOnly) && (
+                    <MetadataFieldRow
+                      label="Start Date"
+                      icon={<Calendar className="size-3.5" />}
+                      currentValue={currentValues.startDate}
+                      incomingValue={incomingValues.startDate}
+                      selectedValue={selectedStartDate}
+                      onSelect={onSelectStartDate}
+                    />
+                  )}
+
+                  {/* End Date */}
+                  {(incomingValues.endDate || !diffOnly) && (
+                    <MetadataFieldRow
+                      label="End Date"
+                      icon={<Calendar className="size-3.5" />}
+                      currentValue={currentValues.endDate}
+                      incomingValue={incomingValues.endDate}
+                      selectedValue={selectedEndDate}
+                      onSelect={onSelectEndDate}
                     />
                   )}
 

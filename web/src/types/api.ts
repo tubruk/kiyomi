@@ -45,7 +45,13 @@ export interface MangaMeta {
   reading_mode?: string;
   content_rating?: string;
   publisher?: string;
+  publishers?: string[];
   release_year?: number;
+  releaseYear?: number;
+  start_date?: string;
+  startDate?: string;
+  end_date?: string;
+  endDate?: string;
   country?: string;
   cover_url?: string;
   external_links?: ExternalLink[];
@@ -79,6 +85,7 @@ export interface Manga {
   genres?: string[];
   aliases?: string[];
   shelves?: string[];
+  collections?: string[];
   status?: string;
   userStatus?: UserStatus | string;
   user_status?: UserStatus | string;
@@ -97,8 +104,15 @@ export interface Manga {
   readingMode?: string;
   reading_mode?: string;
   contentRating?: string;
+  content_rating?: string;
   publisher?: string;
+  publishers?: string[];
   releaseYear?: number;
+  release_year?: number;
+  startDate?: string;
+  start_date?: string;
+  endDate?: string;
+  end_date?: string;
   country?: string;
   externalLinks?: ExternalLink[];
   sourceId?: string;

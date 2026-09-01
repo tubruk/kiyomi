@@ -52,42 +52,92 @@ export function useEditMetadataForm({
   onSaved,
 }: UseEditMetadataFormOptions) {
   const [title, setTitle] = useState(manga.title || '');
-  const [aliasesInput, setAliasesInput] = useState(
-    (manga.aliases || manga.meta?.aliases || []).join(', ')
+  const [aliases, setAliases] = useState<string[]>(
+    manga.aliases || manga.meta?.aliases || []
   );
   const [description, setDescription] = useState(
     manga.description || manga.meta?.description || ''
+  );
+  const [authors, setAuthors] = useState<string[]>(
+    manga.authors && manga.authors.length > 0
+      ? manga.authors
+      : manga.author
+      ? [manga.author]
+      : manga.meta?.authors || []
+  );
+  const [artists, setArtists] = useState<string[]>(
+    manga.artists && manga.artists.length > 0
+      ? manga.artists
+      : manga.artist
+      ? [manga.artist]
+      : manga.meta?.artists || []
+  );
+  const [publishers, setPublishers] = useState<string[]>(
+    manga.publishers && manga.publishers.length > 0
+      ? manga.publishers
+      : manga.publisher
+      ? [manga.publisher]
+      : manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : [])
   );
   const [readingMode, setReadingMode] = useState(getInitialReadingMode(manga));
   const [contentRating, setContentRating] = useState(
     manga.contentRating || manga.meta?.content_rating || 'safe'
   );
-  const [publisher, setPublisher] = useState(manga.publisher || manga.meta?.publisher || '');
   const [releaseYear, setReleaseYear] = useState<number>(
-    manga.releaseYear || manga.meta?.release_year || 0
+    manga.releaseYear || manga.release_year || manga.meta?.release_year || manga.meta?.releaseYear || 0
   );
-  const [country, setCountry] = useState(manga.country || 'JP');
-  const [tagsInput, setTagsInput] = useState(
-    (manga.tags || manga.genres || manga.meta?.tags || []).join(', ')
+  const [startDate, setStartDate] = useState(
+    manga.startDate || manga.start_date || manga.meta?.start_date || manga.meta?.startDate || ''
   );
-  const [shelvesInput, setShelvesInput] = useState((manga.shelves || []).join(', '));
+  const [endDate, setEndDate] = useState(
+    manga.endDate || manga.end_date || manga.meta?.end_date || manga.meta?.endDate || ''
+  );
+  const [country, setCountry] = useState(manga.country || manga.meta?.country || 'JP');
+  const [tags, setTags] = useState<string[]>(
+    manga.tags || manga.genres || manga.meta?.tags || []
+  );
+  const [shelves, setShelves] = useState<string[]>(
+    manga.shelves || manga.collections || manga.meta?.collections || []
+  );
   const [externalLinks, setExternalLinks] = useState<ExternalLink[]>(
-    manga.externalLinks || []
+    manga.externalLinks || manga.meta?.external_links || []
   );
 
   useEffect(() => {
     if (open) {
       setTitle(manga.title || '');
-      setAliasesInput((manga.aliases || manga.meta?.aliases || []).join(', '));
+      setAliases(manga.aliases || manga.meta?.aliases || []);
       setDescription(manga.description || manga.meta?.description || '');
+      setAuthors(
+        manga.authors && manga.authors.length > 0
+          ? manga.authors
+          : manga.author
+          ? [manga.author]
+          : manga.meta?.authors || []
+      );
+      setArtists(
+        manga.artists && manga.artists.length > 0
+          ? manga.artists
+          : manga.artist
+          ? [manga.artist]
+          : manga.meta?.artists || []
+      );
+      setPublishers(
+        manga.publishers && manga.publishers.length > 0
+          ? manga.publishers
+          : manga.publisher
+          ? [manga.publisher]
+          : manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : [])
+      );
       setReadingMode(getInitialReadingMode(manga));
       setContentRating(manga.contentRating || manga.meta?.content_rating || 'safe');
-      setPublisher(manga.publisher || manga.meta?.publisher || '');
-      setReleaseYear(manga.releaseYear || manga.meta?.release_year || 0);
-      setCountry(manga.country || 'JP');
-      setTagsInput((manga.tags || manga.genres || manga.meta?.tags || []).join(', '));
-      setShelvesInput((manga.shelves || []).join(', '));
-      setExternalLinks(manga.externalLinks || []);
+      setReleaseYear(manga.releaseYear || manga.release_year || manga.meta?.release_year || manga.meta?.releaseYear || 0);
+      setStartDate(manga.startDate || manga.start_date || manga.meta?.start_date || manga.meta?.startDate || '');
+      setEndDate(manga.endDate || manga.end_date || manga.meta?.end_date || manga.meta?.endDate || '');
+      setCountry(manga.country || manga.meta?.country || 'JP');
+      setTags(manga.tags || manga.genres || manga.meta?.tags || []);
+      setShelves(manga.shelves || manga.collections || manga.meta?.collections || []);
+      setExternalLinks(manga.externalLinks || manga.meta?.external_links || []);
     }
   }, [open, manga]);
 
@@ -116,35 +166,15 @@ export function useEditMetadataForm({
     (e: React.FormEvent) => {
       e.preventDefault();
 
-      const seenAliases = new Set<string>();
-      const parsedAliases: string[] = [];
-      aliasesInput
-        .split(',')
-        .map((a) => a.trim())
-        .filter(Boolean)
-        .forEach((a) => {
-          const lower = a.toLowerCase();
-          if (!seenAliases.has(lower)) {
-            seenAliases.add(lower);
-            parsedAliases.push(a);
-          }
-        });
-
-      const parsedTags = tagsInput
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
-
-      const parsedShelves = shelvesInput
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
       const payload: Partial<Manga> = {
         ...manga,
         title,
-        aliases: parsedAliases,
+        aliases,
         description,
+        authors,
+        artists,
+        publishers,
+        publisher: publishers.length > 0 ? publishers[0] : '',
         content: {
           ...(manga.content || manga.meta?.content),
           provider_id:
@@ -159,11 +189,17 @@ export function useEditMetadataForm({
         reading_mode: readingMode,
         readingDirection: readingMode,
         contentRating,
-        publisher,
-        releaseYear: Number(releaseYear),
+        content_rating: contentRating,
+        releaseYear: Number(releaseYear) || 0,
+        release_year: Number(releaseYear) || 0,
+        startDate,
+        start_date: startDate,
+        endDate,
+        end_date: endDate,
         country,
-        tags: parsedTags,
-        shelves: parsedShelves,
+        tags,
+        shelves,
+        collections: shelves,
         externalLinks: externalLinks.filter((l) => l.url.trim() !== ''),
       };
 
@@ -180,15 +216,19 @@ export function useEditMetadataForm({
     [
       manga,
       title,
-      aliasesInput,
+      aliases,
       description,
+      authors,
+      artists,
+      publishers,
       readingMode,
       contentRating,
-      publisher,
       releaseYear,
+      startDate,
+      endDate,
       country,
-      tagsInput,
-      shelvesInput,
+      tags,
+      shelves,
       externalLinks,
       updateMutation,
       onOpenChange,
@@ -199,24 +239,32 @@ export function useEditMetadataForm({
   return {
     title,
     setTitle,
-    aliasesInput,
-    setAliasesInput,
+    aliases,
+    setAliases,
     description,
     setDescription,
+    authors,
+    setAuthors,
+    artists,
+    setArtists,
+    publishers,
+    setPublishers,
     readingMode,
     setReadingMode,
     contentRating,
     setContentRating,
-    publisher,
-    setPublisher,
     releaseYear,
     setReleaseYear,
+    startDate,
+    setStartDate,
+    endDate,
+    setEndDate,
     country,
     setCountry,
-    tagsInput,
-    setTagsInput,
-    shelvesInput,
-    setShelvesInput,
+    tags,
+    setTags,
+    shelves,
+    setShelves,
     externalLinks,
     setExternalLinks,
     handleAddLink,

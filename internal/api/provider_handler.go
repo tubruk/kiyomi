@@ -107,6 +107,9 @@ func (h *Handler) getProviderMangaCatalog(c echo.Context) error {
 			"cover":    res.CoverURL,
 			"provider": providerID,
 		}
+		if len(res.Aliases) > 0 {
+			manga["aliases"] = res.Aliases
+		}
 		if res.URL != "" {
 			manga["url"] = res.URL
 		}
@@ -153,6 +156,9 @@ func (h *Handler) getPopularManga(c echo.Context) error {
 			"title":    res.Title,
 			"cover":    res.CoverURL,
 			"provider": providerID,
+		}
+		if len(res.Aliases) > 0 {
+			manga["aliases"] = res.Aliases
 		}
 		if res.URL != "" {
 			manga["url"] = res.URL
@@ -201,6 +207,9 @@ func (h *Handler) getLatestManga(c echo.Context) error {
 			"cover":    res.CoverURL,
 			"provider": providerID,
 		}
+		if len(res.Aliases) > 0 {
+			manga["aliases"] = res.Aliases
+		}
 		if res.URL != "" {
 			manga["url"] = res.URL
 		}
@@ -239,6 +248,9 @@ func (h *Handler) searchManga(c echo.Context) error {
 			"cover":    res.CoverURL,
 			"provider": providerID,
 		}
+		if len(res.Aliases) > 0 {
+			manga["aliases"] = res.Aliases
+		}
 		if res.URL != "" {
 			manga["url"] = res.URL
 		}
@@ -270,17 +282,55 @@ func (h *Handler) getProviderMangaDetails(c echo.Context) error {
 		return handleProviderError(c, providerID, err)
 	}
 
+	authors := meta.Authors
+	if authors == nil {
+		authors = []string{}
+	}
+	artists := meta.Artists
+	if artists == nil {
+		artists = []string{}
+	}
+	aliases := meta.Aliases
+	if aliases == nil {
+		aliases = []string{}
+	}
+	tags := meta.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	publishers := meta.Publishers
+	if publishers == nil {
+		publishers = []string{}
+	}
+
 	details := echo.Map{
 		"id":            meta.RemoteID,
 		"title":         meta.Title,
+		"aliases":       aliases,
 		"description":   meta.Synopsis,
 		"cover":         meta.CoverURL,
 		"status":        meta.Status,
-		"authors":       []string{meta.Author},
-		"artists":       []string{meta.Artist},
-		"tags":          meta.Genres,
+		"authors":       authors,
+		"artists":       artists,
+		"tags":          tags,
+		"publishers":    publishers,
 		"totalChapters": meta.TotalChapters,
 		"url":           meta.URL,
+	}
+	if meta.Score > 0 {
+		details["score"] = meta.Score
+	}
+	if meta.ReleaseYear > 0 {
+		details["release_year"] = meta.ReleaseYear
+	}
+	if meta.StartDate != "" {
+		details["start_date"] = meta.StartDate
+	}
+	if meta.EndDate != "" {
+		details["end_date"] = meta.EndDate
+	}
+	if meta.Country != "" {
+		details["country"] = meta.Country
 	}
 	if meta.ReadingMode != "" {
 		details["reading_mode"] = meta.ReadingMode
@@ -362,14 +412,6 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 	}
 
 	localID := body.RemoteID
-	var authors []string
-	if meta.Author != "" {
-		authors = append(authors, meta.Author)
-	}
-	var artists []string
-	if meta.Artist != "" {
-		artists = append(artists, meta.Artist)
-	}
 
 	providerName := body.ProviderID
 	if metaProvider != nil && metaProvider.Name() != "" {
@@ -391,9 +433,14 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		Title:         meta.Title,
 		Aliases:       meta.Aliases,
 		Description:   meta.Synopsis,
-		Authors:       authors,
-		Artists:       artists,
-		Tags:          meta.Genres,
+		Authors:       meta.Authors,
+		Artists:       meta.Artists,
+		Tags:          meta.Tags,
+		Publishers:    meta.Publishers,
+		ReleaseYear:   meta.ReleaseYear,
+		StartDate:     meta.StartDate,
+		EndDate:       meta.EndDate,
+		Country:       meta.Country,
 		CoverURL:      meta.CoverURL,
 		ExternalLinks: externalLinks,
 		UserStatus:    body.UserStatus,

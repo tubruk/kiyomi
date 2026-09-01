@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -25,11 +26,18 @@ func TestLibraryCRUD(t *testing.T) {
 	// Test SaveManga
 	mangaID := "manga-01"
 	mangaMeta := &MangaMeta{
-		Title:       "Test Manga",
-		Description: "Sample description",
-		Authors:     []string{"Author 1"},
-		Artists:     []string{"Artist 1"},
-		Tags:        []string{"Action", "Fantasy"},
+		Title:         "Test Manga",
+		Description:   "Sample description",
+		Authors:       []string{"Author 1"},
+		Artists:       []string{"Artist 1"},
+		Tags:          []string{"Action", "Fantasy"},
+		Aliases:       []string{"Test Manga Alias"},
+		Collections:   []string{"Favorites"},
+		Publishers:    []string{"Test Publisher"},
+		ReleaseYear:   2021,
+		StartDate:     "2021-05-10",
+		EndDate:       "2022-12-25",
+		Country:       "JP",
 		ExternalLinks: []ExternalLink{
 			{
 				Provider: "mangadex",
@@ -69,6 +77,27 @@ func TestLibraryCRUD(t *testing.T) {
 	}
 	if gotMeta.UserRating != mangaMeta.UserRating {
 		t.Errorf("expected user_rating %v, got %v", mangaMeta.UserRating, gotMeta.UserRating)
+	}
+	if !reflect.DeepEqual(gotMeta.Publishers, mangaMeta.Publishers) {
+		t.Errorf("expected publishers %v, got %v", mangaMeta.Publishers, gotMeta.Publishers)
+	}
+	if gotMeta.StartDate != mangaMeta.StartDate {
+		t.Errorf("expected start_date %q, got %q", mangaMeta.StartDate, gotMeta.StartDate)
+	}
+	if gotMeta.EndDate != mangaMeta.EndDate {
+		t.Errorf("expected end_date %q, got %q", mangaMeta.EndDate, gotMeta.EndDate)
+	}
+	if gotMeta.Country != mangaMeta.Country {
+		t.Errorf("expected country %q, got %q", mangaMeta.Country, gotMeta.Country)
+	}
+	if gotMeta.ReleaseYear != mangaMeta.ReleaseYear {
+		t.Errorf("expected release_year %d, got %d", mangaMeta.ReleaseYear, gotMeta.ReleaseYear)
+	}
+	if !reflect.DeepEqual(gotMeta.Aliases, mangaMeta.Aliases) {
+		t.Errorf("expected aliases %v, got %v", mangaMeta.Aliases, gotMeta.Aliases)
+	}
+	if !reflect.DeepEqual(gotMeta.Collections, mangaMeta.Collections) {
+		t.Errorf("expected collections %v, got %v", mangaMeta.Collections, gotMeta.Collections)
 	}
 	if len(gotMeta.ExternalLinks) != 1 || gotMeta.ExternalLinks[0].Provider != "mangadex" || gotMeta.ExternalLinks[0].Label != "MangaDex" || gotMeta.ExternalLinks[0].URL != "https://mangadex.org/title/remote-manga-123" {
 		t.Errorf("expected ExternalLinks %+v, got %+v", mangaMeta.ExternalLinks, gotMeta.ExternalLinks)
@@ -387,6 +416,288 @@ func TestMangaMeta_UnmarshalLegacyReadingDirection(t *testing.T) {
 	}
 	if _, ok := rawMap["reading_mode"]; ok {
 		t.Errorf("marshal output should not contain top-level reading_mode: %s", string(bytes))
+	}
+}
+
+func TestMangaMeta_Normalize(t *testing.T) {
+	// Case 1: Nil receiver should not panic
+	var nilMeta *MangaMeta
+	nilMeta.Normalize()
+
+	// Case 2: Case-insensitive deduplication, whitespace trimming, and empty string removal
+	meta := &MangaMeta{
+		Title:       "Normalization Test",
+		Publishers:  []string{"Shueisha", "shueisha", "VIZ", "viz", "  VIZ  ", ""},
+		Authors:     []string{"Eiichiro Oda", "eiichiro oda", "EIICHIRO ODA", "Akira Toriyama", "   "},
+		Artists:     []string{"Yusuke Murata", "yusuke murata", "ONE", "one"},
+		Tags:        []string{"Action", "action", "ACTION", "Shounen", "shounen", "Adventure"},
+		Aliases:     []string{"One Piece", "one piece", "ONE PIECE", "OP"},
+		Collections: []string{"Top Manga", "top manga", "Favorites", "favorites"},
+	}
+
+	meta.Normalize()
+
+	expectedPublishers := []string{"Shueisha", "VIZ"}
+	if !reflect.DeepEqual(meta.Publishers, expectedPublishers) {
+		t.Errorf("expected publishers %v, got %v", expectedPublishers, meta.Publishers)
+	}
+
+	expectedAuthors := []string{"Eiichiro Oda", "Akira Toriyama"}
+	if !reflect.DeepEqual(meta.Authors, expectedAuthors) {
+		t.Errorf("expected authors %v, got %v", expectedAuthors, meta.Authors)
+	}
+
+	expectedArtists := []string{"Yusuke Murata", "ONE"}
+	if !reflect.DeepEqual(meta.Artists, expectedArtists) {
+		t.Errorf("expected artists %v, got %v", expectedArtists, meta.Artists)
+	}
+
+	expectedTags := []string{"Action", "Shounen", "Adventure"}
+	if !reflect.DeepEqual(meta.Tags, expectedTags) {
+		t.Errorf("expected tags %v, got %v", expectedTags, meta.Tags)
+	}
+
+	expectedAliases := []string{"One Piece", "OP"}
+	if !reflect.DeepEqual(meta.Aliases, expectedAliases) {
+		t.Errorf("expected aliases %v, got %v", expectedAliases, meta.Aliases)
+	}
+
+	expectedCollections := []string{"Top Manga", "Favorites"}
+	if !reflect.DeepEqual(meta.Collections, expectedCollections) {
+		t.Errorf("expected collections %v, got %v", expectedCollections, meta.Collections)
+	}
+}
+
+func TestMangaMeta_UnmarshalJSON(t *testing.T) {
+	// Case 1: Legacy single publisher string into Publishers slice
+	jsonLegacy := []byte(`{
+		"title": "Legacy Single Publisher",
+		"publisher": "Shueisha"
+	}`)
+	var meta1 MangaMeta
+	if err := json.Unmarshal(jsonLegacy, &meta1); err != nil {
+		t.Fatalf("failed to unmarshal legacy publisher: %v", err)
+	}
+	expectedPublishers1 := []string{"Shueisha"}
+	if !reflect.DeepEqual(meta1.Publishers, expectedPublishers1) {
+		t.Errorf("expected publishers %v, got %v", expectedPublishers1, meta1.Publishers)
+	}
+
+	// Case 2: Standard publishers array
+	jsonStandard := []byte(`{
+		"title": "Standard Publishers Array",
+		"publishers": ["Shueisha", "VIZ"]
+	}`)
+	var meta2 MangaMeta
+	if err := json.Unmarshal(jsonStandard, &meta2); err != nil {
+		t.Fatalf("failed to unmarshal standard publishers: %v", err)
+	}
+	expectedPublishers2 := []string{"Shueisha", "VIZ"}
+	if !reflect.DeepEqual(meta2.Publishers, expectedPublishers2) {
+		t.Errorf("expected publishers %v, got %v", expectedPublishers2, meta2.Publishers)
+	}
+
+	// Case 3: Both publisher (legacy) and publishers (array) - array takes precedence
+	jsonBoth := []byte(`{
+		"title": "Both Publishers Fields",
+		"publisher": "Old Publisher",
+		"publishers": ["Publisher A", "Publisher B"]
+	}`)
+	var meta3 MangaMeta
+	if err := json.Unmarshal(jsonBoth, &meta3); err != nil {
+		t.Fatalf("failed to unmarshal both publishers: %v", err)
+	}
+	expectedPublishers3 := []string{"Publisher A", "Publisher B"}
+	if !reflect.DeepEqual(meta3.Publishers, expectedPublishers3) {
+		t.Errorf("expected publishers %v, got %v", expectedPublishers3, meta3.Publishers)
+	}
+
+	// Case 4: Case-insensitive deduplication during unmarshaling for all fields
+	jsonDuplicates := []byte(`{
+		"title": "Duplicate Fields",
+		"publishers": ["Shueisha", "shueisha", "VIZ"],
+		"authors": ["Oda", "oda", "ODA"],
+		"artists": ["Murata", "murata"],
+		"tags": ["Action", "action", "Adventure"],
+		"aliases": ["OP", "op"],
+		"collections": ["Favorites", "favorites"]
+	}`)
+	var meta4 MangaMeta
+	if err := json.Unmarshal(jsonDuplicates, &meta4); err != nil {
+		t.Fatalf("failed to unmarshal duplicates: %v", err)
+	}
+	if !reflect.DeepEqual(meta4.Publishers, []string{"Shueisha", "VIZ"}) {
+		t.Errorf("expected deduplicated publishers, got %v", meta4.Publishers)
+	}
+	if !reflect.DeepEqual(meta4.Authors, []string{"Oda"}) {
+		t.Errorf("expected deduplicated authors, got %v", meta4.Authors)
+	}
+	if !reflect.DeepEqual(meta4.Artists, []string{"Murata"}) {
+		t.Errorf("expected deduplicated artists, got %v", meta4.Artists)
+	}
+	if !reflect.DeepEqual(meta4.Tags, []string{"Action", "Adventure"}) {
+		t.Errorf("expected deduplicated tags, got %v", meta4.Tags)
+	}
+	if !reflect.DeepEqual(meta4.Aliases, []string{"OP"}) {
+		t.Errorf("expected deduplicated aliases, got %v", meta4.Aliases)
+	}
+	if !reflect.DeepEqual(meta4.Collections, []string{"Favorites"}) {
+		t.Errorf("expected deduplicated collections, got %v", meta4.Collections)
+	}
+}
+
+func TestLibrary_MetadataFields_RoundTrip(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kiyomi-metadata-roundtrip-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	lib := NewLibrary(tempDir)
+	mangaID := "full-metadata-manga"
+	original := &MangaMeta{
+		Title:         "Full Metadata Manga",
+		Aliases:       []string{"Alias 1", "Alias 2"},
+		Description:   "Comprehensive metadata description",
+		Authors:       []string{"Author One", "Author Two"},
+		Artists:       []string{"Artist One", "Artist Two"},
+		Tags:          []string{"Action", "Adventure", "Fantasy"},
+		Collections:   []string{"Classics", "Must-Read"},
+		ContentRating: "safe",
+		Publishers:    []string{"Shueisha", "VIZ Media"},
+		ReleaseYear:   1997,
+		StartDate:     "1997-07-22",
+		EndDate:       "2024-12-31",
+		Country:       "JP",
+		CoverURL:      "https://example.com/cover.jpg",
+		UserStatus:    "reading",
+		UserRating:    9.5,
+		UserFavorite:  true,
+		UserNotes:     "Masterpiece",
+		AddedAt:       time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:     time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
+
+	if err := lib.SaveManga(mangaID, original); err != nil {
+		t.Fatalf("SaveManga failed: %v", err)
+	}
+
+	retrieved, err := lib.GetManga(mangaID)
+	if err != nil {
+		t.Fatalf("GetManga failed: %v", err)
+	}
+
+	if !reflect.DeepEqual(retrieved.Publishers, original.Publishers) {
+		t.Errorf("Publishers mismatch: got %v, want %v", retrieved.Publishers, original.Publishers)
+	}
+	if retrieved.StartDate != original.StartDate {
+		t.Errorf("StartDate mismatch: got %q, want %q", retrieved.StartDate, original.StartDate)
+	}
+	if retrieved.EndDate != original.EndDate {
+		t.Errorf("EndDate mismatch: got %q, want %q", retrieved.EndDate, original.EndDate)
+	}
+	if retrieved.Country != original.Country {
+		t.Errorf("Country mismatch: got %q, want %q", retrieved.Country, original.Country)
+	}
+	if retrieved.ReleaseYear != original.ReleaseYear {
+		t.Errorf("ReleaseYear mismatch: got %d, want %d", retrieved.ReleaseYear, original.ReleaseYear)
+	}
+	if !reflect.DeepEqual(retrieved.Authors, original.Authors) {
+		t.Errorf("Authors mismatch: got %v, want %v", retrieved.Authors, original.Authors)
+	}
+	if !reflect.DeepEqual(retrieved.Artists, original.Artists) {
+		t.Errorf("Artists mismatch: got %v, want %v", retrieved.Artists, original.Artists)
+	}
+	if !reflect.DeepEqual(retrieved.Tags, original.Tags) {
+		t.Errorf("Tags mismatch: got %v, want %v", retrieved.Tags, original.Tags)
+	}
+	if !reflect.DeepEqual(retrieved.Aliases, original.Aliases) {
+		t.Errorf("Aliases mismatch: got %v, want %v", retrieved.Aliases, original.Aliases)
+	}
+	if !reflect.DeepEqual(retrieved.Collections, original.Collections) {
+		t.Errorf("Collections mismatch: got %v, want %v", retrieved.Collections, original.Collections)
+	}
+
+	// Update metadata and round-trip again
+	original.Publishers = []string{"Kodansha"}
+	original.StartDate = "2000-01-01"
+	original.EndDate = "2010-01-01"
+	original.Country = "US"
+	original.ReleaseYear = 2000
+
+	if err := lib.SaveManga(mangaID, original); err != nil {
+		t.Fatalf("SaveManga update failed: %v", err)
+	}
+
+	updated, err := lib.GetManga(mangaID)
+	if err != nil {
+		t.Fatalf("GetManga after update failed: %v", err)
+	}
+	if !reflect.DeepEqual(updated.Publishers, []string{"Kodansha"}) {
+		t.Errorf("updated Publishers mismatch: got %v, want %v", updated.Publishers, []string{"Kodansha"})
+	}
+	if updated.StartDate != "2000-01-01" {
+		t.Errorf("updated StartDate mismatch: got %q, want %q", updated.StartDate, "2000-01-01")
+	}
+	if updated.EndDate != "2010-01-01" {
+		t.Errorf("updated EndDate mismatch: got %q, want %q", updated.EndDate, "2010-01-01")
+	}
+	if updated.Country != "US" {
+		t.Errorf("updated Country mismatch: got %q, want %q", updated.Country, "US")
+	}
+	if updated.ReleaseYear != 2000 {
+		t.Errorf("updated ReleaseYear mismatch: got %d, want %d", updated.ReleaseYear, 2000)
+	}
+}
+
+func TestMangaMeta_PublisherAndDeduplication(t *testing.T) {
+	// Case 1: Legacy publisher string unmarshals to publishers slice
+	jsonData := []byte(`{
+		"title": "Legacy Publisher Manga",
+		"publisher": "Shueisha",
+		"aliases": ["Alias 1", "alias 1", "ALIAS 1", "Alias 2"],
+		"tags": ["Action", "action", "Shounen"],
+		"authors": ["Oda", "ODA", "oda"],
+		"artists": ["Artist 1", "artist 1"],
+		"collections": ["Favorites", "favorites", "Shounen Hits"]
+	}`)
+
+	var meta MangaMeta
+	if err := json.Unmarshal(jsonData, &meta); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if len(meta.Publishers) != 1 || meta.Publishers[0] != "Shueisha" {
+		t.Errorf("expected publishers ['Shueisha'], got %v", meta.Publishers)
+	}
+	if len(meta.Aliases) != 2 || meta.Aliases[0] != "Alias 1" || meta.Aliases[1] != "Alias 2" {
+		t.Errorf("expected deduplicated aliases ['Alias 1', 'Alias 2'], got %v", meta.Aliases)
+	}
+	if len(meta.Tags) != 2 || meta.Tags[0] != "Action" || meta.Tags[1] != "Shounen" {
+		t.Errorf("expected deduplicated tags ['Action', 'Shounen'], got %v", meta.Tags)
+	}
+	if len(meta.Authors) != 1 || meta.Authors[0] != "Oda" {
+		t.Errorf("expected deduplicated authors ['Oda'], got %v", meta.Authors)
+	}
+	if len(meta.Artists) != 1 || meta.Artists[0] != "Artist 1" {
+		t.Errorf("expected deduplicated artists ['Artist 1'], got %v", meta.Artists)
+	}
+	if len(meta.Collections) != 2 || meta.Collections[0] != "Favorites" || meta.Collections[1] != "Shounen Hits" {
+		t.Errorf("expected deduplicated collections ['Favorites', 'Shounen Hits'], got %v", meta.Collections)
+	}
+
+	// Case 2: Explicit publishers slice takes precedence over publisher
+	jsonData2 := []byte(`{
+		"title": "New Publishers Manga",
+		"publisher": "OldPublisher",
+		"publishers": ["Kodansha", "kodansha", "Del Rey"]
+	}`)
+	var meta2 MangaMeta
+	if err := json.Unmarshal(jsonData2, &meta2); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(meta2.Publishers) != 2 || meta2.Publishers[0] != "Kodansha" || meta2.Publishers[1] != "Del Rey" {
+		t.Errorf("expected publishers ['Kodansha', 'Del Rey'], got %v", meta2.Publishers)
 	}
 }
 

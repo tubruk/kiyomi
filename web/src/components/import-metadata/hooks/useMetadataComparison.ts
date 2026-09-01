@@ -39,6 +39,7 @@ export const useMetadataComparison = ({
   const [selectedDescription, setSelectedDescription] = useState<Choice>('incoming');
   const [selectedAuthorsMode, setSelectedAuthorsMode] = useState<MultiChoice>('incoming');
   const [selectedArtistsMode, setSelectedArtistsMode] = useState<MultiChoice>('incoming');
+  const [selectedPublishersMode, setSelectedPublishersMode] = useState<MultiChoice>('incoming');
   const [selectedExternalLinksMode, setSelectedExternalLinksMode] = useState<MultiChoice>('incoming');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedAliases, setSelectedAliases] = useState<string[]>([]);
@@ -46,6 +47,8 @@ export const useMetadataComparison = ({
   const [tagInput, setTagInput] = useState('');
   const [selectedPublisher, setSelectedPublisher] = useState<Choice>('incoming');
   const [selectedReleaseYear, setSelectedReleaseYear] = useState<Choice>('incoming');
+  const [selectedStartDate, setSelectedStartDate] = useState<Choice>('incoming');
+  const [selectedEndDate, setSelectedEndDate] = useState<Choice>('incoming');
   const [selectedContentRating, setSelectedContentRating] = useState<Choice>('incoming');
   const [selectedCountry, setSelectedCountry] = useState<Choice>('incoming');
   const [selectedReadingMode, setSelectedReadingMode] = useState<Choice>('incoming');
@@ -60,10 +63,16 @@ export const useMetadataComparison = ({
       description: manga.description || manga.meta?.description || '',
       authors: mergeStringArrays(manga.authors, manga.author ? [manga.author] : (manga.meta?.authors || [])),
       artists: mergeStringArrays(manga.artists, manga.artist ? [manga.artist] : (manga.meta?.artists || [])),
+      publishers: mergeStringArrays(
+        manga.publishers,
+        manga.publisher ? [manga.publisher] : (manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : []))
+      ),
       tags: mergeStringArrays(manga.tags, manga.genres || manga.meta?.tags),
       aliases: manga.aliases || manga.meta?.aliases || [],
       publisher: manga.publisher || manga.meta?.publisher || '',
-      releaseYear: manga.releaseYear || manga.meta?.release_year || 0,
+      releaseYear: manga.releaseYear || manga.release_year || manga.meta?.release_year || manga.meta?.releaseYear || 0,
+      startDate: manga.startDate || manga.start_date || manga.meta?.start_date || manga.meta?.startDate || '',
+      endDate: manga.endDate || manga.end_date || manga.meta?.end_date || manga.meta?.endDate || '',
       contentRating: manga.contentRating || manga.meta?.content_rating || '',
       country: manga.country || manga.meta?.country || '',
       readingMode: manga.readingMode || manga.reading_mode || manga.readingDirection || manga.content?.reading_mode || manga.meta?.content?.reading_mode || '',
@@ -82,10 +91,13 @@ export const useMetadataComparison = ({
         description: '',
         authors: [],
         artists: [],
+        publishers: [],
         tags: [],
         aliases: [],
         publisher: '',
         releaseYear: 0,
+        startDate: '',
+        endDate: '',
         contentRating: '',
         country: '',
         readingMode: '',
@@ -115,10 +127,16 @@ export const useMetadataComparison = ({
       description: selectedRemoteManga.description?.trim() || '',
       authors: mergeStringArrays(selectedRemoteManga.authors, selectedRemoteManga.author ? [selectedRemoteManga.author] : []),
       artists: mergeStringArrays(selectedRemoteManga.artists, selectedRemoteManga.artist ? [selectedRemoteManga.artist] : []),
+      publishers: mergeStringArrays(
+        selectedRemoteManga.publishers,
+        selectedRemoteManga.publisher ? [selectedRemoteManga.publisher] : (selectedRemoteManga.meta?.publishers || (selectedRemoteManga.meta?.publisher ? [selectedRemoteManga.meta.publisher] : []))
+      ),
       tags: mergeStringArrays(selectedRemoteManga.tags, selectedRemoteManga.genres),
       aliases: selectedRemoteManga.aliases || [],
       publisher: selectedRemoteManga.publisher?.trim() || '',
-      releaseYear: selectedRemoteManga.releaseYear || selectedRemoteManga.meta?.release_year || 0,
+      releaseYear: selectedRemoteManga.releaseYear || selectedRemoteManga.release_year || selectedRemoteManga.meta?.release_year || selectedRemoteManga.meta?.releaseYear || 0,
+      startDate: selectedRemoteManga.startDate || selectedRemoteManga.start_date || selectedRemoteManga.meta?.start_date || selectedRemoteManga.meta?.startDate || '',
+      endDate: selectedRemoteManga.endDate || selectedRemoteManga.end_date || selectedRemoteManga.meta?.end_date || selectedRemoteManga.meta?.endDate || '',
       contentRating: selectedRemoteManga.contentRating || selectedRemoteManga.meta?.content_rating || '',
       country: selectedRemoteManga.country || selectedRemoteManga.meta?.country || '',
       readingMode: selectedRemoteManga.readingMode || selectedRemoteManga.reading_mode || selectedRemoteManga.readingDirection || '',
@@ -126,7 +144,7 @@ export const useMetadataComparison = ({
     };
   }, [selectedRemoteManga, selectedProviderId, selectedProvider]);
 
-  // Diff checks across 12 fields
+  // Diff checks across fields
   const diffs: MetadataDiffs = useMemo(() => {
     return {
       cover: Boolean(incomingValues.coverUrl && incomingValues.coverUrl !== currentValues.coverUrl),
@@ -134,10 +152,13 @@ export const useMetadataComparison = ({
       description: Boolean(incomingValues.description && incomingValues.description.trim() !== currentValues.description.trim()),
       authors: Boolean(incomingValues.authors.length > 0 && !areArraySetsEqual(currentValues.authors, incomingValues.authors)),
       artists: Boolean(incomingValues.artists.length > 0 && !areArraySetsEqual(currentValues.artists, incomingValues.artists)),
+      publishers: Boolean(incomingValues.publishers.length > 0 && !areArraySetsEqual(currentValues.publishers, incomingValues.publishers)),
       tags: Boolean(incomingValues.tags.length > 0 && !areArraySetsEqual(currentValues.tags, incomingValues.tags)),
       aliases: Boolean(incomingValues.aliases.length > 0 && !areArraySetsEqual(currentValues.aliases, incomingValues.aliases)),
       publisher: Boolean(incomingValues.publisher && incomingValues.publisher.toLowerCase() !== currentValues.publisher.toLowerCase()),
       releaseYear: Boolean(incomingValues.releaseYear > 0 && incomingValues.releaseYear !== currentValues.releaseYear),
+      startDate: Boolean(incomingValues.startDate && incomingValues.startDate.toLowerCase() !== currentValues.startDate.toLowerCase()),
+      endDate: Boolean(incomingValues.endDate && incomingValues.endDate.toLowerCase() !== currentValues.endDate.toLowerCase()),
       contentRating: Boolean(incomingValues.contentRating && incomingValues.contentRating.toLowerCase() !== currentValues.contentRating.toLowerCase()),
       country: Boolean(incomingValues.country && incomingValues.country.toLowerCase() !== currentValues.country.toLowerCase()),
       readingMode: Boolean(incomingValues.readingMode && incomingValues.readingMode.toLowerCase() !== currentValues.readingMode.toLowerCase()),
@@ -163,6 +184,10 @@ export const useMetadataComparison = ({
     const cDesc = manga.description || manga.meta?.description || '';
     const cAuthors = mergeStringArrays(manga.authors, manga.author ? [manga.author] : (manga.meta?.authors || []));
     const cArtists = mergeStringArrays(manga.artists, manga.artist ? [manga.artist] : (manga.meta?.artists || []));
+    const cPublishers = mergeStringArrays(
+      manga.publishers,
+      manga.publisher ? [manga.publisher] : (manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : []))
+    );
     const cTags = mergeStringArrays(manga.tags, manga.genres || manga.meta?.tags);
     const cAliases = manga.aliases || manga.meta?.aliases || [];
     const cExtLinks: ExternalLink[] = (manga.externalLinks && manga.externalLinks.length > 0)
@@ -175,6 +200,10 @@ export const useMetadataComparison = ({
     const inDesc = remote.description?.trim() || '';
     const inAuthors = mergeStringArrays(remote.authors, remote.author ? [remote.author] : []);
     const inArtists = mergeStringArrays(remote.artists, remote.artist ? [remote.artist] : []);
+    const inPublishers = mergeStringArrays(
+      remote.publishers,
+      remote.publisher ? [remote.publisher] : (remote.meta?.publishers || (remote.meta?.publisher ? [remote.meta.publisher] : []))
+    );
     const inTags = mergeStringArrays(remote.tags, remote.genres);
     const inAliases = remote.aliases || [];
     const inExtLinks: ExternalLink[] = [];
@@ -199,6 +228,7 @@ export const useMetadataComparison = ({
     setSelectedDescription(inDesc && inDesc !== cDesc ? 'incoming' : 'current');
     setSelectedAuthorsMode(inAuthors.length > 0 ? (areArraySetsEqual(cAuthors, inAuthors) ? 'current' : 'incoming') : 'current');
     setSelectedArtistsMode(inArtists.length > 0 ? (areArraySetsEqual(cArtists, inArtists) ? 'current' : 'incoming') : 'current');
+    setSelectedPublishersMode(inPublishers.length > 0 ? (areArraySetsEqual(cPublishers, inPublishers) ? 'current' : 'incoming') : 'current');
     setSelectedExternalLinksMode(
       inExtLinks.length > 0
         ? areExternalLinkSetsEqual(cExtLinks, inExtLinks)
@@ -210,7 +240,11 @@ export const useMetadataComparison = ({
     setSelectedAliases(mergeStringArrays(cAliases, inAliases));
 
     setSelectedPublisher(remote.publisher?.trim() ? 'incoming' : 'current');
-    setSelectedReleaseYear((remote.releaseYear || remote.meta?.release_year) ? 'incoming' : 'current');
+    setSelectedReleaseYear((remote.releaseYear || remote.release_year || remote.meta?.release_year || remote.meta?.releaseYear) ? 'incoming' : 'current');
+    const inStartDate = remote.startDate || remote.start_date || remote.meta?.start_date || remote.meta?.startDate || '';
+    const inEndDate = remote.endDate || remote.end_date || remote.meta?.end_date || remote.meta?.endDate || '';
+    setSelectedStartDate(inStartDate ? 'incoming' : 'current');
+    setSelectedEndDate(inEndDate ? 'incoming' : 'current');
     setSelectedContentRating((remote.contentRating || remote.meta?.content_rating) ? 'incoming' : 'current');
     setSelectedCountry((remote.country || remote.meta?.country) ? 'incoming' : 'current');
     setSelectedReadingMode((remote.readingMode || remote.reading_mode || remote.readingDirection) ? 'incoming' : 'current');
@@ -322,10 +356,13 @@ export const useMetadataComparison = ({
     setSelectedDescription(incomingValues.description ? 'incoming' : 'current');
     setSelectedAuthorsMode(incomingValues.authors.length > 0 ? 'incoming' : 'current');
     setSelectedArtistsMode(incomingValues.artists.length > 0 ? 'incoming' : 'current');
+    setSelectedPublishersMode(incomingValues.publishers.length > 0 ? 'incoming' : 'current');
     setSelectedTags(incomingValues.tags.length > 0 ? [...incomingValues.tags] : [...currentValues.tags]);
     setSelectedAliases(mergeStringArrays(currentValues.aliases, incomingValues.aliases));
     setSelectedPublisher(incomingValues.publisher ? 'incoming' : 'current');
     setSelectedReleaseYear(incomingValues.releaseYear ? 'incoming' : 'current');
+    setSelectedStartDate(incomingValues.startDate ? 'incoming' : 'current');
+    setSelectedEndDate(incomingValues.endDate ? 'incoming' : 'current');
     setSelectedContentRating(incomingValues.contentRating ? 'incoming' : 'current');
     setSelectedCountry(incomingValues.country ? 'incoming' : 'current');
     setSelectedReadingMode(incomingValues.readingMode ? 'incoming' : 'current');
@@ -338,10 +375,13 @@ export const useMetadataComparison = ({
     setSelectedDescription('current');
     setSelectedAuthorsMode('current');
     setSelectedArtistsMode('current');
+    setSelectedPublishersMode('current');
     setSelectedTags([...currentValues.tags]);
     setSelectedAliases([...currentValues.aliases]);
     setSelectedPublisher('current');
     setSelectedReleaseYear('current');
+    setSelectedStartDate('current');
+    setSelectedEndDate('current');
     setSelectedContentRating('current');
     setSelectedCountry('current');
     setSelectedReadingMode('current');
@@ -374,6 +414,18 @@ export const useMetadataComparison = ({
       } else if (selectedArtistsMode === 'merged') {
         fieldsToPatch.artists = mergeStringArrays(currentValues.artists, incomingValues.artists);
       }
+      if (selectedPublishersMode === 'incoming') {
+        fieldsToPatch.publishers = incomingValues.publishers;
+        if (incomingValues.publishers.length > 0) {
+          fieldsToPatch.publisher = incomingValues.publishers[0];
+        }
+      } else if (selectedPublishersMode === 'merged') {
+        const mergedPubs = mergeStringArrays(currentValues.publishers, incomingValues.publishers);
+        fieldsToPatch.publishers = mergedPubs;
+        if (mergedPubs.length > 0) {
+          fieldsToPatch.publisher = mergedPubs[0];
+        }
+      }
 
       fieldsToPatch.tags = selectedTags;
       fieldsToPatch.aliases = selectedAliases;
@@ -383,6 +435,15 @@ export const useMetadataComparison = ({
       }
       if (selectedReleaseYear === 'incoming' && incomingValues.releaseYear) {
         fieldsToPatch.release_year = incomingValues.releaseYear;
+        fieldsToPatch.releaseYear = incomingValues.releaseYear;
+      }
+      if (selectedStartDate === 'incoming' && incomingValues.startDate) {
+        fieldsToPatch.start_date = incomingValues.startDate;
+        fieldsToPatch.startDate = incomingValues.startDate;
+      }
+      if (selectedEndDate === 'incoming' && incomingValues.endDate) {
+        fieldsToPatch.end_date = incomingValues.endDate;
+        fieldsToPatch.endDate = incomingValues.endDate;
       }
       if (selectedContentRating === 'incoming' && incomingValues.contentRating) {
         fieldsToPatch.content_rating = incomingValues.contentRating;
@@ -457,6 +518,8 @@ export const useMetadataComparison = ({
     setSelectedAuthorsMode,
     selectedArtistsMode,
     setSelectedArtistsMode,
+    selectedPublishersMode,
+    setSelectedPublishersMode,
     selectedExternalLinksMode,
     setSelectedExternalLinksMode,
     selectedTags,
@@ -471,6 +534,10 @@ export const useMetadataComparison = ({
     setSelectedPublisher,
     selectedReleaseYear,
     setSelectedReleaseYear,
+    selectedStartDate,
+    setSelectedStartDate,
+    selectedEndDate,
+    setSelectedEndDate,
     selectedContentRating,
     setSelectedContentRating,
     selectedCountry,

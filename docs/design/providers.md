@@ -21,7 +21,7 @@ A provider declares which capabilities it implements. A single provider may impl
 
 | Capability | Provided Functions | Example Providers |
 |---|---|---|
-| **Metadata** | Search, series details, cover art URLs, synopsis, genres, authors, aliases | AniList, MyAnimeList, Kitsu |
+| **Metadata** | Search, series details, cover art URLs, synopsis, tags, authors, aliases | AniList, MyAnimeList, Kitsu |
 | **Content** | Chapter listings, page lists, page image streams, stable chapter IDs | MangaDex, MangaFox, Local File Provider |
 | **Tracking** | Read progress synchronization, status push/pull to user accounts | MyAnimeList, AniList |
 
@@ -74,14 +74,19 @@ MangaMetadata:
   title: string
   aliases: list of string
   synopsis: string
-  author: string
-  artist: string
-  genres: list of string
+  authors: list of string
+  artists: list of string
+  tags: list of string
+  publishers: list of string
+  collections: list of string
   cover_url: string
   status: string        # ongoing, completed, hiatus, cancelled
   reading_mode: string  # rtl, ltr, vertical, longstrip
   total_chapters: integer
-```
+  start_date: string    # ISO-8601 YYYY-MM-DD
+  end_date: string      # ISO-8601 YYYY-MM-DD, empty if ongoing
+  release_year: integer # publication release year
+  country: string       # ISO-3166-1 alpha-2 (JP, KR, CN, US)
 
 ---
 

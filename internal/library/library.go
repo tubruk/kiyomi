@@ -79,7 +79,7 @@ type MangaMeta struct {
 	Tags              []string       `json:"tags"`
 	Collections       []string       `json:"collections"`
 	ContentRating     string         `json:"content_rating"`
-	Publisher         string         `json:"publisher"`
+	Publishers        []string       `json:"publishers"`
 	ReleaseYear       int            `json:"release_year"`
 	StartDate         string         `json:"start_date"`
 	EndDate           string         `json:"end_date"`
@@ -98,13 +98,48 @@ type MangaMeta struct {
 	UpdatedAt         time.Time      `json:"updated_at"`
 }
 
+// deduplicateSlice removes empty strings and duplicate entries case-insensitively while preserving original casing.
+func deduplicateSlice(items []string) []string {
+	if len(items) == 0 {
+		return items
+	}
+	result := make([]string, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if !seen[lower] {
+			seen[lower] = true
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// Normalize ensures case-insensitive set deduplication for Aliases, Tags, Publishers, Authors, Artists, and Collections.
+func (m *MangaMeta) Normalize() {
+	if m == nil {
+		return
+	}
+	m.Aliases = deduplicateSlice(m.Aliases)
+	m.Tags = deduplicateSlice(m.Tags)
+	m.Publishers = deduplicateSlice(m.Publishers)
+	m.Authors = deduplicateSlice(m.Authors)
+	m.Artists = deduplicateSlice(m.Artists)
+	m.Collections = deduplicateSlice(m.Collections)
+}
+
 // UnmarshalJSON implements custom unmarshaling for MangaMeta to support backward compatibility
-// for the deprecated top-level reading_direction field and top-level reading_mode.
+// for the deprecated top-level reading_direction field, top-level reading_mode, and single publisher field.
 func (m *MangaMeta) UnmarshalJSON(data []byte) error {
 	type Alias MangaMeta
 	aux := struct {
 		ReadingDirection string `json:"reading_direction"`
 		ReadingMode      string `json:"reading_mode"`
+		Publisher        string `json:"publisher"`
 		*Alias
 	}{
 		Alias: (*Alias)(m),
@@ -125,6 +160,10 @@ func (m *MangaMeta) UnmarshalJSON(data []byte) error {
 			m.Content.ReadingMode = aux.ReadingDirection
 		}
 	}
+	if len(m.Publishers) == 0 && aux.Publisher != "" {
+		m.Publishers = []string{aux.Publisher}
+	}
+	m.Normalize()
 	return nil
 }
 
@@ -368,6 +407,8 @@ func (l *Library) saveManga(id string, meta *MangaMeta) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("save manga %s: create dir: %w", id, err)
 	}
+
+	meta.Normalize()
 
 	if meta.AddedAt.IsZero() {
 		meta.AddedAt = time.Now()

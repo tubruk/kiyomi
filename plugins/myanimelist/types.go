@@ -63,6 +63,13 @@ type malMangaNode struct {
 	NumVolumes        int                  `json:"num_volumes"`
 	NumChapters       int                  `json:"num_chapters"`
 	Authors           []malAuthorNode      `json:"authors"`
+	Serialization     []struct {
+		Node struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"node"`
+		Role string `json:"role"`
+	} `json:"serialization"`
 	Pictures          []malPicture         `json:"pictures"`
 	Background        string               `json:"background"`
 }

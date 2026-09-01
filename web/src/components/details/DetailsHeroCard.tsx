@@ -57,6 +57,23 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
     Boolean(artistsJoined) &&
     authorsJoined.toLowerCase().trim() === artistsJoined.toLowerCase().trim();
 
+  const publishersList =
+    manga?.publishers && manga.publishers.length > 0
+      ? manga.publishers
+      : manga?.publisher
+      ? [manga.publisher]
+      : manga?.meta?.publishers || (manga?.meta?.publisher ? [manga.meta.publisher] : []);
+  const publishersJoined = publishersList.join(', ');
+
+  const releaseYearVal =
+    manga?.releaseYear || manga?.release_year || manga?.meta?.release_year || manga?.meta?.releaseYear;
+  const startDateVal =
+    manga?.startDate || manga?.start_date || manga?.meta?.start_date || manga?.meta?.startDate;
+  const endDateVal =
+    manga?.endDate || manga?.end_date || manga?.meta?.end_date || manga?.meta?.endDate;
+  const countryVal =
+    manga?.country || manga?.meta?.country;
+
   const readingModeKey = (
     manga?.content?.reading_mode ||
     manga?.meta?.content?.reading_mode ||
@@ -191,28 +208,44 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
                   {manga?.contentRating || manga?.meta?.content_rating || 'safe'}
                 </span>
               </div>
-              {manga?.publisher && (
+              {publishersJoined && (
                 <div>
                   <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                    Publisher
+                    Publisher{publishersList.length > 1 ? 's' : ''}
                   </span>
-                  <span className="font-medium text-foreground">{manga.publisher}</span>
+                  <span className="font-medium text-foreground">{publishersJoined}</span>
                 </div>
               )}
-              {manga?.releaseYear && (
+              {releaseYearVal && (
                 <div>
                   <span className="text-muted-foreground block text-[10px] uppercase font-bold">
                     Release Year
                   </span>
-                  <span className="font-medium text-foreground">{manga.releaseYear}</span>
+                  <span className="font-medium text-foreground">{releaseYearVal}</span>
                 </div>
               )}
-              {manga?.country && (
+              {startDateVal && (
+                <div>
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">
+                    Start Date
+                  </span>
+                  <span className="font-medium text-foreground">{startDateVal}</span>
+                </div>
+              )}
+              {endDateVal && (
+                <div>
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">
+                    End Date
+                  </span>
+                  <span className="font-medium text-foreground">{endDateVal}</span>
+                </div>
+              )}
+              {countryVal && (
                 <div>
                   <span className="text-muted-foreground block text-[10px] uppercase font-bold">
                     Country
                   </span>
-                  <span className="font-medium text-foreground uppercase">{manga.country}</span>
+                  <span className="font-medium text-foreground uppercase">{countryVal}</span>
                 </div>
               )}
               {extLinks.length > 0 && (

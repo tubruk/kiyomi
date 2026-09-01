@@ -94,7 +94,7 @@ describe('PluginLogsModal', () => {
     renderModal();
 
     await waitFor(() => {
-      expect(screen.getByText('MangaDex Provider Diagnostics')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /MangaDex Provider Diagnostics/i })).toBeInTheDocument();
       expect(screen.getByText('Plugin subprocess initialized successfully')).toBeInTheDocument();
     });
 

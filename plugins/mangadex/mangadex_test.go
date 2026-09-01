@@ -82,15 +82,24 @@ func TestMangaDexPlugin_SearchAndDetailsAvailability(t *testing.T) {
 					"id": "avail-1",
 					"attributes": {
 						"title": {"en": "Available Manga"},
+						"altTitles": [
+							{"ja": "アベイラブルマンガ"},
+							{"en": "Available Manga Alt"}
+						],
 						"description": {"en": "Great series"},
 						"status": "ongoing",
+						"year": 2019,
+						"publicationDemographic": "shounen",
 						"originalLanguage": "ja",
 						"availableTranslatedLanguages": ["en"],
 						"latestUploadedChapter": "ch-1",
-						"tags": []
+						"tags": [
+							{"attributes": {"name": {"en": "Action"}}}
+						]
 					},
 					"relationships": [
 						{"type": "author", "attributes": {"name": "Oda"}},
+						{"type": "artist", "attributes": {"name": "Artist San"}},
 						{"type": "cover_art", "attributes": {"fileName": "cover.jpg"}}
 					]
 				}
@@ -119,8 +128,14 @@ func TestMangaDexPlugin_SearchAndDetailsAvailability(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "avail-1", details.RemoteID)
 	assert.Equal(t, "Available Manga", details.Title)
+	assert.Equal(t, []string{"アベイラブルマンガ", "Available Manga Alt"}, details.Aliases)
 	assert.Equal(t, "Great series", details.Synopsis)
-	assert.Equal(t, "Oda", details.Author)
+	assert.Equal(t, []string{"Oda"}, details.Authors)
+	assert.Equal(t, []string{"Artist San"}, details.Artists)
+	assert.Equal(t, []string{"Action", "Shounen"}, details.Tags)
+	assert.Equal(t, 2019, details.ReleaseYear)
+	assert.Equal(t, "2019", details.StartDate)
+	assert.Equal(t, "JP", details.Country)
 	assert.Equal(t, sdk.ReadingModeRTL, details.ReadingMode)
 	assert.Equal(t, sdk.AvailabilityAvailable, details.Availability)
 
@@ -131,7 +146,7 @@ func TestMangaDexPlugin_SearchAndDetailsAvailability(t *testing.T) {
 
 	aliases, err := plug.Aliases(context.Background(), "avail-1")
 	require.NoError(t, err)
-	assert.Nil(t, aliases)
+	assert.Equal(t, []string{"アベイラブルマンガ", "Available Manga Alt"}, aliases)
 }
 
 func TestMangaDexPlugin_ReadingMode(t *testing.T) {
@@ -172,6 +187,172 @@ func TestMangaDexPlugin_ReadingMode(t *testing.T) {
 	dLong, err := plug.Details(ctx, "manga-longstrip")
 	require.NoError(t, err)
 	assert.Equal(t, sdk.ReadingModeLongstrip, dLong.ReadingMode)
+}
+
+func TestMangaDexPlugin_MetadataExpansion(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/manga/md-ja":
+			_, _ = w.Write([]byte(`{
+				"data": {
+					"id": "md-ja",
+					"attributes": {
+						"title": {"en": "Japanese Manga"},
+						"altTitles": [
+							{"ja": "日本語タイトル"},
+							{"en": "Japanese Manga Alt"},
+							{"en": "Japanese Manga"}
+						],
+						"year": 2015,
+						"originalLanguage": "ja",
+						"publicationDemographic": "seinen",
+						"tags": [
+							{"attributes": {"name": {"en": "Drama"}}},
+							{"attributes": {"name": {"en": "Mystery"}}}
+						]
+					},
+					"relationships": []
+				}
+			}`))
+		case "/manga/md-ko":
+			_, _ = w.Write([]byte(`{
+				"data": {
+					"id": "md-ko",
+					"attributes": {
+						"title": {"en": "Korean Manhwa"},
+						"altTitles": [
+							{"ko": "한국어 제목"},
+							{"en": "Korean Alt"}
+						],
+						"year": 2020,
+						"originalLanguage": "ko",
+						"publicationDemographic": "shounen",
+						"tags": [
+							{"attributes": {"name": {"en": "Action"}}}
+						]
+					},
+					"relationships": []
+				}
+			}`))
+		case "/manga/md-zh":
+			_, _ = w.Write([]byte(`{
+				"data": {
+					"id": "md-zh",
+					"attributes": {
+						"title": {"en": "Chinese Manhua"},
+						"altTitles": [
+							{"zh": "中文标题"},
+							{"zh-hk": "港版標題"}
+						],
+						"year": 2018,
+						"originalLanguage": "zh-hk",
+						"publicationDemographic": "josei",
+						"tags": [
+							{"attributes": {"name": {"en": "Romance"}}}
+						]
+					},
+					"relationships": []
+				}
+			}`))
+		case "/manga/md-en":
+			_, _ = w.Write([]byte(`{
+				"data": {
+					"id": "md-en",
+					"attributes": {
+						"title": {"en": "English Comic"},
+						"altTitles": [
+							{"en": "US Comic Alt"}
+						],
+						"year": 2022,
+						"originalLanguage": "en",
+						"publicationDemographic": "shoujo",
+						"tags": [
+							{"attributes": {"name": {"en": "Supernatural"}}}
+						]
+					},
+					"relationships": []
+				}
+			}`))
+		case "/manga/md-demographic-dedup":
+			// Case where demographic is already listed in tags (case-insensitively)
+			_, _ = w.Write([]byte(`{
+				"data": {
+					"id": "md-demographic-dedup",
+					"attributes": {
+						"title": {"en": "Dedup Manga"},
+						"originalLanguage": "ja",
+						"publicationDemographic": "shounen",
+						"tags": [
+							{"attributes": {"name": {"en": "Action"}}},
+							{"attributes": {"name": {"en": "Shounen"}}}
+						]
+					},
+					"relationships": []
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	plug := NewMangaDexPlugin()
+	plug.SetBaseURL(ts.URL)
+	ctx := context.Background()
+
+	// 1. Japanese Manga: ja -> JP, year -> 2015 ("2015"), altTitles -> aliases (deduplicated), demographic "seinen" -> "Seinen"
+	dJa, err := plug.Details(ctx, "md-ja")
+	require.NoError(t, err)
+	assert.Equal(t, "JP", dJa.Country)
+	assert.Equal(t, 2015, dJa.ReleaseYear)
+	assert.Equal(t, "2015", dJa.StartDate)
+	assert.Equal(t, []string{"日本語タイトル", "Japanese Manga Alt"}, dJa.Aliases)
+	assert.Equal(t, []string{"Drama", "Mystery", "Seinen"}, dJa.Tags)
+	assert.Equal(t, sdk.ReadingModeRTL, dJa.ReadingMode)
+
+	// Test Aliases() method returns the exact same parsed aliases
+	aliasesJa, err := plug.Aliases(ctx, "md-ja")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"日本語タイトル", "Japanese Manga Alt"}, aliasesJa)
+
+	// 2. Korean Manhwa: ko -> KR, year -> 2020 ("2020"), longstrip reading mode
+	dKo, err := plug.Details(ctx, "md-ko")
+	require.NoError(t, err)
+	assert.Equal(t, "KR", dKo.Country)
+	assert.Equal(t, 2020, dKo.ReleaseYear)
+	assert.Equal(t, "2020", dKo.StartDate)
+	assert.Equal(t, []string{"한국어 제목", "Korean Alt"}, dKo.Aliases)
+	assert.Equal(t, []string{"Action", "Shounen"}, dKo.Tags)
+	assert.Equal(t, sdk.ReadingModeLongstrip, dKo.ReadingMode)
+
+	aliasesKo, err := plug.Aliases(ctx, "md-ko")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"한국어 제목", "Korean Alt"}, aliasesKo)
+
+	// 3. Chinese Manhua: zh-hk -> CN, year -> 2018 ("2018"), longstrip reading mode
+	dZh, err := plug.Details(ctx, "md-zh")
+	require.NoError(t, err)
+	assert.Equal(t, "CN", dZh.Country)
+	assert.Equal(t, 2018, dZh.ReleaseYear)
+	assert.Equal(t, "2018", dZh.StartDate)
+	assert.Equal(t, []string{"中文标题", "港版標題"}, dZh.Aliases)
+	assert.Equal(t, []string{"Romance", "Josei"}, dZh.Tags)
+	assert.Equal(t, sdk.ReadingModeLongstrip, dZh.ReadingMode)
+
+	// 4. English Comic: en -> US, year -> 2022 ("2022")
+	dEn, err := plug.Details(ctx, "md-en")
+	require.NoError(t, err)
+	assert.Equal(t, "US", dEn.Country)
+	assert.Equal(t, 2022, dEn.ReleaseYear)
+	assert.Equal(t, "2022", dEn.StartDate)
+	assert.Equal(t, []string{"US Comic Alt"}, dEn.Aliases)
+	assert.Equal(t, []string{"Supernatural", "Shoujo"}, dEn.Tags)
+
+	// 5. Demographic deduplication with existing tag
+	dDedup, err := plug.Details(ctx, "md-demographic-dedup")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Action", "Shounen"}, dDedup.Tags)
 }
 
 func TestMangaDexPlugin_FetchChaptersAndPages(t *testing.T) {

@@ -41,6 +41,29 @@ func (m *mockBackendProvider) Search(ctx context.Context, query string, opts sdk
 }
 
 func (m *mockBackendProvider) Details(ctx context.Context, remoteID string) (sdk.MangaMetadata, error) {
+	if remoteID == "remote-expansion" {
+		return sdk.MangaMetadata{
+			RemoteID:      remoteID,
+			Title:         "Expanded Manga Title",
+			Aliases:       []string{"Expanded Alt 1", "Expanded Alt 2"},
+			CoverURL:      "https://cdn.example.com/cover-exp.jpg",
+			Synopsis:      "Detailed expansion synopsis",
+			Status:        "ongoing",
+			Authors:       []string{"Author Alpha", "Author Beta"},
+			Artists:       []string{"Artist Gamma", "Artist Delta"},
+			Tags:          []string{"Action", "Fantasy", "Supernatural"},
+			TotalChapters: 120,
+			ReadingMode:   sdk.ReadingModeLongstrip,
+			Score:         9.5,
+			URL:           "https://example.com/series/" + remoteID,
+			Availability:  sdk.AvailabilityAvailable,
+			Publishers:    []string{"Publisher Alpha", "Publisher Beta"},
+			ReleaseYear:   2023,
+			StartDate:     "2023-04-15",
+			EndDate:       "2024-05-20",
+			Country:       "KR",
+		}, nil
+	}
 	return sdk.MangaMetadata{
 		RemoteID:      remoteID,
 		Title:         "Mocked Manga Details",
@@ -48,14 +71,19 @@ func (m *mockBackendProvider) Details(ctx context.Context, remoteID string) (sdk
 		CoverURL:      "https://cdn.example.com/cover.jpg",
 		Synopsis:      "Detailed synopsis",
 		Status:        "completed",
-		Author:        "Author John",
-		Artist:        "Artist Jane",
-		Genres:        []string{"Action", "Shounen"},
+		Authors:       []string{"Author John"},
+		Artists:       []string{"Artist Jane"},
+		Tags:          []string{"Action", "Shounen"},
 		TotalChapters: 50,
 		ReadingMode:   sdk.ReadingModeRTL,
 		Score:         9.2,
 		URL:           "https://example.com/series/" + remoteID,
 		Availability:  sdk.AvailabilityAvailable,
+		Publishers:    []string{"Publisher Y"},
+		ReleaseYear:   2020,
+		StartDate:     "2020-01-01",
+		EndDate:       "2021-01-01",
+		Country:       "JP",
 	}, nil
 }
 
@@ -226,6 +254,14 @@ func TestGRPCProviderAdapter_MetadataMethods(t *testing.T) {
 	assert.Equal(t, "Mocked Manga Details", details.Title)
 	assert.Equal(t, float32(9.2), details.Score)
 	assert.Equal(t, provsdk.ReadingModeRTL, details.ReadingMode)
+	assert.Equal(t, []string{"Author John"}, details.Authors)
+	assert.Equal(t, []string{"Artist Jane"}, details.Artists)
+	assert.Equal(t, []string{"Action", "Shounen"}, details.Tags)
+	assert.Equal(t, []string{"Publisher Y"}, details.Publishers)
+	assert.Equal(t, 2020, details.ReleaseYear)
+	assert.Equal(t, "2020-01-01", details.StartDate)
+	assert.Equal(t, "2021-01-01", details.EndDate)
+	assert.Equal(t, "JP", details.Country)
 
 	// Cover
 	cover, err := adapter.Cover(ctx, "remote-100", provsdk.ImageSizeLarge)
@@ -237,6 +273,47 @@ func TestGRPCProviderAdapter_MetadataMethods(t *testing.T) {
 	aliases, err := adapter.Aliases(ctx, "remote-100")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Alt Name 1", "Alt Name 2"}, aliases)
+}
+
+func TestGRPCProviderAdapter_MetadataExpansionMapping(t *testing.T) {
+	conn, cleanup := setupBufconnClients(t)
+	defer cleanup()
+
+	metaClient := v1.NewMetadataProviderServiceClient(conn)
+	contentClient := v1.NewContentProviderServiceClient(conn)
+	trackClient := v1.NewTrackerServiceClient(conn)
+
+	desc := sdk.ProviderDescriptor{
+		ID:           "test-prov",
+		Name:         "Test Provider",
+		Capabilities: []string{"metadata"},
+	}
+
+	var activeCalls int64
+	adapter := host.NewGRPCProviderAdapter(desc, "test-plugin", "1.0.0", metaClient, contentClient, trackClient, &activeCalls)
+	ctx := context.Background()
+
+	// Details - Remote Expansion
+	details, err := adapter.Details(ctx, "remote-expansion")
+	require.NoError(t, err)
+	assert.Equal(t, "remote-expansion", details.RemoteID)
+	assert.Equal(t, "Expanded Manga Title", details.Title)
+	assert.Equal(t, []string{"Expanded Alt 1", "Expanded Alt 2"}, details.Aliases)
+	assert.Equal(t, "https://cdn.example.com/cover-exp.jpg", details.CoverURL)
+	assert.Equal(t, "Detailed expansion synopsis", details.Synopsis)
+	assert.Equal(t, "ongoing", details.Status)
+	assert.Equal(t, []string{"Author Alpha", "Author Beta"}, details.Authors)
+	assert.Equal(t, []string{"Artist Gamma", "Artist Delta"}, details.Artists)
+	assert.Equal(t, []string{"Action", "Fantasy", "Supernatural"}, details.Tags)
+	assert.Equal(t, []string{"Publisher Alpha", "Publisher Beta"}, details.Publishers)
+	assert.Equal(t, 2023, details.ReleaseYear)
+	assert.Equal(t, "2023-04-15", details.StartDate)
+	assert.Equal(t, "2024-05-20", details.EndDate)
+	assert.Equal(t, "KR", details.Country)
+	assert.Equal(t, 120, details.TotalChapters)
+	assert.Equal(t, provsdk.ReadingModeLongstrip, details.ReadingMode)
+	assert.Equal(t, float32(9.5), details.Score)
+	assert.Equal(t, provsdk.AvailabilityAvailable, details.Availability)
 }
 
 func TestGRPCProviderAdapter_ContentMethods(t *testing.T) {

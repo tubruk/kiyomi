@@ -58,14 +58,19 @@ func (m *mockProviderImpl) Details(ctx context.Context, remoteID string) (MangaM
 		CoverURL:      "https://example.com/cover.jpg",
 		Synopsis:      "A great story",
 		Status:        "ongoing",
-		Author:        "Author A",
-		Artist:        "Artist B",
-		Genres:        []string{"Action", "Fantasy"},
+		Authors:       []string{"Author A"},
+		Artists:       []string{"Artist B"},
+		Tags:          []string{"Action", "Fantasy"},
 		TotalChapters: 10,
 		ReadingMode:   ReadingModeLTR,
 		Score:         8.5,
 		URL:           "https://example.com/manga/" + remoteID,
 		Availability:  AvailabilityAvailable,
+		Publishers:    []string{"Publisher X"},
+		ReleaseYear:   2021,
+		StartDate:     "2021-01-01",
+		EndDate:       "2022-01-01",
+		Country:       "JP",
 	}, nil
 }
 
@@ -251,6 +256,14 @@ func TestGRPCMetadataProvider(t *testing.T) {
 	assert.Equal(t, "Mock Manga Details", details.Title)
 	assert.Equal(t, float32(8.5), details.Score)
 	assert.Equal(t, ReadingModeLTR, details.ReadingMode)
+	assert.Equal(t, []string{"Author A"}, details.Authors)
+	assert.Equal(t, []string{"Artist B"}, details.Artists)
+	assert.Equal(t, []string{"Action", "Fantasy"}, details.Tags)
+	assert.Equal(t, []string{"Publisher X"}, details.Publishers)
+	assert.Equal(t, 2021, details.ReleaseYear)
+	assert.Equal(t, "2021-01-01", details.StartDate)
+	assert.Equal(t, "2022-01-01", details.EndDate)
+	assert.Equal(t, "JP", details.Country)
 
 	cover, err := client.Cover(ctx, "manga-1", ImageSizeLarge)
 	require.NoError(t, err)

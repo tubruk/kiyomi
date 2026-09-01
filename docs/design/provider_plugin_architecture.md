@@ -263,30 +263,3 @@ Located under **Settings → Plugins** (`/settings/plugins`):
 4. **Hot-Reload Action**: `[ ↻ Reload Plugins ]` button calling `POST /api/v1/plugins/reload`.
 5. **Diagnostics & Log Modal**: Displays process PID, memory usage, and real-time log output stream fetched from `GET /api/v1/plugins/{id}/logs`.
 
----
-
-## 11. Phased Implementation Roadmap
-
-- **Phase 1: Plugin SDK Module & Protobuf Contracts (`plugin-sdk/`)**
-  - Create dedicated Go sub-module at `plugin-sdk/go.mod` (`module github.com/tubruk/kiyomi/plugin-sdk`).
-  - Define `const Version = "0.1.0"` in `plugin-sdk/version.go`.
-  - Create modular subpackages: `plugin-sdk/cache`, `plugin-sdk/paginator`, `plugin-sdk/errors`, `plugin-sdk/logger`.
-  - Define Protobuf specs for `PluginService`, `MetadataProvider`, `ContentProvider`, and `Tracker`.
-  - Implement gRPC client/server boilerplate & `sdk.ServePlugin(...)`.
-
-- **Phase 2: Host Plugin Manager & Log Interceptor (`internal/plugin/host`)**
-  - Integrate HashiCorp `go-plugin` host client.
-  - Build `PluginManager` with stdio log interceptor & in-memory log ring buffer (preserving nested `slog.Group` attributes).
-  - Implement dual-mode `ProviderRegistry` with version update hot-swapping & collision handling.
-
-- **Phase 3: Multi-Tier Declarative Scraper SDK & Fingerprinted Client (`plugin-sdk/scraper`, `plugin-sdk/http`)**
-  - Implement `plugin-sdk/scraper` declarative helpers.
-  - Implement `plugin-sdk/http` with uTLS TLS fingerprinting, proxy-aware HTTP transport, and rate-limiting wrappers.
-
-- **Phase 4: Hot-Reloading API & Web UI Integration**
-  - Implement `POST /api/v1/plugins/reload` and `GET /api/v1/plugins/{id}/logs` endpoints.
-  - Create `/settings/plugins` Web UI page with dynamic settings modals, provider collision resolution UI, reload action, and diagnostic log viewers.
-
-- **Phase 5: Provider Migration & Monorepo Setup**
-  - Update `go.work` to tie main app, `plugin-sdk/`, and `plugins/*`.
-  - Move standalone 1st-party providers (e.g. MangaDex/MangaFox) into `plugins/` as separate Go modules.

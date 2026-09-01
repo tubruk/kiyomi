@@ -677,14 +677,19 @@ type MangaMetadata struct {
 	CoverUrl      string                 `protobuf:"bytes,4,opt,name=cover_url,json=coverUrl,proto3" json:"cover_url,omitempty"`
 	Synopsis      string                 `protobuf:"bytes,5,opt,name=synopsis,proto3" json:"synopsis,omitempty"`
 	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	Author        string                 `protobuf:"bytes,7,opt,name=author,proto3" json:"author,omitempty"`
-	Artist        string                 `protobuf:"bytes,8,opt,name=artist,proto3" json:"artist,omitempty"`
-	Genres        []string               `protobuf:"bytes,9,rep,name=genres,proto3" json:"genres,omitempty"`
+	Authors       []string               `protobuf:"bytes,7,rep,name=authors,proto3" json:"authors,omitempty"`
+	Artists       []string               `protobuf:"bytes,8,rep,name=artists,proto3" json:"artists,omitempty"`
+	Tags          []string               `protobuf:"bytes,9,rep,name=tags,proto3" json:"tags,omitempty"`
 	TotalChapters int32                  `protobuf:"varint,10,opt,name=total_chapters,json=totalChapters,proto3" json:"total_chapters,omitempty"`
 	ReadingMode   string                 `protobuf:"bytes,11,opt,name=reading_mode,json=readingMode,proto3" json:"reading_mode,omitempty"`
 	Score         float32                `protobuf:"fixed32,12,opt,name=score,proto3" json:"score,omitempty"`
 	Url           string                 `protobuf:"bytes,13,opt,name=url,proto3" json:"url,omitempty"`
 	Availability  string                 `protobuf:"bytes,14,opt,name=availability,proto3" json:"availability,omitempty"`
+	Publishers    []string               `protobuf:"bytes,15,rep,name=publishers,proto3" json:"publishers,omitempty"`
+	ReleaseYear   int32                  `protobuf:"varint,16,opt,name=release_year,json=releaseYear,proto3" json:"release_year,omitempty"`
+	StartDate     string                 `protobuf:"bytes,17,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`
+	EndDate       string                 `protobuf:"bytes,18,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`
+	Country       string                 `protobuf:"bytes,19,opt,name=country,proto3" json:"country,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -761,23 +766,23 @@ func (x *MangaMetadata) GetStatus() string {
 	return ""
 }
 
-func (x *MangaMetadata) GetAuthor() string {
+func (x *MangaMetadata) GetAuthors() []string {
 	if x != nil {
-		return x.Author
+		return x.Authors
 	}
-	return ""
+	return nil
 }
 
-func (x *MangaMetadata) GetArtist() string {
+func (x *MangaMetadata) GetArtists() []string {
 	if x != nil {
-		return x.Artist
+		return x.Artists
 	}
-	return ""
+	return nil
 }
 
-func (x *MangaMetadata) GetGenres() []string {
+func (x *MangaMetadata) GetTags() []string {
 	if x != nil {
-		return x.Genres
+		return x.Tags
 	}
 	return nil
 }
@@ -813,6 +818,41 @@ func (x *MangaMetadata) GetUrl() string {
 func (x *MangaMetadata) GetAvailability() string {
 	if x != nil {
 		return x.Availability
+	}
+	return ""
+}
+
+func (x *MangaMetadata) GetPublishers() []string {
+	if x != nil {
+		return x.Publishers
+	}
+	return nil
+}
+
+func (x *MangaMetadata) GetReleaseYear() int32 {
+	if x != nil {
+		return x.ReleaseYear
+	}
+	return 0
+}
+
+func (x *MangaMetadata) GetStartDate() string {
+	if x != nil {
+		return x.StartDate
+	}
+	return ""
+}
+
+func (x *MangaMetadata) GetEndDate() string {
+	if x != nil {
+		return x.EndDate
+	}
+	return ""
+}
+
+func (x *MangaMetadata) GetCountry() string {
+	if x != nil {
+		return x.Country
 	}
 	return ""
 }
@@ -2620,23 +2660,31 @@ const file_plugin_proto_rawDesc = "" +
 	"\aaliases\x18\x03 \x03(\tR\aaliases\x12\x1b\n" +
 	"\tcover_url\x18\x04 \x01(\tR\bcoverUrl\x12\x10\n" +
 	"\x03url\x18\x05 \x01(\tR\x03url\x12\"\n" +
-	"\favailability\x18\x06 \x01(\tR\favailability\"\x8b\x03\n" +
+	"\favailability\x18\x06 \x01(\tR\favailability\"\xa2\x04\n" +
 	"\rMangaMetadata\x12\x1b\n" +
 	"\tremote_id\x18\x01 \x01(\tR\bremoteId\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
 	"\aaliases\x18\x03 \x03(\tR\aaliases\x12\x1b\n" +
 	"\tcover_url\x18\x04 \x01(\tR\bcoverUrl\x12\x1a\n" +
 	"\bsynopsis\x18\x05 \x01(\tR\bsynopsis\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12\x16\n" +
-	"\x06author\x18\a \x01(\tR\x06author\x12\x16\n" +
-	"\x06artist\x18\b \x01(\tR\x06artist\x12\x16\n" +
-	"\x06genres\x18\t \x03(\tR\x06genres\x12%\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12\x18\n" +
+	"\aauthors\x18\a \x03(\tR\aauthors\x12\x18\n" +
+	"\aartists\x18\b \x03(\tR\aartists\x12\x12\n" +
+	"\x04tags\x18\t \x03(\tR\x04tags\x12%\n" +
 	"\x0etotal_chapters\x18\n" +
 	" \x01(\x05R\rtotalChapters\x12!\n" +
 	"\freading_mode\x18\v \x01(\tR\vreadingMode\x12\x14\n" +
 	"\x05score\x18\f \x01(\x02R\x05score\x12\x10\n" +
 	"\x03url\x18\r \x01(\tR\x03url\x12\"\n" +
-	"\favailability\x18\x0e \x01(\tR\favailability\"\xe6\x01\n" +
+	"\favailability\x18\x0e \x01(\tR\favailability\x12\x1e\n" +
+	"\n" +
+	"publishers\x18\x0f \x03(\tR\n" +
+	"publishers\x12!\n" +
+	"\frelease_year\x18\x10 \x01(\x05R\vreleaseYear\x12\x1d\n" +
+	"\n" +
+	"start_date\x18\x11 \x01(\tR\tstartDate\x12\x19\n" +
+	"\bend_date\x18\x12 \x01(\tR\aendDate\x12\x18\n" +
+	"\acountry\x18\x13 \x01(\tR\acountry\"\xe6\x01\n" +
 	"\bImageRef\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\x05R\x05width\x12\x16\n" +

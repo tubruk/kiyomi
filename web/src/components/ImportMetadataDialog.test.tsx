@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import {
   ImportMetadataDialog,
   areArraySetsEqual,
@@ -34,8 +34,11 @@ const mockManga: Manga = {
   artists: ['Tsukasa Abe'],
   tags: ['Fantasy', 'Adventure', 'Drama'],
   aliases: ['Sousou no Frieren'],
+  publishers: ['Shogakukan'],
   publisher: 'Shogakukan',
   releaseYear: 2020,
+  startDate: '2020-04-28',
+  endDate: '',
   contentRating: 'safe',
   country: 'JP',
   readingMode: 'rtl',
@@ -59,8 +62,11 @@ const mockRemoteManga: Manga = {
   artists: ['Tsukasa Abe'],
   tags: ['Fantasy', 'Magic', 'Adventure'],
   aliases: ['Frieren the Slayer'],
+  publishers: ['VIZ Media', 'Shogakukan'],
   publisher: 'VIZ Media',
   releaseYear: 2021,
+  startDate: '2020-04-28',
+  endDate: '2024-05-15',
   contentRating: 'suggestive',
   country: 'JP',
   readingMode: 'rtl',
@@ -222,9 +228,13 @@ describe('ImportMetadataDialog', () => {
       description: 'A story of an elf mage after the hero defeated the demon king.', // identical
       authors: ['kanehito yamada'], // identical case-insensitive
       artists: ['tsukasa abe'], // identical
+      publishers: ['shogakukan'], // identical
       tags: ['drama', 'adventure', 'fantasy'], // identical unordered set
       publisher: 'shogakukan', // identical
       releaseYear: 2020, // identical
+      startDate: '2020-04-28',
+      endDate: '',
+      country: 'JP',
     });
 
     renderDialog({
@@ -244,6 +254,7 @@ describe('ImportMetadataDialog', () => {
 
     expect(screen.getByText('Title')).toBeInTheDocument();
     expect(screen.getByText('Authors')).toBeInTheDocument();
+    expect(screen.getByText('Publishers')).toBeInTheDocument();
     expect(screen.getByText('Attributes')).toBeInTheDocument();
   });
 
@@ -717,6 +728,209 @@ describe('ImportMetadataDialog', () => {
     // Now External Links section should be visible
     expect(screen.getByText('External Links')).toBeInTheDocument();
   });
+
+  it('supports multi-choice selection for publishers (Current, Incoming, Merged) and serializes correctly on confirmation', async () => {
+    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
+    vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
+      ...mockRemoteManga,
+      publishers: ['VIZ Media', 'Kodansha'],
+    });
+
+    // 1. Test Merged mode
+    const { unmount } = renderDialog({
+      initialProviderId: 'mangadex',
+      initialRemoteId: 'md-123',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Compare & Import Metadata')).toBeInTheDocument();
+    });
+
+    const publishersHeading = screen.getByText('Publishers');
+    const publishersContainer = publishersHeading.parentElement!;
+
+    // Click Merged
+    const mergedBtn = within(publishersContainer).getByRole('button', { name: /merged:/i });
+    fireEvent.click(mergedBtn);
+
+    // Submit import
+    fireEvent.click(screen.getByRole('button', { name: /import & bind provider/i }));
+
+    await waitFor(() => {
+      expect(patchSpy).toHaveBeenCalledWith(
+        'local-manga-1',
+        expect.objectContaining({
+          publishers: expect.arrayContaining(['Shogakukan', 'VIZ Media', 'Kodansha']),
+          publisher: 'VIZ Media',
+        })
+      );
+    });
+
+    unmount();
+
+    // 2. Test Incoming mode
+    const patchSpy2 = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
+    const { unmount: unmount2 } = renderDialog({
+      initialProviderId: 'mangadex',
+      initialRemoteId: 'md-123',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Compare & Import Metadata')).toBeInTheDocument();
+    });
+
+    const publishersHeading2 = screen.getByText('Publishers');
+    const publishersContainer2 = publishersHeading2.parentElement!;
+
+    // Click Incoming
+    const incomingBtn = within(publishersContainer2).getByRole('button', { name: /incoming:/i });
+    fireEvent.click(incomingBtn);
+
+    fireEvent.click(screen.getByRole('button', { name: /import & bind provider/i }));
+
+    await waitFor(() => {
+      expect(patchSpy2).toHaveBeenCalledWith(
+        'local-manga-1',
+        expect.objectContaining({
+          publishers: ['VIZ Media', 'Kodansha'],
+          publisher: 'VIZ Media',
+        })
+      );
+    });
+
+    unmount2();
+
+    // 3. Test Current mode
+    const patchSpy3 = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
+    renderDialog({
+      initialProviderId: 'mangadex',
+      initialRemoteId: 'md-123',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Compare & Import Metadata')).toBeInTheDocument();
+    });
+
+    const publishersHeading3 = screen.getByText('Publishers');
+    const publishersContainer3 = publishersHeading3.parentElement!;
+
+    // Click Current
+    const currentBtn = within(publishersContainer3).getByRole('button', { name: /current:/i });
+    fireEvent.click(currentBtn);
+
+    fireEvent.click(screen.getByRole('button', { name: /import & bind provider/i }));
+
+    await waitFor(() => {
+      expect(patchSpy3).toHaveBeenCalledWith(
+        'local-manga-1',
+        expect.not.objectContaining({
+          publishers: expect.anything(),
+        })
+      );
+    });
+  });
+
+  it('detects diffs accurately for publishers, startDate, endDate, releaseYear, and country in diff-only mode', async () => {
+    // 1. Identical data -> diff banner displayed
+    vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
+      ...mockManga,
+      id: 'remote-identical',
+    });
+
+    const { unmount } = renderDialog({
+      initialProviderId: 'mangadex',
+      initialRemoteId: 'md-123',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Compare & Import Metadata')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/all incoming metadata matches your current manga/i)).toBeInTheDocument();
+    expect(screen.queryByText('Publishers')).not.toBeInTheDocument();
+    expect(screen.queryByText('Release Year')).not.toBeInTheDocument();
+    expect(screen.queryByText('Start Date')).not.toBeInTheDocument();
+    expect(screen.queryByText('End Date')).not.toBeInTheDocument();
+    expect(screen.queryByText('Country')).not.toBeInTheDocument();
+
+    unmount();
+
+    // 2. Different publishers, dates, year, country -> respective sections rendered in Diff only
+    vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
+      ...mockManga,
+      id: 'remote-diff',
+      publishers: ['Different Publisher'],
+      startDate: '2021-01-01',
+      endDate: '2025-12-31',
+      releaseYear: 2021,
+      country: 'US',
+    });
+
+    renderDialog({
+      initialProviderId: 'mangadex',
+      initialRemoteId: 'md-123',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Compare & Import Metadata')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Publishers')).toBeInTheDocument();
+    expect(screen.getByText('Release Year')).toBeInTheDocument();
+    expect(screen.getByText('Start Date')).toBeInTheDocument();
+    expect(screen.getByText('End Date')).toBeInTheDocument();
+    expect(screen.getByText('Country')).toBeInTheDocument();
+  });
+
+  it('submits confirmation mutation with selected publishers, start_date, end_date, release_year, and country in patch payload', async () => {
+    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
+    vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
+      ...mockRemoteManga,
+      publishers: ['VIZ Media', 'Shueisha'],
+      startDate: '2020-04-28',
+      endDate: '2024-05-15',
+      releaseYear: 2021,
+      country: 'KR',
+    });
+
+    renderDialog({
+      initialProviderId: 'mangadex',
+      initialRemoteId: 'md-123',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Compare & Import Metadata')).toBeInTheDocument();
+    });
+
+    // Select merged mode for publishers
+    const publishersHeading = screen.getByText('Publishers');
+    const publishersContainer = publishersHeading.parentElement!;
+    const mergedPubBtn = within(publishersContainer).getByRole('button', { name: /merged:/i });
+    fireEvent.click(mergedPubBtn);
+
+    // Submit import
+    fireEvent.click(screen.getByRole('button', { name: /import & bind provider/i }));
+
+    await waitFor(() => {
+      expect(patchSpy).toHaveBeenCalledWith(
+        'local-manga-1',
+        expect.objectContaining({
+          publishers: expect.arrayContaining(['Shogakukan', 'VIZ Media', 'Shueisha']),
+          publisher: 'VIZ Media',
+          start_date: '2020-04-28',
+          startDate: '2020-04-28',
+          end_date: '2024-05-15',
+          endDate: '2024-05-15',
+          release_year: 2021,
+          releaseYear: 2021,
+          country: 'KR',
+        })
+      );
+    });
+  });
 });
+
 
 

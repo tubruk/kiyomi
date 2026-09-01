@@ -47,6 +47,9 @@ type mangaFixture struct {
 	CoverURL      string                  `json:"coverUrl,omitempty"`
 	Synopsis      string                  `json:"synopsis,omitempty"`
 	Status        string                  `json:"status,omitempty"`
+	Authors       []string                `json:"authors,omitempty"`
+	Artists       []string                `json:"artists,omitempty"`
+	Tags          []string                `json:"tags,omitempty"`
 	Author        string                  `json:"author,omitempty"`
 	Artist        string                  `json:"artist,omitempty"`
 	Genres        []string                `json:"genres,omitempty"`
@@ -54,6 +57,11 @@ type mangaFixture struct {
 	Score         float32                 `json:"score,omitempty"`
 	URL           string                  `json:"url,omitempty"`
 	Availability  sdk.ContentAvailability `json:"availability,omitempty"`
+	Publishers    []string                `json:"publishers,omitempty"`
+	ReleaseYear   int                     `json:"releaseYear,omitempty"`
+	StartDate     string                  `json:"startDate,omitempty"`
+	EndDate       string                  `json:"endDate,omitempty"`
+	Country       string                  `json:"country,omitempty"`
 	Chapters      []chapterFixture        `json:"chapters,omitempty"`
 }
 
@@ -195,6 +203,18 @@ func (p *Provider) Details(ctx context.Context, remoteID string) (sdk.MangaMetad
 	if m == nil {
 		return sdk.MangaMetadata{}, fmt.Errorf("mock: manga not found: %s", remoteID)
 	}
+	authors := m.Authors
+	if len(authors) == 0 && m.Author != "" {
+		authors = []string{m.Author}
+	}
+	artists := m.Artists
+	if len(artists) == 0 && m.Artist != "" {
+		artists = []string{m.Artist}
+	}
+	tags := m.Tags
+	if len(tags) == 0 && len(m.Genres) > 0 {
+		tags = m.Genres
+	}
 	return sdk.MangaMetadata{
 		RemoteID:      m.RemoteID,
 		Title:         m.Title,
@@ -202,13 +222,18 @@ func (p *Provider) Details(ctx context.Context, remoteID string) (sdk.MangaMetad
 		CoverURL:      m.CoverURL,
 		Synopsis:      m.Synopsis,
 		Status:        m.Status,
-		Author:        m.Author,
-		Artist:        m.Artist,
-		Genres:        m.Genres,
+		Authors:       authors,
+		Artists:       artists,
+		Tags:          tags,
 		TotalChapters: m.TotalChapters,
 		Score:         m.Score,
 		URL:           m.URL,
 		Availability:  m.Availability,
+		Publishers:    m.Publishers,
+		ReleaseYear:   m.ReleaseYear,
+		StartDate:     m.StartDate,
+		EndDate:       m.EndDate,
+		Country:       m.Country,
 	}, nil
 }
 

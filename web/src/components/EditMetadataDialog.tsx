@@ -4,6 +4,7 @@ import { Manga } from '../types/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { TagInput } from './ui/tag-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import {
   useEditMetadataForm,
@@ -28,24 +29,32 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
   const {
     title,
     setTitle,
-    aliasesInput,
-    setAliasesInput,
+    aliases,
+    setAliases,
     description,
     setDescription,
+    authors,
+    setAuthors,
+    artists,
+    setArtists,
+    publishers,
+    setPublishers,
     readingMode,
     setReadingMode,
     contentRating,
     setContentRating,
-    publisher,
-    setPublisher,
     releaseYear,
     setReleaseYear,
+    startDate,
+    setStartDate,
+    endDate,
+    setEndDate,
     country,
     setCountry,
-    tagsInput,
-    setTagsInput,
-    shelvesInput,
-    setShelvesInput,
+    tags,
+    setTags,
+    shelves,
+    setShelves,
     externalLinks,
     handleAddLink,
     handleRemoveLink,
@@ -82,13 +91,12 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
           {/* Aliases */}
           <div>
             <label className="text-xs font-semibold text-foreground mb-1 block">
-              Title Aliases (comma separated)
+              Title Aliases
             </label>
-            <Input
-              value={aliasesInput}
-              onChange={(e) => setAliasesInput(e.target.value)}
-              placeholder="Alternative title 1, Alternative title 2"
-              className="text-xs"
+            <TagInput
+              value={aliases}
+              onChange={setAliases}
+              placeholder="Add alternative title..."
             />
           </div>
 
@@ -102,6 +110,36 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Series synopsis..."
               className="w-full h-24 rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
+
+          {/* Authors & Artists */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">Authors</label>
+              <TagInput
+                value={authors}
+                onChange={setAuthors}
+                placeholder="Add author..."
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">Artists</label>
+              <TagInput
+                value={artists}
+                onChange={setArtists}
+                placeholder="Add artist..."
+              />
+            </div>
+          </div>
+
+          {/* Publishers */}
+          <div>
+            <label className="text-xs font-semibold text-foreground mb-1 block">Publishers</label>
+            <TagInput
+              value={publishers}
+              onChange={setPublishers}
+              placeholder="Add publisher..."
             />
           </div>
 
@@ -142,17 +180,8 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
             </div>
           </div>
 
-          {/* Publisher, Release Year, Country */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-foreground mb-1 block">Publisher</label>
-              <Input
-                value={publisher}
-                onChange={(e) => setPublisher(e.target.value)}
-                placeholder="e.g. Shueisha"
-                className="text-xs"
-              />
-            </div>
+          {/* Release Year, Dates, Country */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
               <label className="text-xs font-semibold text-foreground mb-1 block">Release Year</label>
               <Input
@@ -160,6 +189,24 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
                 value={releaseYear || ''}
                 onChange={(e) => setReleaseYear(parseInt(e.target.value) || 0)}
                 placeholder="e.g. 2020"
+                className="text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">Start Date</label>
+              <Input
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                placeholder="YYYY-MM-DD"
+                className="text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">End Date</label>
+              <Input
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                placeholder="YYYY-MM-DD"
                 className="text-xs"
               />
             </div>
@@ -178,24 +225,22 @@ export const EditMetadataDialog: React.FC<EditMetadataDialogProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-semibold text-foreground mb-1 block">
-                Tags (comma separated)
+                Tags & Genres
               </label>
-              <Input
-                value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
-                placeholder="Fantasy, Action, type:manga"
-                className="text-xs"
+              <TagInput
+                value={tags}
+                onChange={setTags}
+                placeholder="Add tag or genre..."
               />
             </div>
             <div>
               <label className="text-xs font-semibold text-foreground mb-1 block">
-                Shelves (comma separated)
+                Shelves & Collections
               </label>
-              <Input
-                value={shelvesInput}
-                onChange={(e) => setShelvesInput(e.target.value)}
-                placeholder="Favorites, Must Read"
-                className="text-xs"
+              <TagInput
+                value={shelves}
+                onChange={setShelves}
+                placeholder="Add shelf or collection..."
               />
             </div>
           </div>

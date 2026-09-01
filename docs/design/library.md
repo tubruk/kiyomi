@@ -76,9 +76,7 @@ The manga manifest defines series metadata, provider bindings, and user tracking
   "artists": ["Abe, Tsukasa"],
   "tags": ["type:manga", "demographic:shounen", "Fantasy", "Magic"],
   "collections": ["Favorites"],
-  "content_rating": "safe",
-  "publisher": "Shonen Jump",
-  "release_year": 2020,
+  "publishers": ["Shueisha", "Shonen Jump"],
   "start_date": "2020-04-06",
   "end_date": "",
   "country": "JP",
@@ -131,15 +129,11 @@ The manga manifest defines series metadata, provider bindings, and user tracking
 | `tags` | string[] | Normalized taxonomy tags (e.g. `type:manga`, `Fantasy`) |
 | `collections` | string[] | User-assigned collections / shelves (e.g. `Favorites`) |
 | `content_rating` | string | Content rating: `safe`, `suggestive`, `erotica`, `pornographic` |
-| `publisher` | string | Publishing imprint or magazine |
+| `publishers` | string[] | Publishing imprints or serialization magazines |
 | `release_year` | integer | Publication release year |
 | `start_date` | string | Publication start date (`YYYY-MM-DD`) |
 | `end_date` | string | Publication end date (`YYYY-MM-DD`) or empty if ongoing |
-| `country` | string | ISO country code of origin (`JP`, `KR`, `CN`, etc.) |
-| `cover_url` | string | Upstream remote URL for cover art fallback / refresh |
-| `external_links` | object[] | External links associated with the manga |
-| `external_links[].provider` | string | Provider or service identifier |
-| `external_links[].label` | string | Display label for the link |
+| `country` | string | ISO-3166-1 alpha-2 country code of origin (`JP`, `KR`, `CN`, `US`) |
 | `external_links[].url` | string | Target web URL |
 | `content` | object | Active content provider source configuration (optional) |
 | `content.provider_id` | string | Active content provider identifier |

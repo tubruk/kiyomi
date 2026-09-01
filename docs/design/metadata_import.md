@@ -51,7 +51,7 @@ Once a candidate is selected, Kiyomi fetches the candidate's full profile and di
    - **Default Selection**: By default, the right-hand card (new remote metadata) is **always preselected** for all fields, **unless the new remote metadata is empty/null**. In that case, the left-hand card (local metadata) is preselected to protect existing local data. The user can manually toggle the selection by clicking the opposite card.
    - The selected card gets a distinct highlighted border (e.g., `border-primary`).
 5. **Tag Merge Action & Normalization**:
-   - For tags/genres and authors, the UI offers a third action option: **"Merge Both"**. This combines unique elements from both sets.
+   - For tags and authors, the UI offers a third action option: **"Merge Both"**. This combines unique elements from both sets.
    - **Tag Normalization**: Normalization (lowercase, trim, prefix stripping) is handled directly in the provider plugin code to ensure the core merge mechanism operates on clean datasets.
 6. **Deduplicated Appends**:
    - External links use an append-and-deduplicate strategy to preserve existing trackers while adding new ones.

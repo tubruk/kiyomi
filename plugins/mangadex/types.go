@@ -23,12 +23,15 @@ type mangaDexDetailsResponse struct {
 	Data struct {
 		ID         string `json:"id"`
 		Attributes struct {
-			Title                        map[string]string `json:"title"`
-			Description                  map[string]string `json:"description"`
-			Status                       string            `json:"status"`
-			OriginalLanguage             string            `json:"originalLanguage"`
-			AvailableTranslatedLanguages []string          `json:"availableTranslatedLanguages"`
-			LatestUploadedChapter        *string           `json:"latestUploadedChapter"`
+			Title                        map[string]string   `json:"title"`
+			AltTitles                    []map[string]string `json:"altTitles"`
+			Description                  map[string]string   `json:"description"`
+			Status                       string              `json:"status"`
+			Year                         *int                `json:"year"`
+			PublicationDemographic       *string             `json:"publicationDemographic"`
+			OriginalLanguage             string              `json:"originalLanguage"`
+			AvailableTranslatedLanguages []string            `json:"availableTranslatedLanguages"`
+			LatestUploadedChapter        *string             `json:"latestUploadedChapter"`
 			Tags                         []struct {
 				Attributes struct {
 					Name map[string]string `json:"name"`

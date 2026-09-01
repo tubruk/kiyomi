@@ -122,6 +122,28 @@ func (p *MangaDexPlugin) Search(ctx context.Context, query string, opts sdk.Sear
 	return results, nil
 }
 
+func parseAltTitles(mainTitle string, altTitles []map[string]string) []string {
+	var aliases []string
+	seen := make(map[string]bool)
+	if mainTitle != "" {
+		seen[strings.ToLower(strings.TrimSpace(mainTitle))] = true
+	}
+	for _, alt := range altTitles {
+		for _, v := range alt {
+			trimmed := strings.TrimSpace(v)
+			if trimmed == "" {
+				continue
+			}
+			lower := strings.ToLower(trimmed)
+			if !seen[lower] {
+				seen[lower] = true
+				aliases = append(aliases, trimmed)
+			}
+		}
+	}
+	return aliases
+}
+
 // Details fetches manga metadata by remote ID from MangaDex.
 func (p *MangaDexPlugin) Details(ctx context.Context, remoteID string) (sdk.MangaMetadata, error) {
 	endpoint := fmt.Sprintf("%s/manga/%s?includes[]=cover_art&includes[]=author&includes[]=artist", p.getBaseURL(), remoteID)
@@ -156,26 +178,53 @@ func (p *MangaDexPlugin) Details(ctx context.Context, remoteID string) (sdk.Mang
 
 	desc := apiResp.Data.Attributes.Description["en"]
 
-	var author, artist, coverFileName string
+	var authors []string
+	var artists []string
+	var coverFileName string
+	seenAuthor := make(map[string]bool)
+	seenArtist := make(map[string]bool)
+
 	for _, rel := range apiResp.Data.Relationships {
+		name := strings.TrimSpace(rel.Attributes.Name)
 		switch rel.Type {
 		case "author":
-			author = rel.Attributes.Name
+			if name != "" && !seenAuthor[name] {
+				seenAuthor[name] = true
+				authors = append(authors, name)
+			}
 		case "artist":
-			artist = rel.Attributes.Name
+			if name != "" && !seenArtist[name] {
+				seenArtist[name] = true
+				artists = append(artists, name)
+			}
 		case "cover_art":
 			coverFileName = rel.Attributes.FileName
 		}
 	}
 
-	var genres []string
+	var tags []string
+	seenTags := make(map[string]bool)
 	hasLongStrip := false
 	for _, tag := range apiResp.Data.Attributes.Tags {
 		if tagName, ok := tag.Attributes.Name["en"]; ok && tagName != "" {
-			genres = append(genres, tagName)
+			tagName = strings.TrimSpace(tagName)
+			lower := strings.ToLower(tagName)
+			if !seenTags[lower] {
+				seenTags[lower] = true
+				tags = append(tags, tagName)
+			}
 			if strings.EqualFold(tagName, "long strip") || strings.EqualFold(tagName, "longstrip") || strings.EqualFold(tagName, "webtoon") {
 				hasLongStrip = true
 			}
+		}
+	}
+	if apiResp.Data.Attributes.PublicationDemographic != nil && *apiResp.Data.Attributes.PublicationDemographic != "" {
+		demo := strings.TrimSpace(*apiResp.Data.Attributes.PublicationDemographic)
+		lower := strings.ToLower(demo)
+		if !seenTags[lower] {
+			seenTags[lower] = true
+			formattedDemo := strings.ToUpper(demo[:1]) + strings.ToLower(demo[1:])
+			tags = append(tags, formattedDemo)
 		}
 	}
 
@@ -185,6 +234,24 @@ func (p *MangaDexPlugin) Details(ctx context.Context, remoteID string) (sdk.Mang
 		readingMode = sdk.ReadingModeLongstrip
 	} else if origLang == "ja" {
 		readingMode = sdk.ReadingModeRTL
+	}
+
+	var country string
+	if origLang == "ja" {
+		country = "JP"
+	} else if origLang == "ko" {
+		country = "KR"
+	} else if origLang == "zh" || strings.HasPrefix(origLang, "zh-") || strings.HasPrefix(origLang, "zh_") {
+		country = "CN"
+	} else if origLang == "en" {
+		country = "US"
+	}
+
+	var releaseYear int
+	var startDate string
+	if apiResp.Data.Attributes.Year != nil && *apiResp.Data.Attributes.Year > 0 {
+		releaseYear = *apiResp.Data.Attributes.Year
+		startDate = fmt.Sprintf("%d", releaseYear)
 	}
 
 	var coverURL string
@@ -208,13 +275,17 @@ func (p *MangaDexPlugin) Details(ctx context.Context, remoteID string) (sdk.Mang
 	return sdk.MangaMetadata{
 		RemoteID:     apiResp.Data.ID,
 		Title:        title,
+		Aliases:      parseAltTitles(title, apiResp.Data.Attributes.AltTitles),
 		Synopsis:     desc,
 		CoverURL:     coverURL,
 		Status:       apiResp.Data.Attributes.Status,
-		Author:       author,
-		Artist:       artist,
-		Genres:       genres,
+		Authors:      authors,
+		Artists:      artists,
+		Tags:         tags,
 		ReadingMode:  readingMode,
+		ReleaseYear:  releaseYear,
+		StartDate:    startDate,
+		Country:      country,
 		URL:          fmt.Sprintf("https://mangadex.org/title/%s", apiResp.Data.ID),
 		Availability: availability,
 	}, nil
@@ -231,5 +302,9 @@ func (p *MangaDexPlugin) Cover(ctx context.Context, remoteID string, size sdk.Im
 
 // Aliases returns alternative titles for the specified manga.
 func (p *MangaDexPlugin) Aliases(ctx context.Context, remoteID string) ([]string, error) {
-	return nil, nil
+	details, err := p.Details(ctx, remoteID)
+	if err != nil {
+		return nil, err
+	}
+	return details.Aliases, nil
 }

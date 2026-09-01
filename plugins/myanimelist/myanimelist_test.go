@@ -110,6 +110,8 @@ func TestMyAnimeListPlugin_SearchAndDetails(t *testing.T) {
 					"en": "Naruto",
 					"ja": "NARUTO -ナルト-"
 				},
+				"start_date": "1999-09-21",
+				"end_date": "2014-11-10",
 				"synopsis": "Moments prior to Naruto Uzumaki's birth...",
 				"mean": 8.06,
 				"status": "finished",
@@ -128,6 +130,15 @@ func TestMyAnimeListPlugin_SearchAndDetails(t *testing.T) {
 						},
 						"role": "Story & Art"
 					}
+				],
+				"serialization": [
+					{
+						"node": {
+							"id": 1,
+							"name": "Shounen Jump (Weekly)"
+						},
+						"role": "Serialization"
+					}
 				]
 			}`))
 		case "/manga/99":
@@ -143,6 +154,8 @@ func TestMyAnimeListPlugin_SearchAndDetails(t *testing.T) {
 					"en": "Solo Leveling",
 					"ja": "俺だけレベルアップな件"
 				},
+				"start_date": "2018-03-04",
+				"end_date": "2021-12-29",
 				"synopsis": "10 years ago...",
 				"mean": 8.67,
 				"status": "finished",
@@ -167,6 +180,75 @@ func TestMyAnimeListPlugin_SearchAndDetails(t *testing.T) {
 							"last_name": "(REDICE STUDIO)"
 						},
 						"role": "Art"
+					}
+				],
+				"serialization": [
+					{
+						"node": {
+							"id": 2,
+							"name": "KakaoPage"
+						},
+						"role": "Serialization"
+					}
+				]
+			}`))
+		case "/manga/200":
+			_, _ = w.Write([]byte(`{
+				"id": 200,
+				"title": "Tales of Demons and Gods",
+				"main_picture": {
+					"medium": "https://cdn.myanimelist.net/images/manga/1/200m.jpg",
+					"large": "https://cdn.myanimelist.net/images/manga/1/200l.jpg"
+				},
+				"alternative_titles": {
+					"synonyms": ["Yao Shen Ji"],
+					"en": "Tales of Demons and Gods",
+					"ja": "妖神记"
+				},
+				"start_date": "2015-08-25",
+				"end_date": "2023-12-31",
+				"synopsis": "Nie Li experienced death...",
+				"mean": 7.85,
+				"status": "finished",
+				"media_type": "manhua",
+				"num_chapters": 450,
+				"genres": [
+					{"id": 1, "name": "Action"},
+					{"id": 2, "name": "Fantasy"},
+					{"id": 3, "name": "Martial Arts"}
+				],
+				"authors": [
+					{
+						"node": {
+							"id": 201,
+							"first_name": "Mad Snail",
+							"last_name": ""
+						},
+						"role": "Story"
+					},
+					{
+						"node": {
+							"id": 202,
+							"first_name": "Jiang",
+							"last_name": "Ruo"
+						},
+						"role": "Art"
+					}
+				],
+				"serialization": [
+					{
+						"node": {
+							"id": 10,
+							"name": "AC.QQ"
+						},
+						"role": "Serialization"
+					},
+					{
+						"node": {
+							"id": 11,
+							"name": "KuaiKan Manhua"
+						},
+						"role": "Serialization"
 					}
 				]
 			}`))
@@ -209,9 +291,14 @@ func TestMyAnimeListPlugin_SearchAndDetails(t *testing.T) {
 	assert.Equal(t, "11", details.RemoteID)
 	assert.Equal(t, "Naruto", details.Title)
 	assert.Equal(t, "Moments prior to Naruto Uzumaki's birth...", details.Synopsis)
-	assert.Equal(t, "Masashi Kishimoto", details.Author)
-	assert.Equal(t, "Masashi Kishimoto", details.Artist)
-	assert.Equal(t, []string{"Action", "Adventure"}, details.Genres)
+	assert.Equal(t, []string{"Masashi Kishimoto"}, details.Authors)
+	assert.Equal(t, []string{"Masashi Kishimoto"}, details.Artists)
+	assert.Equal(t, []string{"Action", "Adventure"}, details.Tags)
+	assert.Equal(t, []string{"Shounen Jump (Weekly)"}, details.Publishers)
+	assert.Equal(t, 1999, details.ReleaseYear)
+	assert.Equal(t, "1999-09-21", details.StartDate)
+	assert.Equal(t, "2014-11-10", details.EndDate)
+	assert.Equal(t, "JP", details.Country)
 	assert.Equal(t, 700, details.TotalChapters)
 	assert.Equal(t, sdk.ReadingModeRTL, details.ReadingMode)
 	assert.Equal(t, float32(8.06), details.Score)
@@ -222,8 +309,30 @@ func TestMyAnimeListPlugin_SearchAndDetails(t *testing.T) {
 	assert.Equal(t, "99", detailsManhwa.RemoteID)
 	assert.Equal(t, "Solo Leveling", detailsManhwa.Title)
 	assert.Equal(t, sdk.ReadingModeLongstrip, detailsManhwa.ReadingMode)
-	assert.Equal(t, "Chugong", detailsManhwa.Author)
-	assert.Equal(t, "DUBU (REDICE STUDIO)", detailsManhwa.Artist)
+	assert.Equal(t, []string{"Chugong"}, detailsManhwa.Authors)
+	assert.Equal(t, []string{"DUBU (REDICE STUDIO)"}, detailsManhwa.Artists)
+	assert.Equal(t, []string{"Action"}, detailsManhwa.Tags)
+	assert.Equal(t, []string{"KakaoPage"}, detailsManhwa.Publishers)
+	assert.Equal(t, 2018, detailsManhwa.ReleaseYear)
+	assert.Equal(t, "2018-03-04", detailsManhwa.StartDate)
+	assert.Equal(t, "2021-12-29", detailsManhwa.EndDate)
+	assert.Equal(t, "KR", detailsManhwa.Country)
+
+	// Details - Manhua (Chinese, Longstrip)
+	detailsManhua, err := plug.Details(context.Background(), "200")
+	require.NoError(t, err)
+	assert.Equal(t, "200", detailsManhua.RemoteID)
+	assert.Equal(t, "Tales of Demons and Gods", detailsManhua.Title)
+	assert.Equal(t, sdk.ReadingModeLongstrip, detailsManhua.ReadingMode)
+	assert.Equal(t, []string{"Mad Snail"}, detailsManhua.Authors)
+	assert.Equal(t, []string{"Jiang Ruo"}, detailsManhua.Artists)
+	assert.Equal(t, []string{"Action", "Fantasy", "Martial Arts"}, detailsManhua.Tags)
+	assert.Equal(t, []string{"AC.QQ", "KuaiKan Manhua"}, detailsManhua.Publishers)
+	assert.Equal(t, 2015, detailsManhua.ReleaseYear)
+	assert.Equal(t, "2015-08-25", detailsManhua.StartDate)
+	assert.Equal(t, "2023-12-31", detailsManhua.EndDate)
+	assert.Equal(t, "CN", detailsManhua.Country)
+	assert.Equal(t, float32(7.85), detailsManhua.Score)
 
 	// Cover & Aliases
 	cover, err := plug.Cover(context.Background(), "11", sdk.ImageSizeLarge)
@@ -233,6 +342,122 @@ func TestMyAnimeListPlugin_SearchAndDetails(t *testing.T) {
 	aliases, err := plug.Aliases(context.Background(), "11")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"NARUTO -ナルト-", "NARUTO"}, aliases)
+}
+
+func TestMyAnimeListPlugin_Details_MetadataExpansion(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/manga/301":
+			// Manga: JP country, year extraction, publishers list, discrete author/artist
+			_, _ = w.Write([]byte(`{
+				"id": 301,
+				"title": "Fullmetal Alchemist",
+				"main_picture": {
+					"large": "https://cdn.myanimelist.net/images/manga/3/fma.jpg"
+				},
+				"start_date": "2001-07-12",
+				"end_date": "2010-09-11",
+				"media_type": "manga",
+				"genres": [
+					{"name": "Action"},
+					{"name": "Adventure"},
+					{"name": "Drama"}
+				],
+				"authors": [
+					{"node": {"first_name": "Hiromu", "last_name": "Arakawa"}, "role": "Story & Art"}
+				],
+				"serialization": [
+					{"node": {"name": "Shounen Gangan"}},
+					{"node": {"name": "Square Enix"}}
+				]
+			}`))
+		case "/manga/302":
+			// Manhwa: KR country, longstrip
+			_, _ = w.Write([]byte(`{
+				"id": 302,
+				"title": "Tower of God",
+				"main_picture": {
+					"large": "https://cdn.myanimelist.net/images/manga/1/tog.jpg"
+				},
+				"start_date": "2010-06-30",
+				"media_type": "manhwa",
+				"genres": [{"name": "Fantasy"}],
+				"authors": [
+					{"node": {"first_name": "SIU", "last_name": ""}, "role": "Story & Art"}
+				],
+				"serialization": [
+					{"node": {"name": "Naver Webtoon"}}
+				]
+			}`))
+		case "/manga/303":
+			// Manhua: CN country, longstrip, discrete Story & Art authors
+			_, _ = w.Write([]byte(`{
+				"id": 303,
+				"title": "Soul Land",
+				"main_picture": {
+					"large": "https://cdn.myanimelist.net/images/manga/2/sl.jpg"
+				},
+				"start_date": "2011-05-01",
+				"end_date": "2018-01-01",
+				"media_type": "manhua",
+				"genres": [{"name": "Action"}, {"name": "Fantasy"}],
+				"authors": [
+					{"node": {"first_name": "Tang Jia San", "last_name": "Shao"}, "role": "Story"},
+					{"node": {"first_name": "Mu", "last_name": "Feng Chun"}, "role": "Art"}
+				],
+				"serialization": [
+					{"node": {"name": "Zhiyin Manke"}}
+				]
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	plug := NewMyAnimeListPlugin()
+	plug.SetBaseURL(ts.URL)
+	plug.SetClientID("expansion-client-id")
+	ctx := context.Background()
+
+	// Verify Manga (JP)
+	fma, err := plug.Details(ctx, "301")
+	require.NoError(t, err)
+	assert.Equal(t, "JP", fma.Country)
+	assert.Equal(t, 2001, fma.ReleaseYear)
+	assert.Equal(t, "2001-07-12", fma.StartDate)
+	assert.Equal(t, "2010-09-11", fma.EndDate)
+	assert.Equal(t, sdk.ReadingModeRTL, fma.ReadingMode)
+	assert.Equal(t, []string{"Hiromu Arakawa"}, fma.Authors)
+	assert.Equal(t, []string{"Hiromu Arakawa"}, fma.Artists)
+	assert.Equal(t, []string{"Action", "Adventure", "Drama"}, fma.Tags)
+	assert.Equal(t, []string{"Shounen Gangan", "Square Enix"}, fma.Publishers)
+
+	// Verify Manhwa (KR)
+	tog, err := plug.Details(ctx, "302")
+	require.NoError(t, err)
+	assert.Equal(t, "KR", tog.Country)
+	assert.Equal(t, 2010, tog.ReleaseYear)
+	assert.Equal(t, "2010-06-30", tog.StartDate)
+	assert.Equal(t, "", tog.EndDate)
+	assert.Equal(t, sdk.ReadingModeLongstrip, tog.ReadingMode)
+	assert.Equal(t, []string{"SIU"}, tog.Authors)
+	assert.Equal(t, []string{"SIU"}, tog.Artists)
+	assert.Equal(t, []string{"Naver Webtoon"}, tog.Publishers)
+
+	// Verify Manhua (CN) with discrete author and artist
+	sl, err := plug.Details(ctx, "303")
+	require.NoError(t, err)
+	assert.Equal(t, "CN", sl.Country)
+	assert.Equal(t, 2011, sl.ReleaseYear)
+	assert.Equal(t, "2011-05-01", sl.StartDate)
+	assert.Equal(t, "2018-01-01", sl.EndDate)
+	assert.Equal(t, sdk.ReadingModeLongstrip, sl.ReadingMode)
+	assert.Equal(t, []string{"Tang Jia San Shao"}, sl.Authors)
+	assert.Equal(t, []string{"Mu Feng Chun"}, sl.Artists)
+	assert.Equal(t, []string{"Action", "Fantasy"}, sl.Tags)
+	assert.Equal(t, []string{"Zhiyin Manke"}, sl.Publishers)
 }
 
 func TestMyAnimeListPlugin_MissingClientID(t *testing.T) {

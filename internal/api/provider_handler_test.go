@@ -50,6 +50,7 @@ func (m *mockProvider) Search(ctx context.Context, query string, opts sdk.Search
 		{
 			RemoteID:     "mock-1",
 			Title:        "Mock Manga 1",
+			Aliases:      []string{"Mock Manga 1 Alt"},
 			CoverURL:     "https://example.com/cover1.jpg",
 			URL:          "https://example.com/manga/mock-1",
 			Availability: sdk.AvailabilityAvailable,
@@ -61,10 +62,17 @@ func (m *mockProvider) Details(ctx context.Context, remoteID string) (sdk.MangaM
 	return sdk.MangaMetadata{
 		RemoteID:     remoteID,
 		Title:        "Mock Manga Details",
+		Aliases:      []string{"Mock Manga Details Alt"},
 		Synopsis:     "Mock synopsis",
-		Author:       "Mock Author",
-		Artist:       "Mock Artist",
-		Genres:       []string{"Action", "Fantasy"},
+		Authors:      []string{"Mock Author"},
+		Artists:      []string{"Mock Artist"},
+		Tags:         []string{"Action", "Fantasy"},
+		Publishers:   []string{"Mock Publisher"},
+		ReleaseYear:  2022,
+		StartDate:    "2022-01-01",
+		EndDate:      "2023-01-01",
+		Country:      "JP",
+		Score:        8.5,
 		ReadingMode:  sdk.ReadingModeLongstrip,
 		Availability: sdk.AvailabilityAvailable,
 		URL:          "https://example.com/manga/" + remoteID,
@@ -179,6 +187,10 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		if firstManga["url"] != "https://example.com/manga/mock-1" {
 			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
 		}
+		firstAliases, ok := firstManga["aliases"].([]interface{})
+		if !ok || len(firstAliases) != 1 || firstAliases[0] != "Mock Manga 1 Alt" {
+			t.Errorf("expected manga aliases ['Mock Manga 1 Alt'], got %v", firstManga["aliases"])
+		}
 		if page, ok := resp["page"].(float64); !ok || page != 1 {
 			t.Errorf("expected page 1, got %v", resp["page"])
 		}
@@ -215,6 +227,10 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		if firstManga["url"] != "https://example.com/manga/mock-1" {
 			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
 		}
+		firstAliases, ok := firstManga["aliases"].([]interface{})
+		if !ok || len(firstAliases) != 1 || firstAliases[0] != "Mock Manga 1 Alt" {
+			t.Errorf("expected manga aliases ['Mock Manga 1 Alt'], got %v", firstManga["aliases"])
+		}
 	})
 
 	t.Run("GET /providers/testprov/popular", func(t *testing.T) {
@@ -237,6 +253,10 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		}
 		if firstManga["url"] != "https://example.com/manga/mock-1" {
 			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
+		}
+		firstAliases, ok := firstManga["aliases"].([]interface{})
+		if !ok || len(firstAliases) != 1 || firstAliases[0] != "Mock Manga 1 Alt" {
+			t.Errorf("expected manga aliases ['Mock Manga 1 Alt'], got %v", firstManga["aliases"])
 		}
 	})
 
@@ -261,6 +281,10 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		if firstManga["url"] != "https://example.com/manga/mock-1" {
 			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
 		}
+		firstAliases, ok := firstManga["aliases"].([]interface{})
+		if !ok || len(firstAliases) != 1 || firstAliases[0] != "Mock Manga 1 Alt" {
+			t.Errorf("expected manga aliases ['Mock Manga 1 Alt'], got %v", firstManga["aliases"])
+		}
 	})
 
 	t.Run("GET /providers/testprov/search", func(t *testing.T) {
@@ -283,6 +307,10 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		}
 		if firstManga["url"] != "https://example.com/manga/mock-1" {
 			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", firstManga["url"])
+		}
+		firstAliases, ok := firstManga["aliases"].([]interface{})
+		if !ok || len(firstAliases) != 1 || firstAliases[0] != "Mock Manga 1 Alt" {
+			t.Errorf("expected manga aliases ['Mock Manga 1 Alt'], got %v", firstManga["aliases"])
 		}
 	})
 
@@ -307,6 +335,41 @@ func TestProviderRoutesWithRegistry(t *testing.T) {
 		}
 		if details["url"] != "https://example.com/manga/mock-1" {
 			t.Errorf("expected url 'https://example.com/manga/mock-1', got %v", details["url"])
+		}
+		aliases, ok := details["aliases"].([]interface{})
+		if !ok || len(aliases) != 1 || aliases[0] != "Mock Manga Details Alt" {
+			t.Errorf("expected aliases ['Mock Manga Details Alt'], got %v", details["aliases"])
+		}
+		if score, ok := details["score"].(float64); !ok || score != 8.5 {
+			t.Errorf("expected score 8.5, got %v", details["score"])
+		}
+		authors, ok := details["authors"].([]interface{})
+		if !ok || len(authors) != 1 || authors[0] != "Mock Author" {
+			t.Errorf("expected authors ['Mock Author'], got %v", details["authors"])
+		}
+		artists, ok := details["artists"].([]interface{})
+		if !ok || len(artists) != 1 || artists[0] != "Mock Artist" {
+			t.Errorf("expected artists ['Mock Artist'], got %v", details["artists"])
+		}
+		tags, ok := details["tags"].([]interface{})
+		if !ok || len(tags) != 2 || tags[0] != "Action" || tags[1] != "Fantasy" {
+			t.Errorf("expected tags ['Action', 'Fantasy'], got %v", details["tags"])
+		}
+		publishers, ok := details["publishers"].([]interface{})
+		if !ok || len(publishers) != 1 || publishers[0] != "Mock Publisher" {
+			t.Errorf("expected publishers ['Mock Publisher'], got %v", details["publishers"])
+		}
+		if yr, ok := details["release_year"].(float64); !ok || yr != 2022 {
+			t.Errorf("expected release_year 2022, got %v", details["release_year"])
+		}
+		if details["start_date"] != "2022-01-01" {
+			t.Errorf("expected start_date '2022-01-01', got %v", details["start_date"])
+		}
+		if details["end_date"] != "2023-01-01" {
+			t.Errorf("expected end_date '2023-01-01', got %v", details["end_date"])
+		}
+		if details["country"] != "JP" {
+			t.Errorf("expected country 'JP', got %v", details["country"])
 		}
 	})
 
@@ -425,6 +488,21 @@ func TestImportProviderManga_PreservesChapterMeta(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &importResp); err != nil {
 		t.Fatalf("failed to decode import response: %v", err)
 	}
+	if len(importResp.Meta.Authors) != 1 || importResp.Meta.Authors[0] != "Mock Author" {
+		t.Errorf("expected import response Authors ['Mock Author'], got %v", importResp.Meta.Authors)
+	}
+	if len(importResp.Meta.Artists) != 1 || importResp.Meta.Artists[0] != "Mock Artist" {
+		t.Errorf("expected import response Artists ['Mock Artist'], got %v", importResp.Meta.Artists)
+	}
+	if len(importResp.Meta.Tags) != 2 || importResp.Meta.Tags[0] != "Action" || importResp.Meta.Tags[1] != "Fantasy" {
+		t.Errorf("expected import response Tags ['Action', 'Fantasy'], got %v", importResp.Meta.Tags)
+	}
+	if len(importResp.Meta.Publishers) != 1 || importResp.Meta.Publishers[0] != "Mock Publisher" {
+		t.Errorf("expected import response Publishers ['Mock Publisher'], got %v", importResp.Meta.Publishers)
+	}
+	if importResp.Meta.ReleaseYear != 2022 || importResp.Meta.StartDate != "2022-01-01" || importResp.Meta.EndDate != "2023-01-01" || importResp.Meta.Country != "JP" {
+		t.Errorf("unexpected import response date/country: %+v", importResp.Meta)
+	}
 	if importResp.Meta.Content == nil || importResp.Meta.Content.ReadingMode != "longstrip" {
 		t.Errorf("expected import response Content.ReadingMode 'longstrip', got %+v", importResp.Meta.Content)
 	}
@@ -505,6 +583,61 @@ func TestImportProviderManga_PreservesChapterMeta(t *testing.T) {
 	}
 	if meta["upload_date"] != "2023-11-14T22:13:20Z" {
 		t.Errorf("expected meta.upload_date '2023-11-14T22:13:20Z', got %v", meta["upload_date"])
+	}
+}
+
+func TestImportProviderManga_PersistsExpandedMetadata(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockP := &mockProvider{id: "testprov", name: "Test Provider"}
+	h.registry.Register(mockP)
+
+	body := map[string]string{
+		"provider_id": "testprov",
+		"remote_id":   "mock-1",
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/import", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on import, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify that library storage actually persisted all expanded metadata fields
+	storedMeta, err := h.lib.GetManga("mock-1")
+	if err != nil {
+		t.Fatalf("failed to retrieve stored manga from library: %v", err)
+	}
+
+	if len(storedMeta.Publishers) != 1 || storedMeta.Publishers[0] != "Mock Publisher" {
+		t.Errorf("expected stored Publishers ['Mock Publisher'], got %v", storedMeta.Publishers)
+	}
+	if storedMeta.StartDate != "2022-01-01" {
+		t.Errorf("expected stored StartDate '2022-01-01', got %q", storedMeta.StartDate)
+	}
+	if storedMeta.EndDate != "2023-01-01" {
+		t.Errorf("expected stored EndDate '2023-01-01', got %q", storedMeta.EndDate)
+	}
+	if storedMeta.Country != "JP" {
+		t.Errorf("expected stored Country 'JP', got %q", storedMeta.Country)
+	}
+	if storedMeta.ReleaseYear != 2022 {
+		t.Errorf("expected stored ReleaseYear 2022, got %d", storedMeta.ReleaseYear)
+	}
+	if len(storedMeta.Authors) != 1 || storedMeta.Authors[0] != "Mock Author" {
+		t.Errorf("expected stored Authors ['Mock Author'], got %v", storedMeta.Authors)
+	}
+	if len(storedMeta.Artists) != 1 || storedMeta.Artists[0] != "Mock Artist" {
+		t.Errorf("expected stored Artists ['Mock Artist'], got %v", storedMeta.Artists)
+	}
+	if len(storedMeta.Tags) != 2 || storedMeta.Tags[0] != "Action" || storedMeta.Tags[1] != "Fantasy" {
+		t.Errorf("expected stored Tags ['Action', 'Fantasy'], got %v", storedMeta.Tags)
+	}
+	if len(storedMeta.Aliases) != 1 || storedMeta.Aliases[0] != "Mock Manga Details Alt" {
+		t.Errorf("expected stored Aliases ['Mock Manga Details Alt'], got %v", storedMeta.Aliases)
 	}
 }
 
@@ -789,6 +922,108 @@ func TestImportProviderManga_ExternalLinks(t *testing.T) {
 			t.Errorf("expected 0 stored external links, got %d", len(stored.ExternalLinks))
 		}
 	})
+}
+
+type mockEmptyMetaProvider struct {
+	mockProvider
+}
+
+func (m *mockEmptyMetaProvider) Details(ctx context.Context, remoteID string) (sdk.MangaMetadata, error) {
+	return sdk.MangaMetadata{
+		RemoteID:     remoteID,
+		Title:        "Mock Manga Empty Details",
+		Synopsis:     "Mock synopsis",
+		Availability: sdk.AvailabilityAvailable,
+		URL:          "https://example.com/manga/" + remoteID,
+	}, nil
+}
+
+func TestProviderMangaDetails_EmptyMetadata(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockEmpty := &mockEmptyMetaProvider{mockProvider: mockProvider{id: "emptymeta", name: "Empty Meta Provider"}}
+	h.registry.Register(mockEmpty)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/emptymeta/manga/mock-empty", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var details map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if authors, ok := details["authors"].([]interface{}); !ok || len(authors) != 0 {
+		t.Errorf("expected empty authors [], got %v", details["authors"])
+	}
+	if artists, ok := details["artists"].([]interface{}); !ok || len(artists) != 0 {
+		t.Errorf("expected empty artists [], got %v", details["artists"])
+	}
+	if aliases, ok := details["aliases"].([]interface{}); !ok || len(aliases) != 0 {
+		t.Errorf("expected empty aliases [], got %v", details["aliases"])
+	}
+	if _, exists := details["score"]; exists {
+		t.Errorf("expected score to be omitted when 0, got %v", details["score"])
+	}
+}
+
+func TestProviderMangaDetails_ExpandedMetadata(t *testing.T) {
+	h, e := setupTestHandler(t)
+
+	mockP := &mockProvider{id: "fullmeta", name: "Full Meta Provider"}
+	h.registry.Register(mockP)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/fullmeta/manga/remote-42", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var details map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if details["id"] != "remote-42" {
+		t.Errorf("expected id 'remote-42', got %v", details["id"])
+	}
+	if details["title"] != "Mock Manga Details" {
+		t.Errorf("expected title 'Mock Manga Details', got %v", details["title"])
+	}
+	if details["start_date"] != "2022-01-01" {
+		t.Errorf("expected start_date '2022-01-01', got %v", details["start_date"])
+	}
+	if details["end_date"] != "2023-01-01" {
+		t.Errorf("expected end_date '2023-01-01', got %v", details["end_date"])
+	}
+	if details["country"] != "JP" {
+		t.Errorf("expected country 'JP', got %v", details["country"])
+	}
+	if yr, ok := details["release_year"].(float64); !ok || yr != 2022 {
+		t.Errorf("expected release_year 2022, got %v", details["release_year"])
+	}
+	if score, ok := details["score"].(float64); !ok || score != 8.5 {
+		t.Errorf("expected score 8.5, got %v", details["score"])
+	}
+	if authors, ok := details["authors"].([]interface{}); !ok || len(authors) != 1 || authors[0] != "Mock Author" {
+		t.Errorf("expected authors ['Mock Author'], got %v", details["authors"])
+	}
+	if artists, ok := details["artists"].([]interface{}); !ok || len(artists) != 1 || artists[0] != "Mock Artist" {
+		t.Errorf("expected artists ['Mock Artist'], got %v", details["artists"])
+	}
+	if tags, ok := details["tags"].([]interface{}); !ok || len(tags) != 2 || tags[0] != "Action" || tags[1] != "Fantasy" {
+		t.Errorf("expected tags ['Action', 'Fantasy'], got %v", details["tags"])
+	}
+	if aliases, ok := details["aliases"].([]interface{}); !ok || len(aliases) != 1 || aliases[0] != "Mock Manga Details Alt" {
+		t.Errorf("expected aliases ['Mock Manga Details Alt'], got %v", details["aliases"])
+	}
+	if publishers, ok := details["publishers"].([]interface{}); !ok || len(publishers) != 1 || publishers[0] != "Mock Publisher" {
+		t.Errorf("expected publishers ['Mock Publisher'], got %v", details["publishers"])
+	}
 }
 
 

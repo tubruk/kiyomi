@@ -117,15 +117,20 @@ func (p *MangaFoxPlugin) Details(ctx context.Context, remoteID string) (sdk.Mang
 
 	synopsis := strings.TrimSpace(doc.Find(".fullcontent, .detail-info-right-content").First().Text())
 
+	var authors []string
+	if author != "" {
+		authors = []string{author}
+	}
+
 	return sdk.MangaMetadata{
 		RemoteID:     slug,
 		Title:        title,
 		CoverURL:     coverURL,
 		Synopsis:     synopsis,
-		Author:       author,
-		Artist:       author,
+		Authors:      authors,
+		Artists:      authors,
 		Status:       status,
-		Genres:       genres,
+		Tags:         genres,
 		ReadingMode:  readingMode,
 		URL:          targetURL,
 		Availability: sdk.AvailabilityAvailable,

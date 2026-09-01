@@ -12,7 +12,7 @@ import (
 	sdk "github.com/tubruk/kiyomi/plugin-sdk"
 )
 
-const malFields = "id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,created_at,updated_at,media_type,status,genres,num_volumes,num_chapters,authors{first_name,last_name},pictures,background"
+const malFields = "id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,created_at,updated_at,media_type,status,genres,num_volumes,num_chapters,authors{first_name,last_name},pictures,background,serialization{name}"
 
 func parseAliases(node malMangaNode) []string {
 	var aliases []string
@@ -35,7 +35,7 @@ func parseAliases(node malMangaNode) []string {
 	return aliases
 }
 
-func parseAuthors(authorsList []malAuthorNode) (string, string) {
+func parseAuthors(authorsList []malAuthorNode) ([]string, []string) {
 	var authors []string
 	var artists []string
 	seenAuthor := make(map[string]bool)
@@ -62,7 +62,30 @@ func parseAuthors(authorsList []malAuthorNode) (string, string) {
 			}
 		}
 	}
-	return strings.Join(authors, ", "), strings.Join(artists, ", ")
+	return authors, artists
+}
+
+func parsePublishers(serialization []struct {
+	Node struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	} `json:"node"`
+	Role string `json:"role"`
+}) []string {
+	var publishers []string
+	seen := make(map[string]bool)
+	for _, s := range serialization {
+		name := strings.TrimSpace(s.Node.Name)
+		if name == "" {
+			continue
+		}
+		lower := strings.ToLower(name)
+		if !seen[lower] {
+			seen[lower] = true
+			publishers = append(publishers, name)
+		}
+	}
+	return publishers
 }
 
 // Search queries MyAnimeList for manga matching query or browsing mode.
@@ -188,12 +211,13 @@ func (p *MyAnimeListPlugin) Details(ctx context.Context, remoteID string) (sdk.M
 		return sdk.MangaMetadata{}, fmt.Errorf("myanimelist details decode: %w", err)
 	}
 
-	authorStr, artistStr := parseAuthors(node.Authors)
+	authors, artists := parseAuthors(node.Authors)
+	publishers := parsePublishers(node.Serialization)
 
-	var genres []string
+	var tags []string
 	for _, g := range node.Genres {
 		if g.Name != "" {
-			genres = append(genres, g.Name)
+			tags = append(tags, g.Name)
 		}
 	}
 
@@ -202,6 +226,25 @@ func (p *MyAnimeListPlugin) Details(ctx context.Context, remoteID string) (sdk.M
 	if mediaType == "manhwa" || mediaType == "manhua" {
 		readingMode = sdk.ReadingModeLongstrip
 	}
+
+	var country string
+	switch mediaType {
+	case "manhwa":
+		country = "KR"
+	case "manhua":
+		country = "CN"
+	case "manga":
+		country = "JP"
+	}
+
+	startDate := node.StartDate
+	var releaseYear int
+	if len(startDate) >= 4 {
+		if y, err := strconv.Atoi(startDate[:4]); err == nil {
+			releaseYear = y
+		}
+	}
+	endDate := node.EndDate
 
 	coverURL := node.MainPicture.Large
 	if coverURL == "" {
@@ -215,9 +258,14 @@ func (p *MyAnimeListPlugin) Details(ctx context.Context, remoteID string) (sdk.M
 		CoverURL:      coverURL,
 		Synopsis:      node.Synopsis,
 		Status:        node.Status,
-		Author:        authorStr,
-		Artist:        artistStr,
-		Genres:        genres,
+		Authors:       authors,
+		Artists:       artists,
+		Tags:          tags,
+		Publishers:    publishers,
+		ReleaseYear:   releaseYear,
+		StartDate:     startDate,
+		EndDate:       endDate,
+		Country:       country,
 		TotalChapters: node.NumChapters,
 		ReadingMode:   readingMode,
 		Score:         node.Mean,

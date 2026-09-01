@@ -231,7 +231,7 @@ The background job queue exposes endpoints for task management and monitoring un
 | **Library Maintenance** | `library_scan` | Inspects directory hierarchy, validates manifest integrity, and fixes numbering gaps. |
 | | `prune_orphans` | Removes empty or unreferenced directories from the library storage. |
 | | `library_export` | Archives downloaded chapter folders into standard `.cbz` archives. |
-| **Metadata & Media** | `metadata_refresh` | Fetches updated ratings, genres, and descriptions from metadata providers. |
+| **Metadata & Media** | `metadata_refresh` | Fetches updated ratings, tags, and descriptions from metadata providers. |
 | | `media_optimization`| Transcodes or compresses stored images (e.g. PNG to WebP) for disk efficiency. |
 | **Tracker Sync** | `tracker_sync_push`| Asynchronously sends reading progress updates to external tracking platforms. |
 | | `tracker_sync_pull`| Imports external list changes and reading state into the local library. |

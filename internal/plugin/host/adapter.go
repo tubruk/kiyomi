@@ -196,14 +196,19 @@ func (a *GRPCProviderAdapter) Details(ctx context.Context, remoteID string) (pro
 		CoverURL:      m.GetCoverUrl(),
 		Synopsis:      m.GetSynopsis(),
 		Status:        m.GetStatus(),
-		Author:        m.GetAuthor(),
-		Artist:        m.GetArtist(),
-		Genres:        m.GetGenres(),
+		Authors:       m.GetAuthors(),
+		Artists:       m.GetArtists(),
+		Tags:          m.GetTags(),
 		TotalChapters: int(m.GetTotalChapters()),
 		ReadingMode:   provsdk.ReadingMode(m.GetReadingMode()),
 		Score:         m.GetScore(),
 		URL:           m.GetUrl(),
 		Availability:  provsdk.ContentAvailability(m.GetAvailability()),
+		Publishers:    m.GetPublishers(),
+		ReleaseYear:   int(m.GetReleaseYear()),
+		StartDate:     m.GetStartDate(),
+		EndDate:       m.GetEndDate(),
+		Country:       m.GetCountry(),
 	}, nil
 }
 

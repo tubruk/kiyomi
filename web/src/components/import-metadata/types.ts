@@ -14,7 +14,10 @@ export interface MetadataValues {
   tags: string[];
   aliases: string[];
   publisher: string;
+  publishers: string[];
   releaseYear: number;
+  startDate: string;
+  endDate: string;
   contentRating: string;
   country: string;
   readingMode: string;
@@ -30,7 +33,10 @@ export interface MetadataDiffs {
   tags: boolean;
   aliases: boolean;
   publisher: boolean;
+  publishers: boolean;
   releaseYear: boolean;
+  startDate: boolean;
+  endDate: boolean;
   contentRating: boolean;
   country: boolean;
   readingMode: boolean;
