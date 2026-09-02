@@ -456,6 +456,7 @@ describe('useAddProviderSearch', () => {
           false
         );
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.manga.details('m-1') });
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.manga.all });
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.library.all });
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.chapters.list('m-1') });
         expect(showToast).toHaveBeenCalledWith('Provider "MangaDex" added', 'success');

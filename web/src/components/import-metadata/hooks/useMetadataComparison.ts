@@ -483,6 +483,7 @@ export const useMetadataComparison = ({
     },
     onSuccess: (updatedManga) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(manga.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(manga.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.providers(manga.id) });

@@ -104,4 +104,36 @@ describe('useDetailsManga', () => {
     expect(result.current.manga?.title).toBe('Bleach');
     expect(result.current.chapters.length).toBe(1);
   });
+
+  it('resolves remote explore manga as in-library when libraryMangaId is present in provider details', () => {
+    vi.mocked(router.useLocation).mockReturnValue({ pathname: '/providers/mangadex/manga/md-frieren' } as any);
+    vi.mocked(router.useParams).mockReturnValue({ providerId: 'mangadex', remoteId: 'md-frieren' });
+    vi.mocked(query.useQuery).mockReturnValue({ data: [] } as any);
+
+    vi.mocked(hooks.useLibraryManga).mockReturnValue({ data: [] } as any);
+    vi.mocked(hooks.useMangaDetails).mockReturnValue({ data: undefined, isLoading: false } as any);
+    vi.mocked(hooks.useProviderMangaDetails).mockReturnValue({
+      data: { id: 'md-frieren', title: 'Frieren', sourceId: 'mangadex', libraryMangaId: 'lib-1' },
+      isLoading: false,
+    } as any);
+    vi.mocked(hooks.useSources).mockReturnValue({
+      data: [{ id: 'mangadex', name: 'MangaDex' }],
+    } as any);
+    vi.mocked(hooks.useChapterList).mockReturnValue({
+      data: { chapters: [{ id: 'f-1', number: 1, title: 'Frieren 1' }] },
+      isLoading: false,
+      isError: false,
+    } as any);
+    vi.mocked(hooks.useProviderChapterList).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+    } as any);
+
+    const { result } = renderHook(() => useDetailsManga());
+
+    expect(result.current.isRemoteRoute).toBe(true);
+    expect(result.current.isInLibrary).toBe(true);
+    expect(result.current.targetMangaId).toBe('lib-1');
+  });
 });

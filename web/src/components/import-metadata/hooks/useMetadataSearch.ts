@@ -111,8 +111,16 @@ export const useMetadataSearch = ({
   const directLookupMutation = useMutation({
     mutationFn: async (idOrUrl: string) => {
       if (!selectedProviderId) throw new Error('No provider selected');
-      if (!idOrUrl.trim()) throw new Error('Please enter a Remote ID or URL');
-      return api.getProviderMangaDetails(selectedProviderId, idOrUrl.trim());
+      const input = idOrUrl.trim();
+      if (!input) throw new Error('Please enter a Remote ID or URL');
+      // If it looks like a URL, treat it as a search query — provider's Search()
+      // handles URL detection and extraction internally.
+      if (/^https?:\/\//i.test(input)) {
+        const results = await api.searchManga(selectedProviderId, input);
+        if (!results.mangas?.length) throw new Error('No results found for URL');
+        return results.mangas[0];
+      }
+      return api.getProviderMangaDetails(selectedProviderId, input);
     },
     onSuccess: (mangaResult) => {
       setSearchError(null);

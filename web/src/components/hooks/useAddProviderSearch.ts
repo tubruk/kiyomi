@@ -92,6 +92,7 @@ export function useAddProviderSearch({
     },
     onSuccess: (manga) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(mangaId) });
       const name = sources.find((s) => s.id === selectedProviderId)?.name;

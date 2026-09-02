@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -339,6 +340,14 @@ func (h *Handler) getProviderMangaDetails(c echo.Context) error {
 		details["availability"] = meta.Availability
 	}
 
+	if h.lib != nil {
+		if boundID, lookupErr := h.findLibraryBindingID(c.Request().Context(), providerID, remoteID); lookupErr != nil {
+			c.Logger().Errorf("library binding lookup failed: %v", lookupErr)
+		} else if boundID != "" {
+			details["libraryMangaId"] = boundID
+		}
+	}
+
 	return c.JSON(http.StatusOK, details)
 }
 
@@ -511,6 +520,30 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		"id":   localID,
 		"meta": mangaMeta,
 	})
+}
+
+// findLibraryBindingID returns the library manga id bound to (providerID, remoteID),
+// or "" if no library manga has that binding. Matches the primary ContentSource
+// or any entry in Providers[].
+func (h *Handler) findLibraryBindingID(ctx context.Context, providerID, remoteID string) (string, error) {
+	mangas, err := h.lib.ListManga()
+	if err != nil {
+		return "", err
+	}
+	for _, m := range mangas {
+		meta := m.Meta
+		if meta.Content != nil &&
+			meta.Content.ProviderID == providerID &&
+			meta.Content.ProviderMangaID == remoteID {
+			return m.ID, nil
+		}
+		for _, p := range meta.Providers {
+			if p.ProviderID == providerID && p.ProviderMangaID == remoteID {
+				return m.ID, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 func handleProviderError(c echo.Context, providerID string, err error) error {

@@ -121,6 +121,10 @@ export interface Manga {
   content?: ContentSource;
   availability?: ContentAvailability;
   meta?: MangaMeta;
+  // Only populated by useProviderMangaDetails (GET /providers/:providerId/manga/:remoteId).
+  // The id of the bound library manga entry if this provider item is linked to the library;
+  // null or absent if the provider item is not yet in the library.
+  libraryMangaId?: string | null;
 }
 
 export interface ChapterMeta {

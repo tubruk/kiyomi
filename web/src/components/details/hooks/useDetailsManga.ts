@@ -59,16 +59,17 @@ export function useDetailsManga(options: UseDetailsMangaOptions = {}): UseDetail
   // 1. Fetch Library List to check if in Library
   const { data: libraryManga = [] } = useLibraryManga();
 
+  // Fetch remote manga details early so libraryEntry can access libraryMangaId
+  const { data: remoteDetailsManga, isLoading: isRemoteMangaLoading } = useProviderMangaDetails(
+    providerIdParam,
+    remoteIdParam,
+    { enabled: isRemoteRoute && Boolean(providerIdParam && remoteIdParam) }
+  );
+
   const libraryEntry = isRemoteRoute
-    ? libraryManga.find(
-        (m) =>
-          (m.contentProviderId === providerIdParam ||
-            m.sourceId === providerIdParam ||
-            m.meta?.content?.provider_id === providerIdParam) &&
-          (m.contentRemoteId === remoteIdParam ||
-            m.id === remoteIdParam ||
-            m.meta?.content?.provider_manga_id === remoteIdParam)
-      )
+    ? remoteDetailsManga?.libraryMangaId
+      ? ({ id: remoteDetailsManga.libraryMangaId } as Manga)
+      : undefined
     : libraryManga.find((m) => m.id === params.mangaId);
 
   const isInLibrary = Boolean(libraryEntry);
@@ -97,12 +98,6 @@ export function useDetailsManga(options: UseDetailsMangaOptions = {}): UseDetail
   const { data: localDetailsManga, isLoading: isLocalMangaLoading } = useMangaDetails(targetMangaId, {
     enabled: !isRemoteRoute && Boolean(targetMangaId),
   });
-
-  const { data: remoteDetailsManga, isLoading: isRemoteMangaLoading } = useProviderMangaDetails(
-    providerIdParam,
-    remoteIdParam,
-    { enabled: isRemoteRoute && Boolean(providerIdParam && remoteIdParam) }
-  );
 
   const manga = isRemoteRoute ? remoteDetailsManga : localDetailsManga;
   const isMangaLoading = isRemoteRoute ? isRemoteMangaLoading : isLocalMangaLoading;

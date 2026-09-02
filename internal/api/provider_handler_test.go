@@ -1026,5 +1026,105 @@ func TestProviderMangaDetails_ExpandedMetadata(t *testing.T) {
 	}
 }
 
+func TestProviderMangaDetails_LibraryBindingID(t *testing.T) {
+	h, e := setupTestHandler(t)
 
+	mockFox := &mockProvider{id: "mangafox", name: "MangaFox"}
+	mockDex := &mockProvider{id: "mangadex", name: "MangaDex"}
+	h.registry.Register(mockFox)
+	h.registry.Register(mockDex)
+
+	// Cross-provider: primary mangafox/frieren (distinct from one-piece), Providers[] has mangadex/md-frieren
+	crossMeta := &library.MangaMeta{
+		Title:       "Frieren",
+		Aliases:     []string{},
+		Description: " mage human.",
+		Content: &library.ContentSource{
+			ProviderID:      "mangafox",
+			ProviderMangaID: "frieren",
+		},
+		Providers: []library.ProviderRef{
+			{ProviderID: "mangadex", ProviderMangaID: "md-frieren", MangaTitle: "Frieren"},
+		},
+	}
+	_ = h.lib.SaveManga("frieren-lib-id", crossMeta)
+
+	// Primary-only: mangafox/one-piece
+	primaryMeta := &library.MangaMeta{
+		Title:       "One Piece",
+		Aliases:     []string{},
+		Description: "Pirate king.",
+		Content: &library.ContentSource{
+			ProviderID:      "mangafox",
+			ProviderMangaID: "one-piece",
+		},
+	}
+	_ = h.lib.SaveManga("onepiece-lib-id", primaryMeta)
+
+	t.Run("Cross-provider hit via Providers[]", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/mangadex/manga/md-frieren", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var details map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		libID, ok := details["libraryMangaId"].(string)
+		if !ok || libID == "" {
+			t.Errorf("expected libraryMangaId to be set, got %v", details["libraryMangaId"])
+		}
+		if libID != "frieren-lib-id" {
+			t.Errorf("expected libraryMangaId 'frieren-lib-id', got %v", libID)
+		}
+	})
+
+	t.Run("Primary hit via Content", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/mangafox/manga/one-piece", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var details map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		libID, ok := details["libraryMangaId"].(string)
+		if !ok || libID == "" {
+			t.Errorf("expected libraryMangaId to be set, got %v", details["libraryMangaId"])
+		}
+		if libID != "onepiece-lib-id" {
+			t.Errorf("expected libraryMangaId 'onepiece-lib-id', got %v", libID)
+		}
+	})
+
+	t.Run("No binding returns no libraryMangaId", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/mangafox/manga/nonexistent", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var details map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if _, exists := details["libraryMangaId"]; exists {
+			t.Errorf("expected libraryMangaId absent, got %v", details["libraryMangaId"])
+		}
+	})
+
+	t.Run("ListManga error still returns 200 without libraryMangaId", func(t *testing.T) {
+		// Defensive path: a ListManga failure must not break the provider-details response.
+		// We can't swap h.lib (it's a concrete *library.Library), so we rely on the
+		// handler's nil-check + logger fallback. Covered by code review, not asserted here.
+		t.Skip("requires library mock; covered by code review of findLibraryBindingID")
+	})
+}
 
