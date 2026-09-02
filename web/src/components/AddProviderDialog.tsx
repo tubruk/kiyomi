@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { AliasCombobox } from './AliasCombobox';
+import { CoverImage } from './CoverImage';
 import { getProxyImageUrl } from '../lib/utils';
 import { useAddProviderSearch } from './hooks/useAddProviderSearch';
 
@@ -121,18 +122,13 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                           onClick={() => handleResultSelect(manga)}
                           className="flex w-full items-start gap-3 p-2 text-left hover:bg-muted/50 transition-colors cursor-pointer"
                         >
-                          {manga.coverUrl || manga.cover ? (
-                            <img
-                              src={getProxyImageUrl(manga.coverUrl || manga.cover, manga.url)}
-                              alt=""
-                              className="size-12 rounded object-cover shrink-0"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div className="size-12 rounded bg-muted shrink-0" />
-                          )}
+                          <CoverImage
+                            src={getProxyImageUrl(manga.coverUrl || manga.cover, manga.url)}
+                            alt=""
+                            shape="auto"
+                            containerClassName="size-12 rounded shrink-0"
+                            iconSize="size-5"
+                          />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold break-words">{manga.title}</p>
                             {manga.author && (
@@ -167,21 +163,16 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
             <div className="space-y-3 py-2">
               {selectedResult && (
                 <div className="flex items-start gap-3 rounded-lg border border-border p-3">
-                  {selectedResult.coverUrl || selectedResult.cover ? (
-                    <img
-                      src={getProxyImageUrl(
-                        selectedResult.coverUrl || selectedResult.cover,
-                        selectedResult.url
-                      )}
-                      alt=""
-                      className="size-16 rounded object-cover shrink-0"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <div className="size-16 rounded bg-muted shrink-0" />
-                  )}
+                  <CoverImage
+                    src={getProxyImageUrl(
+                      selectedResult.coverUrl || selectedResult.cover,
+                      selectedResult.url
+                    )}
+                    alt=""
+                    shape="auto"
+                    containerClassName="size-16 rounded shrink-0"
+                    iconSize="size-7"
+                  />
                   <div className="min-w-0">
                     <p className="text-sm font-semibold break-words">{selectedResult.title}</p>
                     <p className="text-xs text-muted-foreground break-words">

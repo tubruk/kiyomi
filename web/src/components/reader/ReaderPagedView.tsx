@@ -91,6 +91,8 @@ export const ReaderPagedView: React.FC<ReaderPagedViewProps> = ({
               const fallbackUrl = getProxyImageUrl(prevPageData.url, mangaUrl);
               if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
                 e.currentTarget.src = fallbackUrl;
+              } else {
+                e.currentTarget.style.display = 'none';
               }
             }}
           />
@@ -119,6 +121,8 @@ export const ReaderPagedView: React.FC<ReaderPagedViewProps> = ({
               const fallbackUrl = getProxyImageUrl(nextPageData.url, mangaUrl);
               if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
                 e.currentTarget.src = fallbackUrl;
+              } else {
+                e.currentTarget.style.display = 'none';
               }
             }}
           />
@@ -147,6 +151,8 @@ export const ReaderPagedView: React.FC<ReaderPagedViewProps> = ({
         const fallbackUrl = getProxyImageUrl(currentPageData.url, mangaUrl);
         if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
           e.currentTarget.src = fallbackUrl;
+        } else {
+          e.currentTarget.style.display = 'none';
         }
       }}
     />

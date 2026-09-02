@@ -10,7 +10,7 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
 }));
 
-describe('MangaCard and LibraryMangaCard image fallbacks', () => {
+describe('MangaCard and LibraryMangaCard cover image fallbacks', () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
@@ -22,7 +22,7 @@ describe('MangaCard and LibraryMangaCard image fallbacks', () => {
     vi.restoreAllMocks();
   });
 
-  it('MangaCard uses proxied cover url and falls back safely to placeholder on error', () => {
+  it('MangaCard uses proxied cover url and hides the img (revealing the icon placeholder) on error', () => {
     const manga: Manga = {
       id: 'local-1',
       title: 'Manga Test',
@@ -36,14 +36,14 @@ describe('MangaCard and LibraryMangaCard image fallbacks', () => {
     expect(img.src).toContain('/api/v1/proxy/image');
     expect(img.src).toContain(encodeURIComponent('https://example.com/cover.jpg'));
 
-    // Trigger error on proxied image
+    // Trigger error on proxied image — img gets hidden, icon placeholder remains.
     fireEvent.error(img);
-    expect(img.src).toContain('/placeholder.jpg');
+    expect(img.style.display).toBe('none');
     // Ensure it NEVER points to raw remote URL
     expect(img.src).not.toBe('https://example.com/cover.jpg');
   });
 
-  it('MangaCard falls back to proxied url if coverAssetUrl fails, then placeholder', () => {
+  it('MangaCard falls back to proxied url if coverAssetUrl fails, then hides the img on second failure', () => {
     const manga: Manga = {
       id: 'local-1',
       title: 'Manga Test',
@@ -53,20 +53,22 @@ describe('MangaCard and LibraryMangaCard image fallbacks', () => {
     };
 
     const { container } = render(<MangaCard manga={manga} />);
-    const img = container.querySelector('img') as HTMLImageElement;
-    expect(img.src).toContain('/api/v1/library/manga/local-1/cover');
+    const initialImg = container.querySelector('img') as HTMLImageElement;
+    expect(initialImg.src).toContain('/api/v1/library/manga/local-1/cover');
 
-    // First error on coverAssetUrl -> fallback to proxied URL
-    fireEvent.error(img);
-    expect(img.src).toContain('/api/v1/proxy/image');
+    // First error on coverAssetUrl -> CoverImage swaps src to proxied URL and remounts the img.
+    fireEvent.error(initialImg);
+    const fallbackImg = container.querySelector('img') as HTMLImageElement;
+    expect(fallbackImg.src).toContain('/api/v1/proxy/image');
+    expect(fallbackImg.src).not.toBe('https://example.com/cover.jpg');
 
-    // Second error on proxied URL -> fallback to placeholder
-    fireEvent.error(img);
-    expect(img.src).toContain('/placeholder.jpg');
-    expect(img.src).not.toBe('https://example.com/cover.jpg');
+    // Second error on proxied URL -> img hidden, icon placeholder remains.
+    fireEvent.error(fallbackImg);
+    expect(fallbackImg.style.display).toBe('none');
+    expect(fallbackImg.src).not.toBe('https://example.com/cover.jpg');
   });
 
-  it('LibraryMangaCard uses proxied cover url and falls back safely to placeholder on error', () => {
+  it('LibraryMangaCard uses proxied cover url and hides the img on error', () => {
     const manga: Manga = {
       id: 'local-1',
       title: 'Manga Test',
@@ -85,7 +87,7 @@ describe('MangaCard and LibraryMangaCard image fallbacks', () => {
 
     // Trigger error on proxied image
     fireEvent.error(img);
-    expect(img.src).toContain('/placeholder.jpg');
+    expect(img.style.display).toBe('none');
     expect(img.src).not.toBe('https://example.com/cover.jpg');
   });
 });

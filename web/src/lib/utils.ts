@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function getProxyImageUrl(url?: string, referer?: string): string {
-  if (!url) return '/placeholder.jpg';
+  if (!url) return '';
   if (url.startsWith('/') || url.startsWith('data:') || url.startsWith('blob:')) {
     return url;
   }
@@ -24,7 +24,7 @@ export function getPageImageUrl(
   providerId?: string,
   referer?: string
 ): string {
-  if (!page) return '/placeholder.jpg';
+  if (!page) return '';
   if (page.assetUrl) {
     return page.assetUrl;
   }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image as ImageIcon } from 'lucide-react';
 import { cn, getProxyImageUrl } from '../../../lib/utils';
+import { CoverImage } from '../../CoverImage';
 import { Choice } from '../types';
 
 interface MetadataCoverCompareProps {
@@ -41,20 +42,14 @@ export const MetadataCoverCompare: React.FC<MetadataCoverCompareProps> = ({
               : 'border-border bg-card hover:bg-muted/40'
           )}
         >
-          {currentCoverUrl ? (
-            <img
-              src={currentCoverAssetUrl || getProxyImageUrl(currentCoverUrl, mangaUrl)}
-              alt=""
-              className="w-16 h-24 rounded-md object-cover shrink-0 bg-muted shadow-xs"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          ) : (
-            <div className="w-16 h-24 rounded-md bg-muted flex items-center justify-center shrink-0">
-              <ImageIcon className="size-6 text-muted-foreground" />
-            </div>
-          )}
+          <CoverImage
+            src={currentCoverAssetUrl || (currentCoverUrl ? getProxyImageUrl(currentCoverUrl, mangaUrl) : undefined)}
+            alt=""
+            icon="image"
+            shape="auto"
+            containerClassName="w-16 h-24 rounded-md shrink-0 shadow-xs"
+            iconSize="size-6"
+          />
           <div className="min-w-0 space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               Keep Current
@@ -73,20 +68,14 @@ export const MetadataCoverCompare: React.FC<MetadataCoverCompareProps> = ({
               : 'border-border bg-card hover:bg-muted/40'
           )}
         >
-          {incomingCoverUrl ? (
-            <img
-              src={getProxyImageUrl(incomingCoverUrl, remoteMangaUrl)}
-              alt=""
-              className="w-16 h-24 rounded-md object-cover shrink-0 bg-muted shadow-xs"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          ) : (
-            <div className="w-16 h-24 rounded-md bg-muted flex items-center justify-center shrink-0">
-              <ImageIcon className="size-6 text-muted-foreground" />
-            </div>
-          )}
+          <CoverImage
+            src={incomingCoverUrl ? getProxyImageUrl(incomingCoverUrl, remoteMangaUrl) : undefined}
+            alt=""
+            icon="image"
+            shape="auto"
+            containerClassName="w-16 h-24 rounded-md shrink-0 shadow-xs"
+            iconSize="size-6"
+          />
           <div className="min-w-0 space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
               Use Incoming

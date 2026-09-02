@@ -180,7 +180,7 @@ describe('LibraryMangaCard', () => {
     expect(img.src).toContain(encodeURIComponent('https://mangadex.org/title/manga-1'));
   });
 
-  it('image onError falls back safely from coverAssetUrl to proxied URL, then placeholder without leaking raw upstream URL', () => {
+  it('image onError falls back safely from coverAssetUrl to proxied URL, then hides the img without leaking raw upstream URL', () => {
     const { container } = renderCard({
       manga: {
         ...mockManga,
@@ -190,21 +190,22 @@ describe('LibraryMangaCard', () => {
       },
     });
 
-    const img = container.querySelector('img') as HTMLImageElement;
-    expect(img.src).toContain('/api/v1/library/manga/manga-1/cover');
+    const initialImg = container.querySelector('img') as HTMLImageElement;
+    expect(initialImg.src).toContain('/api/v1/library/manga/manga-1/cover');
 
-    // 1st error on coverAssetUrl -> fallback to proxied URL
-    fireEvent.error(img);
-    expect(img.src).toContain('/api/v1/proxy/image');
-    expect(img.src).not.toBe('https://example.com/cover.jpg');
+    // 1st error on coverAssetUrl -> CoverImage swaps src to proxied URL and remounts the img.
+    fireEvent.error(initialImg);
+    const fallbackImg = container.querySelector('img') as HTMLImageElement;
+    expect(fallbackImg.src).toContain('/api/v1/proxy/image');
+    expect(fallbackImg.src).not.toBe('https://example.com/cover.jpg');
 
-    // 2nd error on proxied URL -> fallback to placeholder
-    fireEvent.error(img);
-    expect(img.src).toContain('/placeholder.jpg');
-    expect(img.src).not.toBe('https://example.com/cover.jpg');
+    // 2nd error on proxied URL -> img hidden, icon placeholder remains
+    fireEvent.error(fallbackImg);
+    expect(fallbackImg.style.display).toBe('none');
+    expect(fallbackImg.src).not.toBe('https://example.com/cover.jpg');
   });
 
-  it('image onError falls back directly to placeholder when no coverAssetUrl and proxied URL fails', () => {
+  it('image onError hides the img directly when no coverAssetUrl and proxied URL fails', () => {
     const { container } = renderCard({
       manga: {
         ...mockManga,
@@ -217,9 +218,9 @@ describe('LibraryMangaCard', () => {
     const img = container.querySelector('img') as HTMLImageElement;
     expect(img.src).toContain('/api/v1/proxy/image');
 
-    // Error on proxied URL -> fallback to placeholder
+    // Error on proxied URL -> img hidden, icon placeholder remains
     fireEvent.error(img);
-    expect(img.src).toContain('/placeholder.jpg');
+    expect(img.style.display).toBe('none');
     expect(img.src).not.toBe('https://example.com/cover.jpg');
   });
 

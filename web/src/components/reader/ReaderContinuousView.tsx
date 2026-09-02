@@ -93,6 +93,8 @@ export const ReaderContinuousView: React.FC<ReaderContinuousViewProps> = ({
                   const fallbackUrl = getProxyImageUrl(p.url, mangaUrl);
                   if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
                     e.currentTarget.src = fallbackUrl;
+                  } else {
+                    e.currentTarget.style.display = 'none';
                   }
                 }}
               />
@@ -117,6 +119,8 @@ export const ReaderContinuousView: React.FC<ReaderContinuousViewProps> = ({
                 const fallbackUrl = getProxyImageUrl(p.url, mangaUrl);
                 if (fallbackUrl && e.currentTarget.src !== fallbackUrl) {
                   e.currentTarget.src = fallbackUrl;
+                } else {
+                  e.currentTarget.style.display = 'none';
                 }
               }}
             />

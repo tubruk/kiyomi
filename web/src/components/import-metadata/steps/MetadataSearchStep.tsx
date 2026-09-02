@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Loader2, Link as LinkIcon, BookOpen } from 'lucide-react';
+import { Search, Loader2, Link as LinkIcon } from 'lucide-react';
 import { Manga, Source, ProviderRef } from '../../../types/api';
 import { SearchMode } from '../types';
 import {
@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '../../ui/select';
 import { AliasCombobox } from '../../AliasCombobox';
+import { CoverImage } from '../../CoverImage';
 import { cn, getProxyImageUrl } from '../../../lib/utils';
 
 interface MetadataSearchStepProps {
@@ -212,20 +213,13 @@ export const MetadataSearchStep: React.FC<MetadataSearchStepProps> = ({
                 onClick={() => onSelectSearchResult(m)}
                 className="flex w-full items-start gap-3.5 p-3 text-left hover:bg-muted/50 transition-colors cursor-pointer"
               >
-                {m.coverUrl || m.cover ? (
-                  <img
-                    src={getProxyImageUrl(m.coverUrl || m.cover, m.url)}
-                    alt=""
-                    className="w-12 h-16 rounded object-cover shrink-0 bg-muted shadow-xs"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <div className="w-12 h-16 rounded bg-muted flex items-center justify-center shrink-0">
-                    <BookOpen className="size-5 text-muted-foreground" />
-                  </div>
-                )}
+                <CoverImage
+                  src={getProxyImageUrl(m.coverUrl || m.cover, m.url)}
+                  alt=""
+                  shape="auto"
+                  containerClassName="w-12 h-16 rounded shrink-0 shadow-xs"
+                  iconSize="size-5"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold break-words line-clamp-1">{m.title}</p>
                   <p className="text-[11px] text-muted-foreground truncate mt-0.5">

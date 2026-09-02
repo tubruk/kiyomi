@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { Manga } from '../../types/api';
 import { Card } from '../ui/card';
-import { Skeleton } from '../ui/skeleton';
+import { CoverImage } from '../CoverImage';
 import { GenrePill } from '../GenrePill';
 import { getProxyImageUrl } from '../../lib/utils';
 
@@ -30,8 +30,8 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
 }) => {
   const [showDetailedMetadata, setShowDetailedMetadata] = useState(false);
 
-  const coverSrc =
-    manga?.coverAssetUrl || getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
+  const proxied = getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
+  const coverSrc = manga?.coverAssetUrl || proxied;
 
   const filteredAliases = (manga?.aliases || manga?.meta?.aliases || []).filter(
     (alias) => alias.toLowerCase().trim() !== (manga?.title || '').toLowerCase().trim()
@@ -94,28 +94,15 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
       {/* Left Column: Cover & User Metadata */}
       <div className="flex flex-col gap-4">
         <div className="overflow-hidden rounded-lg bg-muted shadow-md">
-          {isMangaLoading ? (
-            <Skeleton className="aspect-[2/3] w-full" />
-          ) : (
-            <img
-              src={coverSrc}
-              alt={manga?.title || 'Manga Cover'}
-              className="aspect-[2/3] w-full object-cover"
-              onError={(e) => {
-                const proxied = getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
-                if (
-                  manga?.coverAssetUrl &&
-                  e.currentTarget.src.includes(manga.coverAssetUrl) &&
-                  proxied &&
-                  proxied !== '/placeholder.jpg'
-                ) {
-                  e.currentTarget.src = proxied;
-                } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
-                  e.currentTarget.src = '/placeholder.jpg';
-                }
-              }}
-            />
-          )}
+          <CoverImage
+            src={coverSrc}
+            fallbackSrc={manga?.coverAssetUrl ? proxied : undefined}
+            alt={manga?.title || 'Manga Cover'}
+            eager
+            shape="auto"
+            containerClassName="aspect-[2/3] w-full"
+            className="aspect-[2/3] w-full object-cover"
+          />
         </div>
 
         {userMetadataSlot}

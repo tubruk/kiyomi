@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Star, Heart, Bookmark, Trash2 } from 'lucide-react';
 import { Manga } from '../types/api';
 import { Badge } from './ui/badge';
+import { CoverImage } from './CoverImage';
 import { getProxyImageUrl } from '../lib/utils';
 import { useChapterList } from '../api/hooks';
 
@@ -47,19 +48,12 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
     <div className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-all duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-md">
       <Link to="/manga/$mangaId" params={{ mangaId: manga.id }} className="flex flex-col flex-1">
         <div className="relative aspect-[2/3] w-full overflow-hidden bg-muted">
-          <img
+          <CoverImage
             src={coverSrc}
+            fallbackSrc={manga.coverAssetUrl ? getProxyImageUrl(manga.coverUrl || manga.cover, manga.url) : undefined}
             alt={manga.title}
+            shape="auto"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-            onError={(e) => {
-              const proxied = getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
-              if (manga.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
-                e.currentTarget.src = proxied;
-              } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
-                e.currentTarget.src = '/placeholder.jpg';
-              }
-            }}
           />
           {providerId && (
             <div className="absolute top-2 left-2 z-10">

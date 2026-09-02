@@ -16,9 +16,9 @@ describe('cn', () => {
 });
 
 describe('getProxyImageUrl', () => {
-  it('returns /placeholder.jpg for undefined or empty url', () => {
-    expect(getProxyImageUrl(undefined)).toBe('/placeholder.jpg');
-    expect(getProxyImageUrl('')).toBe('/placeholder.jpg');
+  it('returns empty string for undefined or empty url (callers use CoverImage placeholder)', () => {
+    expect(getProxyImageUrl(undefined)).toBe('');
+    expect(getProxyImageUrl('')).toBe('');
   });
 
   it('returns direct url if url starts with /, data:, or blob:', () => {
@@ -44,8 +44,8 @@ describe('getProxyImageUrl', () => {
 });
 
 describe('getPageImageUrl', () => {
-  it('returns /placeholder.jpg if page is undefined', () => {
-    expect(getPageImageUrl(undefined)).toBe('/placeholder.jpg');
+  it('returns empty string if page is undefined', () => {
+    expect(getPageImageUrl(undefined)).toBe('');
   });
 
   it('returns assetUrl directly if page has assetUrl', () => {

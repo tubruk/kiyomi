@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Manga } from '../types/api';
 import { Badge } from './ui/badge';
+import { CoverImage } from './CoverImage';
 import { cn, getProxyImageUrl } from '../lib/utils';
 
 interface MangaCardProps {
@@ -10,11 +11,17 @@ interface MangaCardProps {
 }
 
 export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
-  const coverSrc = manga.coverAssetUrl || getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
+  const proxied = getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
+  const coverSrc = manga.coverAssetUrl || proxied;
 
   const isRemote = Boolean(manga.sourceId || manga.contentProviderId);
   const providerId = manga.sourceId || manga.contentProviderId || '';
   const remoteId = manga.contentRemoteId || manga.id || '';
+
+  const imgClassName = cn(
+    'h-full w-full object-cover transition-transform duration-300 group-hover:scale-105',
+    manga.availability === 'unavailable' && 'opacity-70 grayscale-[35%]'
+  );
 
   if (isRemote && providerId && remoteId) {
     return (
@@ -23,24 +30,14 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
         params={{ providerId, remoteId }}
         className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-all duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-md"
       >
-        {/* Cover Image Container */}
+        {/* Cover + overlays */}
         <div className="relative aspect-[2/3] w-full overflow-hidden bg-muted">
-          <img
+          <CoverImage
             src={coverSrc}
+            fallbackSrc={manga.coverAssetUrl ? proxied : undefined}
             alt={manga.title}
-            className={cn(
-              'h-full w-full object-cover transition-transform duration-300 group-hover:scale-105',
-              manga.availability === 'unavailable' && 'opacity-70 grayscale-[35%]'
-            )}
-            loading="lazy"
-            onError={(e) => {
-              const proxied = getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
-              if (manga.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
-                e.currentTarget.src = proxied;
-              } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
-                e.currentTarget.src = '/placeholder.jpg';
-              }
-            }}
+            shape="auto"
+            className={imgClassName}
           />
 
           {/* Source ID Overlay Badge */}
@@ -100,24 +97,14 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
       params={{ mangaId: manga.id }}
       className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-all duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-md"
     >
-      {/* Cover Image Container */}
+      {/* Cover + overlays */}
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-muted">
-        <img
+        <CoverImage
           src={coverSrc}
+          fallbackSrc={manga.coverAssetUrl ? proxied : undefined}
           alt={manga.title}
-          className={cn(
-            'h-full w-full object-cover transition-transform duration-300 group-hover:scale-105',
-            manga.availability === 'unavailable' && 'opacity-70 grayscale-[35%]'
-          )}
-          loading="lazy"
-          onError={(e) => {
-            const proxied = getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
-            if (manga.coverAssetUrl && e.currentTarget.src.includes(manga.coverAssetUrl) && proxied && proxied !== '/placeholder.jpg') {
-              e.currentTarget.src = proxied;
-            } else if (!e.currentTarget.src.endsWith('/placeholder.jpg')) {
-              e.currentTarget.src = '/placeholder.jpg';
-            }
-          }}
+          shape="auto"
+          className={imgClassName}
         />
 
         {/* Status & Availability Badges */}
