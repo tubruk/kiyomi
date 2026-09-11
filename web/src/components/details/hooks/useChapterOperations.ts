@@ -209,9 +209,10 @@ export function useChapterOperations({
   const removeProviderMutation = useMutation({
     mutationFn: (provider: ProviderRef) => {
       if (!targetMangaId) throw new Error('No manga ID');
-      return api.removeProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
+      return api.removeBinding(targetMangaId, provider.provider_id, provider.provider_manga_id);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.bindings(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
       showToast('Provider removed', 'success');
@@ -229,9 +230,13 @@ export function useChapterOperations({
   const switchToMutation = useMutation({
     mutationFn: ({ provider }: { provider: ProviderRef }) => {
       if (!targetMangaId) throw new Error('No manga ID');
-      return api.switchContentProvider(targetMangaId, provider.provider_id, provider.provider_manga_id);
+      return api.setActiveContentSource(targetMangaId, {
+        provider_id: provider.provider_id,
+        provider_manga_id: provider.provider_manga_id,
+      });
     },
     onSuccess: (_, { provider }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.bindings(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(targetMangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.all });

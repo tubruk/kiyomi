@@ -37,12 +37,11 @@ export interface UseEditMetadataFormOptions {
 }
 
 export const getInitialReadingMode = (m: Manga) =>
+  m.bindings?.content?.reading_mode ||
   m.content?.reading_mode ||
-  m.meta?.content?.reading_mode ||
   m.readingMode ||
   m.reading_mode ||
   m.readingDirection ||
-  m.meta?.reading_direction ||
   'rtl';
 
 export function useEditMetadataForm({
@@ -53,91 +52,103 @@ export function useEditMetadataForm({
 }: UseEditMetadataFormOptions) {
   const [title, setTitle] = useState(manga.title || '');
   const [aliases, setAliases] = useState<string[]>(
-    manga.aliases || manga.meta?.aliases || []
+    manga.metadata?.aliases?.length ? manga.metadata.aliases : manga.aliases ?? []
   );
   const [description, setDescription] = useState(
-    manga.description || manga.meta?.description || ''
+    manga.metadata?.description ?? manga.description ?? ''
   );
   const [authors, setAuthors] = useState<string[]>(
-    manga.authors && manga.authors.length > 0
+    manga.metadata?.authors && manga.metadata.authors.length > 0
+      ? manga.metadata.authors
+      : manga.authors && manga.authors.length > 0
       ? manga.authors
       : manga.author
       ? [manga.author]
-      : manga.meta?.authors || []
+      : []
   );
   const [artists, setArtists] = useState<string[]>(
-    manga.artists && manga.artists.length > 0
+    manga.metadata?.artists && manga.metadata.artists.length > 0
+      ? manga.metadata.artists
+      : manga.artists && manga.artists.length > 0
       ? manga.artists
       : manga.artist
       ? [manga.artist]
-      : manga.meta?.artists || []
+      : []
   );
   const [publishers, setPublishers] = useState<string[]>(
-    manga.publishers && manga.publishers.length > 0
+    manga.metadata?.publishers && manga.metadata.publishers.length > 0
+      ? manga.metadata.publishers
+      : manga.publishers && manga.publishers.length > 0
       ? manga.publishers
       : manga.publisher
       ? [manga.publisher]
-      : manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : [])
+      : []
   );
   const [readingMode, setReadingMode] = useState(getInitialReadingMode(manga));
   const [contentRating, setContentRating] = useState(
-    manga.contentRating || manga.meta?.content_rating || 'safe'
+    manga.metadata?.content_rating ?? manga.contentRating ?? 'safe'
   );
   const [releaseYear, setReleaseYear] = useState<number>(
-    manga.releaseYear || manga.release_year || manga.meta?.release_year || manga.meta?.releaseYear || 0
+    manga.metadata?.releaseYear ?? manga.metadata?.release_year ?? manga.releaseYear ?? manga.release_year ?? 0
   );
   const [startDate, setStartDate] = useState(
-    manga.startDate || manga.start_date || manga.meta?.start_date || manga.meta?.startDate || ''
+    manga.metadata?.startDate ?? manga.metadata?.start_date ?? manga.startDate ?? manga.start_date ?? ''
   );
   const [endDate, setEndDate] = useState(
-    manga.endDate || manga.end_date || manga.meta?.end_date || manga.meta?.endDate || ''
+    manga.metadata?.endDate ?? manga.metadata?.end_date ?? manga.endDate ?? manga.end_date ?? ''
   );
-  const [country, setCountry] = useState(manga.country || manga.meta?.country || 'JP');
+  const [country, setCountry] = useState(manga.metadata?.country ?? manga.country ?? 'JP');
   const [tags, setTags] = useState<string[]>(
-    manga.tags || manga.genres || manga.meta?.tags || []
+    manga.metadata?.tags?.length ? manga.metadata.tags : manga.tags?.length ? manga.tags : manga.genres ?? []
   );
   const [shelves, setShelves] = useState<string[]>(
-    manga.shelves || manga.collections || manga.meta?.collections || []
+    manga.shelves || manga.collections || manga.metadata?.collections || []
   );
   const [externalLinks, setExternalLinks] = useState<ExternalLink[]>(
-    manga.externalLinks || manga.meta?.external_links || []
+    manga.metadata?.externalLinks?.length ? manga.metadata.externalLinks : manga.externalLinks ?? []
   );
 
   useEffect(() => {
     if (open) {
       setTitle(manga.title || '');
-      setAliases(manga.aliases || manga.meta?.aliases || []);
-      setDescription(manga.description || manga.meta?.description || '');
+      setAliases(manga.metadata?.aliases?.length ? manga.metadata.aliases : manga.aliases ?? []);
+      setDescription(manga.metadata?.description ?? manga.description ?? '');
       setAuthors(
-        manga.authors && manga.authors.length > 0
+        manga.metadata?.authors && manga.metadata.authors.length > 0
+          ? manga.metadata.authors
+          : manga.authors && manga.authors.length > 0
           ? manga.authors
           : manga.author
           ? [manga.author]
-          : manga.meta?.authors || []
+          : []
       );
       setArtists(
-        manga.artists && manga.artists.length > 0
+        manga.metadata?.artists && manga.metadata.artists.length > 0
+          ? manga.metadata.artists
+          : manga.artists && manga.artists.length > 0
           ? manga.artists
           : manga.artist
           ? [manga.artist]
-          : manga.meta?.artists || []
+          : []
       );
       setPublishers(
-        manga.publishers && manga.publishers.length > 0
+        manga.metadata?.publishers && manga.metadata.publishers.length > 0
+          ? manga.metadata.publishers
+          : manga.publishers && manga.publishers.length > 0
           ? manga.publishers
           : manga.publisher
           ? [manga.publisher]
-          : manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : [])
+          : []
       );
       setReadingMode(getInitialReadingMode(manga));
-      setContentRating(manga.contentRating || manga.meta?.content_rating || 'safe');
-      setReleaseYear(manga.releaseYear || manga.release_year || manga.meta?.release_year || manga.meta?.releaseYear || 0);
-      setStartDate(manga.startDate || manga.start_date || manga.meta?.start_date || manga.meta?.startDate || '');
-      setEndDate(manga.endDate || manga.end_date || manga.meta?.end_date || manga.meta?.endDate || '');
-      setCountry(manga.country || manga.meta?.country || 'JP');
-      setTags(manga.tags || manga.genres || manga.meta?.tags || []);
-      setShelves(manga.shelves || manga.collections || manga.meta?.collections || []);
-      setExternalLinks(manga.externalLinks || manga.meta?.external_links || []);
+      setContentRating(manga.metadata?.content_rating ?? manga.contentRating ?? 'safe');
+      setReleaseYear(manga.metadata?.releaseYear ?? manga.metadata?.release_year ?? manga.releaseYear ?? manga.release_year ?? 0);
+      setStartDate(manga.metadata?.startDate ?? manga.metadata?.start_date ?? manga.startDate ?? manga.start_date ?? '');
+      setEndDate(manga.metadata?.endDate ?? manga.metadata?.end_date ?? manga.endDate ?? manga.end_date ?? '');
+      setCountry(manga.metadata?.country ?? manga.country ?? 'JP');
+      setTags(manga.metadata?.tags?.length ? manga.metadata.tags : manga.tags?.length ? manga.tags : manga.genres ?? []);
+      setShelves(manga.shelves || manga.collections || manga.metadata?.collections || []);
+      setExternalLinks(manga.metadata?.externalLinks?.length ? manga.metadata.externalLinks : manga.externalLinks ?? []);
     }
   }, [open, manga]);
 
@@ -176,10 +187,10 @@ export function useEditMetadataForm({
         publishers,
         publisher: publishers.length > 0 ? publishers[0] : '',
         content: {
-          ...(manga.content || manga.meta?.content),
+          ...(manga.bindings?.content || manga.content),
           provider_id:
+            manga.bindings?.content?.provider_id ||
             manga.content?.provider_id ||
-            manga.meta?.content?.provider_id ||
             manga.contentProviderId ||
             manga.sourceId ||
             '',

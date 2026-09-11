@@ -69,33 +69,49 @@ type ContentSource struct {
 	LastSyncedAt    time.Time `json:"last_synced_at,omitempty"`
 }
 
-// MangaMeta matches the schema defined in docs/design/library.md
-type MangaMeta struct {
-	Title             string         `json:"title"`
-	Aliases           []string       `json:"aliases"`
-	Description       string         `json:"description"`
-	Authors           []string       `json:"authors"`
-	Artists           []string       `json:"artists"`
-	Tags              []string       `json:"tags"`
-	Collections       []string       `json:"collections"`
-	ContentRating     string         `json:"content_rating"`
-	Publishers        []string       `json:"publishers"`
-	ReleaseYear       int            `json:"release_year"`
-	StartDate         string         `json:"start_date"`
-	EndDate           string         `json:"end_date"`
-	Country           string         `json:"country"`
-	CoverURL          string         `json:"cover_url,omitempty"`
-	ExternalLinks     []ExternalLink `json:"external_links,omitempty"`
-	Content           *ContentSource `json:"content,omitempty"`
-	Providers         []ProviderRef  `json:"providers,omitempty"`
-	UserStatus        string         `json:"user_status"`
-	UserRating        float64        `json:"user_rating"`
-	UserFavorite      bool           `json:"user_favorite"`
-	UserNotes         string         `json:"user_notes"`
-	LastReadChapterID string         `json:"last_read_chapter_id,omitempty"`
-	LastReadAt        time.Time      `json:"last_read_at,omitempty"`
-	AddedAt           time.Time      `json:"added_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
+// MangaMetadata — pure metadata from metadata providers
+type MangaMetadata struct {
+	Title         string         `json:"title"`
+	Aliases       []string       `json:"aliases"`
+	Description   string         `json:"description"`
+	Authors       []string       `json:"authors"`
+	Artists       []string       `json:"artists"`
+	Tags          []string       `json:"tags"`
+	Collections   []string       `json:"collections"`
+	Publishers    []string       `json:"publishers"`
+	ReleaseYear   int            `json:"release_year"`
+	StartDate     string         `json:"start_date"`
+	EndDate       string         `json:"end_date"`
+	Country       string         `json:"country"`
+	ContentRating string         `json:"content_rating"`
+	CoverURL      string         `json:"cover_url,omitempty"`
+	ExternalLinks []ExternalLink `json:"external_links,omitempty"`
+}
+
+// UserState — user-specific state
+type UserState struct {
+	Status            string    `json:"status"`
+	Rating            float64   `json:"rating"`
+	Favorite          bool      `json:"favorite"`
+	Notes             string    `json:"notes"`
+	LastReadChapterID string    `json:"last_read_chapter_id,omitempty"`
+	LastReadAt        time.Time `json:"last_read_at,omitempty"`
+	AddedAt           time.Time `json:"added_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// MangaBindings — provider bindings + active content source pointer
+type MangaBindings struct {
+	Providers []ProviderRef  `json:"providers,omitempty"`
+	Content   *ContentSource `json:"content,omitempty"`
+}
+
+// Manga — convenience composition
+type Manga struct {
+	ID        string        `json:"id"`
+	Metadata  MangaMetadata `json:"metadata"`
+	UserState UserState     `json:"user_state"`
+	Bindings  MangaBindings `json:"bindings"`
 }
 
 // deduplicateSlice removes empty strings and duplicate entries case-insensitively while preserving original casing.
@@ -119,72 +135,67 @@ func deduplicateSlice(items []string) []string {
 	return result
 }
 
-// Normalize ensures case-insensitive set deduplication for Aliases, Tags, Publishers, Authors, Artists, and Collections.
-func (m *MangaMeta) Normalize() {
+// Normalize case-insensitively deduplicates Aliases/Authors/Artists/Tags/Collections/Publishers.
+func (m *MangaMetadata) Normalize() {
 	if m == nil {
 		return
 	}
 	m.Aliases = deduplicateSlice(m.Aliases)
-	m.Tags = deduplicateSlice(m.Tags)
-	m.Publishers = deduplicateSlice(m.Publishers)
 	m.Authors = deduplicateSlice(m.Authors)
 	m.Artists = deduplicateSlice(m.Artists)
+	m.Tags = deduplicateSlice(m.Tags)
 	m.Collections = deduplicateSlice(m.Collections)
+	m.Publishers = deduplicateSlice(m.Publishers)
 }
 
-// UnmarshalJSON implements custom unmarshaling for MangaMeta to support backward compatibility
-// for the deprecated top-level reading_direction field, top-level reading_mode, and single publisher field.
-func (m *MangaMeta) UnmarshalJSON(data []byte) error {
-	type Alias MangaMeta
-	aux := struct {
-		ReadingDirection string `json:"reading_direction"`
-		ReadingMode      string `json:"reading_mode"`
-		Publisher        string `json:"publisher"`
-		*Alias
-	}{
-		Alias: (*Alias)(m),
+// Normalize trims Status and auto-bumps AddedAt/UpdatedAt timestamps.
+func (u *UserState) Normalize() {
+	if u == nil {
+		return
 	}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
+	u.Status = strings.TrimSpace(u.Status)
+	if u.AddedAt.IsZero() {
+		u.AddedAt = time.Now()
 	}
-	if aux.ReadingMode != "" {
-		if m.Content == nil {
-			m.Content = &ContentSource{}
+	u.UpdatedAt = time.Now()
+}
+
+// Normalize dedups Providers on (ProviderID, ProviderMangaID), preserving first-seen order.
+func (b *MangaBindings) Normalize() {
+	if b == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	out := make([]ProviderRef, 0, len(b.Providers))
+	for _, p := range b.Providers {
+		key := p.ProviderID + "\x00" + p.ProviderMangaID
+		if seen[key] {
+			continue
 		}
-		m.Content.ReadingMode = aux.ReadingMode
-	} else if aux.ReadingDirection != "" {
-		if m.Content == nil {
-			m.Content = &ContentSource{}
-		}
-		if m.Content.ReadingMode == "" {
-			m.Content.ReadingMode = aux.ReadingDirection
-		}
+		seen[key] = true
+		out = append(out, p)
 	}
-	if len(m.Publishers) == 0 && aux.Publisher != "" {
-		m.Publishers = []string{aux.Publisher}
-	}
-	m.Normalize()
-	return nil
+	b.Providers = out
 }
 
 // ChapterMeta matches the schema defined in docs/design/library.md
 type ChapterMeta struct {
-	Title        string         `json:"title"`
-	Number       float32        `json:"number"`
-	Volume       int            `json:"volume"`
-	Language     string         `json:"language"`
-	UploadDate   time.Time      `json:"upload_date,omitempty"`
-	SourceOrder  int            `json:"source_order"`
-	Content      *ContentSource `json:"content,omitempty"`
+	Title           string         `json:"title"`
+	Number          float32        `json:"number"`
+	Volume          int            `json:"volume"`
+	Language        string         `json:"language"`
+	UploadDate      time.Time      `json:"upload_date,omitempty"`
+	SourceOrder     int            `json:"source_order"`
+	Content         *ContentSource `json:"content,omitempty"`
 	PageCount       int            `json:"page_count"`
 	PageFormat      string         `json:"page_format"`
 	DownloadedAt    time.Time      `json:"downloaded_at,omitempty"`
 	DownloadedPages int            `json:"downloaded_pages,omitempty"`
 	IsDownloaded    bool           `json:"is_downloaded,omitempty"`
 	Orphaned        bool           `json:"orphaned,omitempty"`
-	IsRead       bool           `json:"is_read"`
-	LastReadPage int            `json:"last_read_page"`
-	LastReadAt   time.Time      `json:"last_read_at,omitempty"`
+	IsRead          bool           `json:"is_read"`
+	LastReadPage    int            `json:"last_read_page"`
+	LastReadAt      time.Time      `json:"last_read_at,omitempty"`
 }
 
 // PageItem represents a single page in a chapter.
@@ -192,12 +203,6 @@ type PageItem struct {
 	Index  int    `json:"index"`
 	URL    string `json:"url"`
 	Source string `json:"source,omitempty"`
-}
-
-// MangaInfo contains the ID and its parsed metadata.
-type MangaInfo struct {
-	ID   string    `json:"id"`
-	Meta MangaMeta `json:"meta"`
 }
 
 // ChapterInfo contains the ID, its parent manga ID, and its parsed metadata.
@@ -282,6 +287,13 @@ func (l *Library) Root() string {
 	return l.root
 }
 
+// MangaDir returns the on-disk directory path for a manga ID. This does not
+// create the directory. It is the public, error-returning counterpart of
+// the internal mangaDir helper, safe to call from outside the package.
+func (l *Library) MangaDir(mangaID string) (string, error) {
+	return l.mangaDir(mangaID)
+}
+
 // sanitizeID trims leading/trailing slashes and strips /manga/ prefixes to prevent nested directory creation.
 func sanitizeID(id string) string {
 	id = strings.TrimSpace(id)
@@ -296,11 +308,157 @@ func sanitizeID(id string) string {
 	return id
 }
 
-// ListManga walks the library directory and lists all manga with their meta.json content.
-func (l *Library) ListManga() ([]MangaInfo, error) {
+// saveJSONAtomic writes v as pretty-printed JSON to path via a sibling temp
+// file + os.Rename, so concurrent readers never see a partial file.
+func saveJSONAtomic(path string, v any) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	enc := json.NewEncoder(tmp)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("encode: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("close: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("rename: %w", err)
+	}
+	return nil
+}
+
+// GetMetadata reads metadata.json for manga id; returns zero value + nil when missing.
+func (l *Library) GetMetadata(id string) (MangaMetadata, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return MangaMetadata{}, fmt.Errorf("get metadata %s: %w", id, err)
+	}
+	path := filepath.Join(dir, "metadata.json")
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return MangaMetadata{}, nil
+		}
+		return MangaMetadata{}, fmt.Errorf("get metadata %s: %w", id, err)
+	}
+	var m MangaMetadata
+	if err := json.Unmarshal(bytes, &m); err != nil {
+		return MangaMetadata{}, fmt.Errorf("get metadata %s: unmarshal: %w", id, err)
+	}
+	return m, nil
+}
 
+// SaveMetadata writes metadata.json atomically.
+func (l *Library) SaveMetadata(id string, m MangaMetadata) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return fmt.Errorf("save metadata %s: %w", id, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("save metadata %s: create dir: %w", id, err)
+	}
+	m.Normalize()
+	return saveJSONAtomic(filepath.Join(dir, "metadata.json"), m)
+}
+
+// GetUserState reads user_state.json; returns zero value + nil when missing.
+func (l *Library) GetUserState(id string) (UserState, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return UserState{}, fmt.Errorf("get user state %s: %w", id, err)
+	}
+	path := filepath.Join(dir, "user_state.json")
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return UserState{}, nil
+		}
+		return UserState{}, fmt.Errorf("get user state %s: %w", id, err)
+	}
+	var u UserState
+	if err := json.Unmarshal(bytes, &u); err != nil {
+		return UserState{}, fmt.Errorf("get user state %s: unmarshal: %w", id, err)
+	}
+	return u, nil
+}
+
+// SaveUserState writes user_state.json atomically; auto-populates AddedAt/UpdatedAt.
+func (l *Library) SaveUserState(id string, u UserState) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return fmt.Errorf("save user state %s: %w", id, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("save user state %s: create dir: %w", id, err)
+	}
+	// Normalize must run AFTER we set AddedAt/UpdatedAt; otherwise it would
+	// overwrite the timestamps with the zero value (time.Time is not a
+	// pointer, so reading from a zero value yields the zero time).
+	if u.AddedAt.IsZero() {
+		u.AddedAt = time.Now()
+	}
+	u.UpdatedAt = time.Now()
+	u.Normalize()
+	return saveJSONAtomic(filepath.Join(dir, "user_state.json"), u)
+}
+
+// GetBindings reads bindings.json; returns zero value + nil when missing.
+func (l *Library) GetBindings(id string) (MangaBindings, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return MangaBindings{}, fmt.Errorf("get bindings %s: %w", id, err)
+	}
+	path := filepath.Join(dir, "bindings.json")
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return MangaBindings{}, nil
+		}
+		return MangaBindings{}, fmt.Errorf("get bindings %s: %w", id, err)
+	}
+	var b MangaBindings
+	if err := json.Unmarshal(bytes, &b); err != nil {
+		return MangaBindings{}, fmt.Errorf("get bindings %s: unmarshal: %w", id, err)
+	}
+	return b, nil
+}
+
+// SaveBindings writes bindings.json atomically.
+func (l *Library) SaveBindings(id string, b MangaBindings) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return fmt.Errorf("save bindings %s: %w", id, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("save bindings %s: create dir: %w", id, err)
+	}
+	b.Normalize()
+	return saveJSONAtomic(filepath.Join(dir, "bindings.json"), b)
+}
+
+// ListManga walks the library directory and composes Manga from metadata.json,
+// user_state.json, and bindings.json per directory. Entries without metadata.json
+// are skipped (treated as empty/corrupt).
+func (l *Library) ListManga() ([]Manga, error) {
 	entries, err := os.ReadDir(l.root)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -334,7 +492,7 @@ func (l *Library) ListManga() ([]MangaInfo, error) {
 	var (
 		mu   sync.Mutex
 		wg   sync.WaitGroup
-		list []MangaInfo
+		list []Manga
 	)
 
 	for w := 0; w < numWorkers; w++ {
@@ -342,15 +500,27 @@ func (l *Library) ListManga() ([]MangaInfo, error) {
 		go func() {
 			defer wg.Done()
 			for id := range jobs {
-				meta, err := l.getManga(id)
+				// Skip the entry if no metadata.json exists; saves us from
+				// listing empty/corrupt manga dirs as if they were real.
+				dir, err := l.mangaDir(id)
 				if err != nil {
-					// Skip invalid/corrupted directories
 					continue
 				}
+				if _, err := os.Stat(filepath.Join(dir, "metadata.json")); err != nil {
+					continue
+				}
+				meta, err := l.GetMetadata(id)
+				if err != nil {
+					continue
+				}
+				userState, _ := l.GetUserState(id)
+				bindings, _ := l.GetBindings(id)
 				mu.Lock()
-				list = append(list, MangaInfo{
-					ID:   id,
-					Meta: *meta,
+				list = append(list, Manga{
+					ID:        id,
+					Metadata:  meta,
+					UserState: userState,
+					Bindings:  bindings,
 				})
 				mu.Unlock()
 			}
@@ -358,91 +528,145 @@ func (l *Library) ListManga() ([]MangaInfo, error) {
 	}
 	wg.Wait()
 
-	// Sort manga alphabetically by title
 	sort.Slice(list, func(i, j int) bool {
-		return strings.ToLower(list[i].Meta.Title) < strings.ToLower(list[j].Meta.Title)
+		return strings.ToLower(list[i].Metadata.Title) < strings.ToLower(list[j].Metadata.Title)
 	})
 
 	return list, nil
 }
 
-// GetManga reads and parses library/<manga_id>/meta.json.
-func (l *Library) GetManga(id string) (*MangaMeta, error) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.getManga(id)
-}
-
-func (l *Library) getManga(id string) (*MangaMeta, error) {
+// GetManga composes Manga from metadata.json + user_state.json + bindings.json.
+// Returns an error if metadata.json is missing.
+func (l *Library) GetManga(id string) (Manga, error) {
 	dir, err := l.mangaDir(id)
 	if err != nil {
-		return nil, fmt.Errorf("get manga %s: %w", id, err)
+		return Manga{}, fmt.Errorf("get manga %s: %w", id, err)
 	}
-	path := filepath.Join(dir, "meta.json")
-	bytes, err := os.ReadFile(path)
+	if _, err := os.Stat(filepath.Join(dir, "metadata.json")); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return Manga{}, fmt.Errorf("get manga %s: not found", id)
+		}
+		return Manga{}, fmt.Errorf("get manga %s: %w", id, err)
+	}
+	meta, err := l.GetMetadata(id)
 	if err != nil {
-		return nil, fmt.Errorf("get manga %s: %w", id, err)
+		return Manga{}, fmt.Errorf("get manga %s: %w", id, err)
 	}
-
-	var meta MangaMeta
-	if err := json.Unmarshal(bytes, &meta); err != nil {
-		return nil, fmt.Errorf("get manga %s: unmarshal error: %w", id, err)
+	userState, err := l.GetUserState(id)
+	if err != nil {
+		return Manga{}, fmt.Errorf("get manga %s: %w", id, err)
 	}
-
-	return &meta, nil
+	bindings, err := l.GetBindings(id)
+	if err != nil {
+		return Manga{}, fmt.Errorf("get manga %s: %w", id, err)
+	}
+	return Manga{
+		ID:        id,
+		Metadata:  meta,
+		UserState: userState,
+		Bindings:  bindings,
+	}, nil
 }
 
-// SaveManga writes or updates library/<manga_id>/meta.json atomically.
-func (l *Library) SaveManga(id string, meta *MangaMeta) error {
+// SaveManga writes or updates all three per-concern files atomically.
+func (l *Library) SaveManga(id string, info Manga) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.saveManga(id, meta)
-}
-
-func (l *Library) saveManga(id string, meta *MangaMeta) error {
-	dir, err := l.mangaDir(id)
-	if err != nil {
+	if err := l.saveMetadataLocked(id, info.Metadata); err != nil {
 		return fmt.Errorf("save manga %s: %w", id, err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("save manga %s: create dir: %w", id, err)
+	if err := l.saveUserStateLocked(id, info.UserState); err != nil {
+		return fmt.Errorf("save manga %s: %w", id, err)
 	}
-
-	meta.Normalize()
-
-	if meta.AddedAt.IsZero() {
-		meta.AddedAt = time.Now()
+	if err := l.saveBindingsLocked(id, info.Bindings); err != nil {
+		return fmt.Errorf("save manga %s: %w", id, err)
 	}
-	meta.UpdatedAt = time.Now()
-
-	bytes, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return fmt.Errorf("save manga %s: marshal error: %w", id, err)
-	}
-
-	tmpFile, err := os.CreateTemp(dir, "meta.json.tmp.*")
-	if err != nil {
-		return fmt.Errorf("save manga %s: create temp file: %w", id, err)
-	}
-	tmpPath := tmpFile.Name()
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-
-	if _, err := tmpFile.Write(bytes); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("save manga %s: write temp file: %w", id, err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("save manga %s: close temp file: %w", id, err)
-	}
-
-	targetFile := filepath.Join(dir, "meta.json")
-	if err := os.Rename(tmpPath, targetFile); err != nil {
-		return fmt.Errorf("save manga %s: rename temp file: %w", id, err)
-	}
-
 	return nil
+}
+
+// saveMetadataLocked writes metadata.json. Caller must hold l.mu.
+func (l *Library) saveMetadataLocked(id string, m MangaMetadata) error {
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	m.Normalize()
+	return saveJSONAtomic(filepath.Join(dir, "metadata.json"), m)
+}
+
+// saveUserStateLocked writes user_state.json. Caller must hold l.mu.
+func (l *Library) saveUserStateLocked(id string, u UserState) error {
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if u.AddedAt.IsZero() {
+		u.AddedAt = time.Now()
+	}
+	u.UpdatedAt = time.Now()
+	u.Normalize()
+	return saveJSONAtomic(filepath.Join(dir, "user_state.json"), u)
+}
+
+// saveBindingsLocked writes bindings.json. Caller must hold l.mu.
+func (l *Library) saveBindingsLocked(id string, b MangaBindings) error {
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	b.Normalize()
+	return saveJSONAtomic(filepath.Join(dir, "bindings.json"), b)
+}
+
+// getBindingsLocked reads bindings.json. Caller must hold l.mu.
+func (l *Library) getBindingsLocked(id string) (MangaBindings, error) {
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return MangaBindings{}, err
+	}
+	path := filepath.Join(dir, "bindings.json")
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return MangaBindings{}, nil
+		}
+		return MangaBindings{}, err
+	}
+	var b MangaBindings
+	if err := json.Unmarshal(bytes, &b); err != nil {
+		return MangaBindings{}, err
+	}
+	return b, nil
+}
+
+// getUserStateLocked reads user_state.json. Caller must hold l.mu.
+func (l *Library) getUserStateLocked(id string) (UserState, error) {
+	dir, err := l.mangaDir(id)
+	if err != nil {
+		return UserState{}, err
+	}
+	path := filepath.Join(dir, "user_state.json")
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return UserState{}, nil
+		}
+		return UserState{}, err
+	}
+	var u UserState
+	if err := json.Unmarshal(bytes, &u); err != nil {
+		return UserState{}, err
+	}
+	return u, nil
 }
 
 // DeleteManga removes the library/<manga_id> directory and all its contents.
@@ -833,7 +1057,8 @@ func (l *Library) deleteAllChapters(mangaID string, providerIDs ...string) error
 	return nil
 }
 
-// UpdateChapterProgress updates the reading progress for a chapter and updates the parent manga's last read metadata.
+// UpdateChapterProgress updates the reading progress for a chapter and updates
+// the parent manga's last-read fields in user_state.json.
 func (l *Library) UpdateChapterProgress(mangaID, providerID, chapterID string, isRead bool, lastReadPage int) (*ChapterInfo, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -855,16 +1080,14 @@ func (l *Library) UpdateChapterProgress(mangaID, providerID, chapterID string, i
 		return nil, fmt.Errorf("update chapter progress %s/%s/%s: save chapter: %w", mangaID, providerID, chapterID, err)
 	}
 
-	mangaMeta, err := l.getManga(mangaID)
+	userState, err := l.getUserStateLocked(mangaID)
 	if err != nil {
-		return nil, fmt.Errorf("update chapter progress %s/%s/%s: get manga: %w", mangaID, providerID, chapterID, err)
+		return nil, fmt.Errorf("update chapter progress %s/%s/%s: get user state: %w", mangaID, providerID, chapterID, err)
 	}
-
-	mangaMeta.LastReadChapterID = chapterID
-	mangaMeta.LastReadAt = now
-
-	if err := l.saveManga(mangaID, mangaMeta); err != nil {
-		return nil, fmt.Errorf("update chapter progress %s/%s/%s: save manga: %w", mangaID, providerID, chapterID, err)
+	userState.LastReadChapterID = chapterID
+	userState.LastReadAt = now
+	if err := l.saveUserStateLocked(mangaID, userState); err != nil {
+		return nil, fmt.Errorf("update chapter progress %s/%s/%s: save user state: %w", mangaID, providerID, chapterID, err)
 	}
 
 	return &ChapterInfo{
@@ -874,7 +1097,8 @@ func (l *Library) UpdateChapterProgress(mangaID, providerID, chapterID string, i
 	}, nil
 }
 
-// BatchUpdateChapterProgress updates the reading progress for multiple chapters and updates the parent manga's last read metadata.
+// BatchUpdateChapterProgress updates the reading progress for multiple chapters
+// and updates the parent manga's last-read fields in user_state.json.
 func (l *Library) BatchUpdateChapterProgress(mangaID, providerID string, chapterIDs []string, isRead bool, lastReadPage int) ([]*ChapterInfo, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -908,16 +1132,14 @@ func (l *Library) BatchUpdateChapterProgress(mangaID, providerID string, chapter
 	}
 
 	if len(updated) > 0 {
-		mangaMeta, err := l.getManga(mangaID)
+		userState, err := l.getUserStateLocked(mangaID)
 		if err != nil {
-			return nil, fmt.Errorf("batch update chapter progress %s: get manga: %w", mangaID, err)
+			return nil, fmt.Errorf("batch update chapter progress %s: get user state: %w", mangaID, err)
 		}
-
-		mangaMeta.LastReadChapterID = lastUpdatedChapterID
-		mangaMeta.LastReadAt = now
-
-		if err := l.saveManga(mangaID, mangaMeta); err != nil {
-			return nil, fmt.Errorf("batch update chapter progress %s: save manga: %w", mangaID, err)
+		userState.LastReadChapterID = lastUpdatedChapterID
+		userState.LastReadAt = now
+		if err := l.saveUserStateLocked(mangaID, userState); err != nil {
+			return nil, fmt.Errorf("batch update chapter progress %s: save user state: %w", mangaID, err)
 		}
 	}
 
@@ -1053,53 +1275,45 @@ func (l *Library) saveChapterPages(mangaID, providerID, chapterID string, pages 
 	return nil
 }
 
-// AddProvider appends a provider binding to manga. Dedup by (provider_id, provider_manga_id).
+// AddProvider appends a provider binding to bindings.json. Dedup on (ProviderID, ProviderMangaID).
 func (l *Library) AddProvider(mangaID string, ref ProviderRef) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	mangaID = sanitizeID(mangaID)
-	meta, err := l.getManga(mangaID)
+	bindings, err := l.getBindingsLocked(mangaID)
 	if err != nil {
 		return fmt.Errorf("add provider: %w", err)
 	}
 
-	// Check for existing provider binding (idempotent)
-	for i, p := range meta.Providers {
+	for i, p := range bindings.Providers {
 		if p.ProviderID == ref.ProviderID && p.ProviderMangaID == ref.ProviderMangaID {
 			if ref.MangaTitle != "" {
-				meta.Providers[i].MangaTitle = ref.MangaTitle
+				bindings.Providers[i].MangaTitle = ref.MangaTitle
 			}
-			if err := l.saveManga(mangaID, meta); err != nil {
-				return fmt.Errorf("add provider: save manga: %w", err)
-			}
-			return nil
+			return l.saveBindingsLocked(mangaID, bindings)
 		}
 	}
 
-	meta.Providers = append(meta.Providers, ref)
-	if err := l.saveManga(mangaID, meta); err != nil {
-		return fmt.Errorf("add provider: save manga: %w", err)
-	}
-	return nil
+	bindings.Providers = append(bindings.Providers, ref)
+	return l.saveBindingsLocked(mangaID, bindings)
 }
 
-// RemoveProvider removes the (provider_id, provider_manga_id) entry.
+// RemoveProvider removes the (provider_id, provider_manga_id) entry from bindings.json.
 // Returns error if it would leave no Content-capable provider.
 func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID string, capabilityLookup func(providerID string) []string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	mangaID = sanitizeID(mangaID)
-	meta, err := l.getManga(mangaID)
+	bindings, err := l.getBindingsLocked(mangaID)
 	if err != nil {
 		return fmt.Errorf("remove provider: %w", err)
 	}
 
-	// Find and remove the provider ref
 	found := false
 	var newProviders []ProviderRef
-	for _, p := range meta.Providers {
+	for _, p := range bindings.Providers {
 		if p.ProviderID == providerID && p.ProviderMangaID == providerMangaID {
 			found = true
 			continue
@@ -1110,14 +1324,10 @@ func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID str
 		return fmt.Errorf("remove provider: provider binding not found")
 	}
 
-	// Check if removal would leave no content-capable provider.
-	// Only enforce this constraint if the provider being removed is the current content provider.
-	if meta.Content != nil && meta.Content.ProviderID == providerID && meta.Content.ProviderMangaID == providerMangaID {
-		// Check if any OTHER remaining provider has content capability
+	if bindings.Content != nil && bindings.Content.ProviderID == providerID && bindings.Content.ProviderMangaID == providerMangaID {
 		hasContent := false
 		for _, p := range newProviders {
-			caps := capabilityLookup(p.ProviderID)
-			for _, cap := range caps {
+			for _, cap := range capabilityLookup(p.ProviderID) {
 				if cap == "content" {
 					hasContent = true
 					break
@@ -1130,81 +1340,77 @@ func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID str
 		if !hasContent {
 			return fmt.Errorf("remove provider: cannot remove last content-capable provider")
 		}
-		// Clear content since we're removing the content provider
-		meta.Content = nil
+		bindings.Content = nil
 	}
 
-	meta.Providers = newProviders
-	if err := l.saveManga(mangaID, meta); err != nil {
-		return fmt.Errorf("remove provider: save manga: %w", err)
-	}
-	return nil
+	bindings.Providers = newProviders
+	return l.saveBindingsLocked(mangaID, bindings)
 }
 
-// SwitchContentProvider sets content provider and re-correlates chapters.
+// SwitchContentProvider sets content provider on bindings.json and re-correlates chapters.
 // If provider not in providers[], add it first.
 func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMangaID string, mangaTitle string) error {
+	mangaID = sanitizeID(mangaID)
+
+	// Snapshot title from metadata before acquiring the lock to avoid
+	// re-entrant deadlock (GetMetadata takes RLock internally).
+	title := mangaTitle
+	if title == "" {
+		if meta, err := l.GetMetadata(mangaID); err == nil && meta.Title != "" {
+			title = meta.Title
+		}
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	mangaID = sanitizeID(mangaID)
-	meta, err := l.getManga(mangaID)
+	bindings, err := l.getBindingsLocked(mangaID)
 	if err != nil {
 		return fmt.Errorf("switch content provider: %w", err)
 	}
 
-	// Check if provider is already in providers list
 	found := false
-	for _, p := range meta.Providers {
+	for _, p := range bindings.Providers {
 		if p.ProviderID == providerID && p.ProviderMangaID == providerMangaID {
 			found = true
 			break
 		}
 	}
 
-	// If not found, add it
 	if !found {
-		title := mangaTitle
-		if title == "" {
-			title = meta.Title
-		}
-		meta.Providers = append(meta.Providers, ProviderRef{
+		bindings.Providers = append(bindings.Providers, ProviderRef{
 			ProviderID:      providerID,
 			ProviderMangaID: providerMangaID,
 			MangaTitle:      title,
 		})
 	}
 
-	// Set content provider
-	if meta.Content == nil {
-		meta.Content = &ContentSource{}
+	if bindings.Content == nil {
+		bindings.Content = &ContentSource{}
 	}
-	meta.Content.ProviderID = providerID
-	meta.Content.ProviderMangaID = providerMangaID
+	bindings.Content.ProviderID = providerID
+	bindings.Content.ProviderMangaID = providerMangaID
 
-	if err := l.saveManga(mangaID, meta); err != nil {
-		return fmt.Errorf("switch content provider: save manga: %w", err)
-	}
-	return nil
+	return l.saveBindingsLocked(mangaID, bindings)
 }
 
-// HasContentProvider returns true if any provider in providers[] (excluding the given pair) has Content capability.
+// HasContentProvider returns true if any provider in bindings.Providers (excluding
+// the given pair) has Content capability.
 func (l *Library) HasContentProvider(mangaID string, excludingProviderID, excludingMangaID string, capabilityLookup func(providerID string) []string) (bool, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
 	mangaID = sanitizeID(mangaID)
-	meta, err := l.getManga(mangaID)
+	bindings, err := l.getBindingsLocked(mangaID)
 	if err != nil {
 		return false, fmt.Errorf("has content provider: %w", err)
 	}
 
-	for _, p := range meta.Providers {
+	for _, p := range bindings.Providers {
 		if p.ProviderID == excludingProviderID && p.ProviderMangaID == excludingMangaID {
 			continue
 		}
-		caps := capabilityLookup(p.ProviderID)
-		for _, cap := range caps {
+		for _, cap := range capabilityLookup(p.ProviderID) {
 			if cap == "content" {
 				return true, nil
 			}
@@ -1218,6 +1424,171 @@ func (l *Library) HasCover(mangaID string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.hasCover(mangaID)
+}
+
+// coverExts lists the recognized cover image file extensions in lookup order.
+var coverExts = []string{".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+// findCoverFile returns the absolute path of the cover file in mangaDir, or
+// empty string if no cover file is present.
+func findCoverFile(mangaDir string) string {
+	for _, ext := range coverExts {
+		p := filepath.Join(mangaDir, "cover"+ext)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// RemoveCoverFiles removes any cover.<ext> files in the manga directory.
+func (l *Library) RemoveCoverFiles(mangaID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dir, err := l.mangaDir(mangaID)
+	if err != nil {
+		return fmt.Errorf("remove cover files %s: %w", mangaID, err)
+	}
+	for _, ext := range coverExts {
+		p := filepath.Join(dir, "cover"+ext)
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("remove cover %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
+// ReplaceCoverFromSource moves the cover file from source manga to keep manga.
+// The cover file (with its extension) is renamed from
+// <root>/<sourceID>/cover.<ext> to <root>/<keepID>/cover.<ext>. Any existing
+// cover file in the keep manga directory is removed first.
+//
+// Returns (true, nil) when a cover file was relocated, (false, nil) when the
+// source manga has no cover file. Errors abort the rename midway.
+func (l *Library) ReplaceCoverFromSource(keepID, sourceID string) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	keepDir, err := l.mangaDir(keepID)
+	if err != nil {
+		return false, fmt.Errorf("replace cover: keep dir: %w", err)
+	}
+	sourceDir, err := l.mangaDir(sourceID)
+	if err != nil {
+		return false, fmt.Errorf("replace cover: source dir: %w", err)
+	}
+
+	sourceCover := findCoverFile(sourceDir)
+	if sourceCover == "" {
+		return false, nil
+	}
+
+	ext := filepath.Ext(sourceCover)
+	for _, e := range coverExts {
+		p := filepath.Join(keepDir, "cover"+e)
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return false, fmt.Errorf("replace cover: remove existing %s: %w", p, err)
+		}
+	}
+
+	target := filepath.Join(keepDir, "cover"+ext)
+	if err := os.Rename(sourceCover, target); err != nil {
+		return false, fmt.Errorf("replace cover: rename: %w", err)
+	}
+	return true, nil
+}
+
+// MergeChapters moves all chapter directories from sourceID to keepID. For
+// each provider subdirectory under the source manga, every chapter is renamed
+// into keep when no collision exists; on a (provider_id, chapter_id) collision
+// keep always wins and the source chapter dir is skipped (its contents are
+// discarded when the source manga directory is deleted by the caller).
+//
+// Errors are surfaced for the first failing rename. Callers that want
+// best-effort behavior should log and continue.
+func (l *Library) MergeChapters(keepID, sourceID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	sourceDir, err := l.mangaDir(sourceID)
+	if err != nil {
+		return fmt.Errorf("merge chapters: source dir: %w", err)
+	}
+	if _, err := os.Stat(sourceDir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+
+	providerEntries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return fmt.Errorf("merge chapters: read source dir: %w", err)
+	}
+
+	for _, provEntry := range providerEntries {
+		if !provEntry.IsDir() {
+			continue
+		}
+		// Skip the cover file / meta.json — they're not provider subdirs.
+		providerID := provEntry.Name()
+		// Skip hidden directories like .cover-pending
+		if strings.HasPrefix(providerID, ".") {
+			continue
+		}
+
+		providerDir := filepath.Join(sourceDir, providerID)
+		chapterEntries, err := os.ReadDir(providerDir)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("merge chapters: read provider dir %s: %w", providerID, err)
+		}
+
+		for _, chEntry := range chapterEntries {
+			if !chEntry.IsDir() {
+				continue
+			}
+			chapterID := chEntry.Name()
+			if err := l.mergeSingleChapter(keepID, sourceID, providerID, chapterID); err != nil {
+				return fmt.Errorf("merge chapters: %s/%s/%s: %w", sourceID, providerID, chapterID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// mergeSingleChapter handles moving a single chapter directory from source
+// manga to keep manga. On (provider_id, chapter_id) collision keep wins and
+// the source chapter dir is skipped (its contents are discarded when the
+// source manga directory is deleted by the caller). Caller must hold l.mu.
+func (l *Library) mergeSingleChapter(keepID, sourceID, providerID, chapterID string) error {
+	sourceChapterDir, err := l.providerChapterDir(sourceID, providerID, chapterID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(sourceChapterDir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+
+	keepChapterDir, err := l.providerChapterDir(keepID, providerID, chapterID)
+	if err != nil {
+		return err
+	}
+
+	// Collision: keep wins. Source's chapter dir is left in place; the
+	// caller's source-manga-dir delete will sweep it away.
+	if _, err := os.Stat(keepChapterDir); err == nil {
+		return nil
+	}
+
+	// No collision: rename source chapter dir into keep.
+	if err := os.MkdirAll(filepath.Dir(keepChapterDir), 0o755); err != nil {
+		return fmt.Errorf("create keep provider dir: %w", err)
+	}
+	if err := os.Rename(sourceChapterDir, keepChapterDir); err != nil {
+		return fmt.Errorf("rename chapter to keep: %w", err)
+	}
+	return nil
 }
 
 func (l *Library) hasCover(mangaID string) bool {

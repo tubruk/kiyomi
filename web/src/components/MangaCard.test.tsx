@@ -28,6 +28,9 @@ describe('MangaCard and LibraryMangaCard cover image fallbacks', () => {
       title: 'Manga Test',
       coverUrl: 'https://example.com/cover.jpg',
       url: 'https://mangadex.org/title/manga-test',
+      metadata: { title: 'Manga Test', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+      user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+      bindings: { providers: [] },
     };
 
     const { container } = render(<MangaCard manga={manga} />);
@@ -50,6 +53,9 @@ describe('MangaCard and LibraryMangaCard cover image fallbacks', () => {
       coverAssetUrl: '/api/v1/library/manga/local-1/cover',
       coverUrl: 'https://example.com/cover.jpg',
       url: 'https://mangadex.org/title/manga-test',
+      metadata: { title: 'Manga Test', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+      user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+      bindings: { providers: [] },
     };
 
     const { container } = render(<MangaCard manga={manga} />);
@@ -74,6 +80,9 @@ describe('MangaCard and LibraryMangaCard cover image fallbacks', () => {
       title: 'Manga Test',
       coverUrl: 'https://example.com/cover.jpg',
       url: 'https://mangadex.org/title/manga-test',
+      metadata: { title: 'Manga Test', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+      user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+      bindings: { providers: [] },
     };
 
     const { container } = render(

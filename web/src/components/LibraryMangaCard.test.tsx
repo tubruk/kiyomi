@@ -27,6 +27,18 @@ const mockManga: Manga = {
   userRating: 9,
   userFavorite: true,
   shelves: ['Top Favorites', 'Reading Later'],
+  metadata: {
+    title: 'Frieren at the Funeral',
+    aliases: [],
+    description: '',
+    authors: ['Kanehito Yamada', 'Tsukasa Abe'],
+    artists: [],
+    tags: [],
+    collections: [],
+    publishers: [],
+  },
+  user_state: { status: 'reading', rating: 9, favorite: true, notes: '' },
+  bindings: { providers: [] },
 };
 
 describe('LibraryMangaCard', () => {
@@ -131,6 +143,7 @@ describe('LibraryMangaCard', () => {
       manga: {
         ...mockManga,
         userStatus: 'completed',
+        user_state: { status: 'completed', rating: 9, favorite: true, notes: '' },
       },
     });
 

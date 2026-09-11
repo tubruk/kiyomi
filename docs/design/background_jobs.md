@@ -228,6 +228,7 @@ The background job queue exposes endpoints for task management and monitoring un
 | | `pull_chapter` | Resolves page manifest for a chapter and enqueues page pulls. |
 | | `pull_page` | Downloads single page image, validates SSRF, checks cache, and writes to disk. |
 | | `pull_cover` | Fetches manga cover image, validates SSRF, and stores at manga root. |
+| **Metadata** | `refresh_metadata` | Fetches latest series metadata from a provider's metadata capability and writes `metadata.json`. Does not modify `user_state.json` or `bindings.json`. |
 | **Library Maintenance** | `library_scan` | Inspects directory hierarchy, validates manifest integrity, and fixes numbering gaps. |
 | | `prune_orphans` | Removes empty or unreferenced directories from the library storage. |
 | | `library_export` | Archives downloaded chapter folders into standard `.cbz` archives. |
@@ -237,3 +238,22 @@ The background job queue exposes endpoints for task management and monitoring un
 | | `tracker_sync_pull`| Imports external list changes and reading state into the local library. |
 | **Cache & Prefetch** | `cache_maintenance`| Evicts expired items from the temporary image cache based on TTL and LRU limits. |
 | | `chapter_prefetch` | Predictively pre-fetches page URLs for subsequent chapters during active reading. |
+
+### `refresh_metadata` (Metadata Refresh)
+
+Fetches the latest series metadata from a provider's metadata capability and overwrites `metadata.json`. This job targets the metadata concern in isolation — it does not read or write `user_state.json` or `bindings.json`, making it safe to run concurrently with reading-progress or chapter-sync operations.
+
+- **Concurrency Group**: `metadata:<provider_id>`
+- **Payload Schema**:
+  ```json
+  {
+    "manga_id": "01HGW1...",
+    "provider_id": "mangadex",
+    "provider_manga_id": "a1b2c3d4"
+  }
+  ```
+- **Execution Flow**:
+  1. Resolves the provider plugin and calls its metadata capability (`FetchMetadata` or equivalent).
+  2. Normalizes and assembles the returned data into the metadata concern schema.
+  3. Atomically writes the result to `<library_root>/<manga_id>/metadata.json`.
+- **Error Handling**: Upstream 404 or provider errors are classified as permanent — the job fails immediately without retrying. Network timeouts and 5xx responses are transient with standard exponential backoff.

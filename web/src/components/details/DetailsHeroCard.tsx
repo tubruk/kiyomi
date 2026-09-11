@@ -30,25 +30,32 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
 }) => {
   const [showDetailedMetadata, setShowDetailedMetadata] = useState(false);
 
-  const proxied = getProxyImageUrl(manga?.coverUrl || manga?.cover, manga?.url);
+  const proxied = getProxyImageUrl(
+    manga?.metadata?.cover_url ?? manga?.metadata?.coverUrl ?? manga?.coverUrl ?? manga?.cover,
+    manga?.url
+  );
   const coverSrc = manga?.coverAssetUrl || proxied;
 
-  const filteredAliases = (manga?.aliases || manga?.meta?.aliases || []).filter(
-    (alias) => alias.toLowerCase().trim() !== (manga?.title || '').toLowerCase().trim()
+  const filteredAliases = (manga?.metadata?.aliases ?? manga?.aliases ?? []).filter(
+    (alias) => alias.toLowerCase().trim() !== (manga?.metadata?.title ?? manga?.title ?? '').toLowerCase().trim()
   );
 
   const authorsList =
-    manga?.authors && manga.authors.length > 0
+    manga?.metadata?.authors && manga.metadata.authors.length > 0
+      ? manga.metadata.authors
+      : manga?.authors && manga.authors.length > 0
       ? manga.authors
       : manga?.author
       ? [manga.author]
-      : manga?.meta?.authors || [];
+      : [];
   const artistsList =
-    manga?.artists && manga.artists.length > 0
+    manga?.metadata?.artists && manga.metadata.artists.length > 0
+      ? manga.metadata.artists
+      : manga?.artists && manga.artists.length > 0
       ? manga.artists
       : manga?.artist
       ? [manga.artist]
-      : manga?.meta?.artists || [];
+      : [];
 
   const authorsJoined = authorsList.join(', ');
   const artistsJoined = artistsList.join(', ');
@@ -58,36 +65,47 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
     authorsJoined.toLowerCase().trim() === artistsJoined.toLowerCase().trim();
 
   const publishersList =
-    manga?.publishers && manga.publishers.length > 0
+    manga?.metadata?.publishers && manga.metadata.publishers.length > 0
+      ? manga.metadata.publishers
+      : manga?.publishers && manga.publishers.length > 0
       ? manga.publishers
       : manga?.publisher
       ? [manga.publisher]
-      : manga?.meta?.publishers || (manga?.meta?.publisher ? [manga.meta.publisher] : []);
+      : [];
   const publishersJoined = publishersList.join(', ');
 
   const releaseYearVal =
-    manga?.releaseYear || manga?.release_year || manga?.meta?.release_year || manga?.meta?.releaseYear;
+    manga?.metadata?.releaseYear ??
+    manga?.metadata?.release_year ??
+    manga?.releaseYear ??
+    manga?.release_year;
   const startDateVal =
-    manga?.startDate || manga?.start_date || manga?.meta?.start_date || manga?.meta?.startDate;
+    manga?.metadata?.startDate ??
+    manga?.metadata?.start_date ??
+    manga?.startDate ??
+    manga?.start_date;
   const endDateVal =
-    manga?.endDate || manga?.end_date || manga?.meta?.end_date || manga?.meta?.endDate;
-  const countryVal =
-    manga?.country || manga?.meta?.country;
+    manga?.metadata?.endDate ??
+    manga?.metadata?.end_date ??
+    manga?.endDate ??
+    manga?.end_date;
+  const countryVal = manga?.metadata?.country ?? manga?.country;
 
   const readingModeKey = (
-    manga?.content?.reading_mode ||
-    manga?.meta?.content?.reading_mode ||
-    manga?.readingMode ||
-    manga?.reading_mode ||
-    manga?.readingDirection ||
-    manga?.meta?.reading_direction ||
+    manga?.bindings?.content?.reading_mode ??
+    manga?.content?.reading_mode ??
+    manga?.readingMode ??
+    manga?.reading_mode ??
+    manga?.readingDirection ??
     'rtl'
   ).toLowerCase();
 
   const extLinks =
-    manga?.externalLinks && manga.externalLinks.length > 0
+    manga?.metadata?.externalLinks && manga.metadata.externalLinks.length > 0
+      ? manga.metadata.externalLinks
+      : manga?.externalLinks && manga.externalLinks.length > 0
       ? manga.externalLinks
-      : manga?.meta?.external_links || [];
+      : [];
 
   return (
     <Card className="grid grid-cols-1 gap-6 p-6 md:grid-cols-[240px_1fr]">
@@ -97,7 +115,7 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
           <CoverImage
             src={coverSrc}
             fallbackSrc={manga?.coverAssetUrl ? proxied : undefined}
-            alt={manga?.title || 'Manga Cover'}
+            alt={manga?.metadata?.title ?? manga?.title ?? 'Manga Cover'}
             eager
             shape="auto"
             containerClassName="aspect-[2/3] w-full"
@@ -113,7 +131,7 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
-              {isMangaLoading ? 'Loading Manga...' : manga?.title || 'Untitled Manga'}
+              {isMangaLoading ? 'Loading Manga...' : (manga?.metadata?.title ?? manga?.title ?? 'Untitled Manga')}
             </h1>
             {contentProviderName && (
               <span className="text-xs text-muted-foreground">
@@ -192,7 +210,7 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
                   Content Rating
                 </span>
                 <span className="font-medium text-foreground capitalize">
-                  {manga?.contentRating || manga?.meta?.content_rating || 'safe'}
+                  {manga?.metadata?.content_rating ?? manga?.metadata?.contentRating ?? manga?.contentRating ?? manga?.meta?.content_rating ?? 'safe'}
                 </span>
               </div>
               {publishersJoined && (
@@ -261,9 +279,9 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
         </div>
 
         {/* Genre / Tag Pills */}
-        {((manga?.tags && manga.tags.length > 0) || (manga?.genres && manga.genres.length > 0)) && (
+        {((manga?.tags && manga.tags.length > 0) || (manga?.genres && manga.genres.length > 0) || (manga?.metadata?.tags && manga.metadata.tags.length > 0)) && (
           <div className="flex flex-wrap gap-1.5">
-            {(manga?.tags || manga?.genres || manga?.meta?.tags || []).map((genre) => (
+            {(manga?.metadata?.tags ?? manga?.tags ?? manga?.genres ?? manga?.meta?.tags ?? []).map((genre) => (
               <GenrePill key={genre} genre={genre} />
             ))}
           </div>
@@ -271,8 +289,9 @@ export const DetailsHeroCard: React.FC<DetailsHeroCardProps> = ({
 
         {/* Description */}
         <div className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
-          {manga?.description ||
-            manga?.meta?.description ||
+          {manga?.metadata?.description ??
+            manga?.description ??
+            manga?.meta?.description ??
             'No description available for this series.'}
         </div>
       </div>

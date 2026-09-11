@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Loader2, Link as LinkIcon } from 'lucide-react';
-import { ProviderRef, Source, Manga } from '../types/api';
+import { ProviderRef, Source } from '../types/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -17,7 +17,6 @@ interface AddProviderDialogProps {
   mangaAliases?: string[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess?: (manga: Manga) => void;
 }
 
 export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
@@ -28,7 +27,6 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   mangaAliases = [],
   open,
   onOpenChange,
-  onSuccess,
 }) => {
   const {
     step,
@@ -53,7 +51,6 @@ export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
     mangaTitle,
     open,
     onOpenChange,
-    onSuccess,
   });
 
   const renderStep = () => {

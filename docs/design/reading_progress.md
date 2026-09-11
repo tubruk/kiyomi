@@ -35,15 +35,16 @@ Progress data is persisted directly in Kiyomi's library manifest directory (`$KI
 }
 ```
 
-### 2.2 Manga Metadata (`$KIYOMI_LIBRARY_DIR/<manga_id>/meta.json`)
+### 2.2 Manga User State (`$KIYOMI_LIBRARY_DIR/<manga_id>/user_state.json`)
 ```json
 {
-  "title": "Chainsaw Man",
   "user_status": "reading",
   "last_read_chapter_id": "ch-14",
   "last_read_at": "2026-08-15T21:00:00Z"
 }
 ```
+
+Note: The manga-level metadata concern (`metadata.json`) holds the series title. The user-state concern (`user_state.json`) holds reading position and status fields.
 
 ---
 

@@ -19,6 +19,11 @@ describe('queryKeys', () => {
     expect(queryKeys.manga.all).toEqual(['manga']);
     expect(queryKeys.manga.details('m-1')).toEqual(['manga', 'detail', 'm-1']);
     expect(queryKeys.manga.providerDetails('p-1', 'r-1')).toEqual(['manga', 'provider', 'p-1', 'r-1']);
+    // Per-concern keys (Stage 3 of manga-metadata-separation).
+    expect(queryKeys.manga.detail('m-1')).toEqual(['manga', 'm-1']);
+    expect(queryKeys.manga.metadata('m-1')).toEqual(['manga', 'm-1', 'metadata']);
+    expect(queryKeys.manga.userState('m-1')).toEqual(['manga', 'm-1', 'user_state']);
+    expect(queryKeys.manga.bindings('m-1')).toEqual(['manga', 'm-1', 'bindings']);
   });
 
   it('generates explore keys', () => {

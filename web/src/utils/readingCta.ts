@@ -31,9 +31,9 @@ export const getReadingCtaInfo = (
     lastReadChapterId = lastReadChapterIdOrManga;
   } else if (lastReadChapterIdOrManga) {
     lastReadChapterId =
-      lastReadChapterIdOrManga.lastReadChapterId ||
-      lastReadChapterIdOrManga.last_read_chapter_id ||
-      lastReadChapterIdOrManga.meta?.last_read_chapter_id;
+      lastReadChapterIdOrManga.user_state?.last_read_chapter_id ??
+      lastReadChapterIdOrManga.lastReadChapterId ??
+      lastReadChapterIdOrManga.last_read_chapter_id;
   }
 
   const lastReadChapter = lastReadChapterId

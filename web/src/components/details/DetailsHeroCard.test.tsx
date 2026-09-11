@@ -19,6 +19,25 @@ const mockManga: Manga = {
   externalLinks: [
     { provider: 'anilist', label: 'AniList', url: 'https://anilist.co/manga/101517' },
   ],
+  metadata: {
+    title: 'Jujutsu Kaisen',
+    aliases: ['JJK', 'Sorcery Fight'],
+    description: 'A boy fights curses.',
+    authors: ['Gege Akutami'],
+    artists: ['Gege Akutami'],
+    tags: ['Action', 'Supernatural'],
+    collections: [],
+    publishers: ['Shueisha', 'VIZ Media'],
+    releaseYear: 2018,
+    startDate: '2018-03-05',
+    endDate: '2024-09-30',
+    country: 'JP',
+    externalLinks: [
+      { provider: 'anilist', label: 'AniList', url: 'https://anilist.co/manga/101517' },
+    ],
+  },
+  user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+  bindings: { providers: [] },
 };
 
 describe('DetailsHeroCard', () => {
@@ -40,6 +59,11 @@ describe('DetailsHeroCard', () => {
       ...mockManga,
       authors: ['ONE'],
       artists: ['Yusuke Murata'],
+      metadata: {
+        ...mockManga.metadata,
+        authors: ['ONE'],
+        artists: ['Yusuke Murata'],
+      },
     };
 
     render(<DetailsHeroCard manga={multiCreatorManga} />);
@@ -81,6 +105,10 @@ describe('DetailsHeroCard', () => {
     const singlePubManga: Manga = {
       ...mockManga,
       publishers: ['Kodansha'],
+      metadata: {
+        ...mockManga.metadata,
+        publishers: ['Kodansha'],
+      },
     };
 
     render(<DetailsHeroCard manga={singlePubManga} />);
@@ -92,17 +120,26 @@ describe('DetailsHeroCard', () => {
     expect(screen.getByText('Kodansha')).toBeInTheDocument();
   });
 
-  it('renders metadata correctly when properties are inside meta object with snake_case keys', () => {
+  it('renders metadata correctly when properties are inside metadata with snake_case keys', () => {
     const metaManga: Manga = {
       id: 'manga-meta',
       title: 'Solo Leveling',
-      meta: {
+      metadata: {
+        title: 'Solo Leveling',
+        aliases: [],
+        description: '',
+        authors: [],
+        artists: [],
+        tags: [],
+        collections: [],
         publishers: ['D&C Media', 'Yen Press'],
         start_date: '2018-03-04',
         end_date: '2021-12-29',
         country: 'KR',
         release_year: 2018,
       },
+      user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+      bindings: { providers: [] },
     };
 
     render(<DetailsHeroCard manga={metaManga} />);

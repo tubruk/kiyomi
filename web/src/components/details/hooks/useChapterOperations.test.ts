@@ -32,8 +32,8 @@ describe('useChapterOperations', () => {
     vi.spyOn(api, 'deleteChapter').mockResolvedValue(undefined);
     vi.spyOn(api, 'deleteChapterFiles').mockResolvedValue(undefined);
     vi.spyOn(api, 'pullChapter').mockResolvedValue({ pages: [], job_ids: ['job-1'] });
-    vi.spyOn(api, 'removeProvider').mockResolvedValue(undefined);
-    vi.spyOn(api, 'switchContentProvider').mockResolvedValue({ id: 'm-1' } as any);
+    vi.spyOn(api, 'removeBinding').mockResolvedValue(undefined);
+    vi.spyOn(api, 'setActiveContentSource').mockResolvedValue({ id: 'm-1', bindings: { providers: [] } });
     vi.spyOn(api, 'batchUpdateChapterProgress').mockResolvedValue({ updated: 2, chapter_ids: ['c1', 'c2'] });
     vi.spyOn(api, 'batchPullChapters').mockResolvedValue({ chapter_count: 2, job_ids: ['j1', 'j2'], job_count: 2 });
     vi.spyOn(api, 'batchRefreshChapters').mockResolvedValue({ refreshed: 2, chapter_ids: ['c1', 'c2'] });
@@ -236,7 +236,15 @@ describe('useChapterOperations', () => {
 
     it('imports manga with provided parameters, invalidates queries, and shows success toast', async () => {
       const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-      const mockManga: Manga = { id: 'm-1', title: 'Test Manga', sourceId: 'src-1', contentRemoteId: 'rem-1' };
+      const mockManga: Manga = {
+        id: 'm-1',
+        title: 'Test Manga',
+        sourceId: 'src-1',
+        contentRemoteId: 'rem-1',
+        metadata: { title: 'Test Manga', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+        user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+        bindings: { providers: [] },
+      };
 
       const { result } = renderHook(
         () =>
@@ -261,7 +269,15 @@ describe('useChapterOperations', () => {
     });
 
     it('falls back to manga fields when providerIdParam and remoteIdParam are not provided', async () => {
-      const mockManga: Manga = { id: 'm-fallback', title: 'Test Manga', sourceId: 'mangadex', contentRemoteId: 'dex-1' };
+      const mockManga: Manga = {
+        id: 'm-fallback',
+        title: 'Test Manga',
+        sourceId: 'mangadex',
+        contentRemoteId: 'dex-1',
+        metadata: { title: 'Test Manga', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+        user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+        bindings: { providers: [] },
+      };
 
       const { result } = renderHook(
         () =>
@@ -285,7 +301,13 @@ describe('useChapterOperations', () => {
       });
       vi.mocked(api.importProviderManga).mockRejectedValueOnce(errWithStringDetails);
 
-      const mockManga: Manga = { id: 'm-1', title: 'Test Manga' };
+      const mockManga: Manga = {
+        id: 'm-1',
+        title: 'Test Manga',
+        metadata: { title: 'Test Manga', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+        user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+        bindings: { providers: [] },
+      };
       const { result } = renderHook(
         () =>
           useChapterOperations({
@@ -666,7 +688,10 @@ describe('useChapterOperations', () => {
         await result.current.switchToMutation.mutateAsync({ provider });
       });
 
-      expect(api.switchContentProvider).toHaveBeenCalledWith('manga-1', 'mangafox', 'mf-1');
+      expect(api.setActiveContentSource).toHaveBeenCalledWith('manga-1', {
+        provider_id: 'mangafox',
+        provider_manga_id: 'mf-1',
+      });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.manga.details('manga-1') });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.library.all });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.chapters.all });
@@ -676,7 +701,7 @@ describe('useChapterOperations', () => {
     });
 
     it('handles switchTo failure with error toast', async () => {
-      vi.mocked(api.switchContentProvider).mockRejectedValue(new Error('Provider not bound'));
+      vi.mocked(api.setActiveContentSource).mockRejectedValue(new Error('Provider not bound'));
 
       const { result } = renderHook(
         () =>
@@ -743,14 +768,14 @@ describe('useChapterOperations', () => {
         await result.current.removeProviderMutation.mutateAsync(provider);
       });
 
-      expect(api.removeProvider).toHaveBeenCalledWith('manga-1', 'mangafox', 'mf-1');
+      expect(api.removeBinding).toHaveBeenCalledWith('manga-1', 'mangafox', 'mf-1');
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.manga.details('manga-1') });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.library.all });
       expect(showToast).toHaveBeenCalledWith('Provider removed', 'success');
     });
 
     it('handles removeProvider failure with error toast', async () => {
-      vi.mocked(api.removeProvider).mockRejectedValue(new Error('Cannot remove primary provider'));
+      vi.mocked(api.removeBinding).mockRejectedValue(new Error('Cannot remove primary provider'));
 
       const { result } = renderHook(
         () =>
@@ -814,7 +839,7 @@ describe('useChapterOperations', () => {
       expect(result.current.optimisticPullIds.has('c2')).toBe(true);
 
       await waitFor(() => {
-        expect(api.batchPullChapters).toHaveBeenCalledWith('manga-1', 'mangafox', ['c1', 'c2']);
+        expect(api.batchPullChapters).toHaveBeenCalledWith('manga-1', ['c1', 'c2']);
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.jobs.all });
         expect(showToast).toHaveBeenCalledWith('Pull enqueued for 2 chapter(s)', 'success');
       });
@@ -860,7 +885,7 @@ describe('useChapterOperations', () => {
       });
 
       await waitFor(() => {
-        expect(api.batchRefreshChapters).toHaveBeenCalledWith('manga-1', 'mangafox', ['c1', 'c2']);
+        expect(api.batchRefreshChapters).toHaveBeenCalledWith('manga-1', ['c1', 'c2']);
         expect(showToast).toHaveBeenCalledWith('Refreshed metadata for 2 chapter(s)', 'success');
       });
     });
@@ -905,7 +930,7 @@ describe('useChapterOperations', () => {
       });
 
       await waitFor(() => {
-        expect(api.batchDeleteChapterFiles).toHaveBeenCalledWith('manga-1', 'mangafox', ['c1', 'c2']);
+        expect(api.batchDeleteChapterFiles).toHaveBeenCalledWith('manga-1', ['c1', 'c2']);
         expect(showToast).toHaveBeenCalledWith('Deleted files for 2 chapter(s)', 'success');
       });
     });
@@ -950,7 +975,7 @@ describe('useChapterOperations', () => {
       });
 
       await waitFor(() => {
-        expect(api.batchDeleteChapters).toHaveBeenCalledWith('manga-1', 'mangafox', ['c1', 'c2']);
+        expect(api.batchDeleteChapters).toHaveBeenCalledWith('manga-1', ['c1', 'c2']);
         expect(showToast).toHaveBeenCalledWith('Removed 2 chapter(s) from library', 'success');
       });
     });
@@ -995,7 +1020,7 @@ describe('useChapterOperations', () => {
       });
 
       await waitFor(() => {
-        expect(api.batchUpdateChapterProgress).toHaveBeenCalledWith('manga-1', 'mangafox', ['c1', 'c2'], { is_read: true });
+        expect(api.batchUpdateChapterProgress).toHaveBeenCalledWith('manga-1', ['c1', 'c2'], { is_read: true });
         expect(showToast).toHaveBeenCalledWith('Marked 2 chapter(s) as read', 'success');
       });
 

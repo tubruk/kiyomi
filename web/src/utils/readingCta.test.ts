@@ -35,6 +35,9 @@ describe('getReadingCtaInfo', () => {
       id: 'm-1',
       title: 'Manga',
       lastReadChapterId: 'ch-2',
+      metadata: { title: 'Manga', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+      user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+      bindings: { providers: [] },
     };
     const result = getReadingCtaInfo(chapters, manga);
     expect(result).toEqual({
@@ -88,7 +91,9 @@ describe('getReadingCtaInfo', () => {
     const manga: Manga = {
       id: 'm-1',
       title: 'Manga',
-      meta: { last_read_chapter_id: 'ch-1' },
+      user_state: { status: 'reading', rating: 0, favorite: false, notes: '', last_read_chapter_id: 'ch-1' },
+      metadata: { title: 'Manga', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+      bindings: { providers: [] },
     };
     const result = getReadingCtaInfo(chapters, manga);
     expect(result).toEqual({

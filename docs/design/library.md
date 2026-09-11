@@ -23,7 +23,9 @@ The library directory organizes manga and chapters hierarchically by manga ID an
 ```
 <library_root>/
 └── <manga_id>/
-    ├── meta.json                     # Manga manifest
+    ├── metadata.json                 # Provider metadata manifest (title, description, authors, tags, cover_url, etc.)
+    ├── user_state.json               # User reading state (status, rating, favorite, notes, last_read_chapter_id, etc.)
+    ├── bindings.json                 # Provider bindings list and active content source pointer
     ├── cover.<ext>                   # Cover image (e.g. cover.jpg, cover.webp)
     ├── banner.<ext>                  # Banner image (optional)
     └── <provider_id>/                # Grouped by content provider (e.g. mangadex, mangafox, local)
@@ -44,13 +46,14 @@ Kiyomi maintains four distinct identifier spaces:
 | **Local Manga ID** (`manga_id`) | ULID or URL-safe slug | Folder name (`<library_root>/<manga_id>/`) | Local filesystem |
 | **Provider ID** (`provider_id`) | Alphanumeric identifier (`mangadex`, `mangafox`, `local`) | Folder name (`<library_root>/<manga_id>/<provider_id>/`) | System-wide |
 | **Local Chapter ID** (`chapter_id`) | ULID or provider chapter reference | Folder name (`<provider_id>/<chapter_id>/`) | Local provider namespace |
-| **Provider Remote ID** (`provider_manga_id` / `chapter_ref`) | Opaque upstream string | `meta.json` (`providers[]`, `content`) | Upstream provider |
+| **Provider Remote ID** (`provider_manga_id` / `chapter_ref`) | Opaque upstream string | `bindings.json` (`providers[]`, `content`) | Upstream provider |
 
 #### Rules:
-1. **Implicit Manga ID**: The folder name `<manga_id>` is authoritative; no redundant `manga_id` field is stored at the top level of `meta.json`.
-2. **Provider Isolation**: Chapters are partitioned under `<provider_id>/` subdirectories. Different providers for the same manga never collide or overwrite each other's chapter files.
-3. **The `local` Provider**: The special provider ID `local` is reserved for chapters imported manually (e.g. CBZ/ZIP extractions, local scans, or provider-less chapters).
-4. **URL Safety**: Provider identifiers and remote references must be URL-safe strings without base64 wrapper encoding.
+1. **Implicit Manga ID**: The folder name `<manga_id>` is authoritative; no redundant `manga_id` field is stored in the manga concern files.
+2. **Per-Concern Files**: The former manga `meta.json` is split into three concern-specific files: `metadata.json` (provider metadata), `user_state.json` (user reading state), and `bindings.json` (provider bindings and active content pointer). Each file is independently read and written, eliminating file-level write races between concurrent updates to different concerns.
+3. **Provider Isolation**: Chapters are partitioned under `<provider_id>/` subdirectories. Different providers for the same manga never collide or overwrite each other's chapter files.
+4. **The `local` Provider**: The special provider ID `local` is reserved for chapters imported manually (e.g. CBZ/ZIP extractions, local scans, or provider-less chapters).
+5. **URL Safety**: Provider identifiers and remote references must be URL-safe strings without base64 wrapper encoding.
 
 ### Page File Naming and Formats
 
@@ -63,9 +66,11 @@ Kiyomi maintains four distinct identifier spaces:
 
 ## Metadata Schemas
 
-### Manga Manifest (`<library_root>/<manga_id>/meta.json`)
+The manga-level manifest is split into three concern-specific files. Chapter-level `meta.json` (under `<provider_id>/<chapter_id>/`) is unchanged.
 
-The manga manifest defines series metadata, provider bindings, and user tracking information.
+### Metadata Manifest (`<library_root>/<manga_id>/metadata.json`)
+
+The metadata manifest stores provider-supplied series information: titles, descriptions, creators, taxonomy, and artwork references.
 
 ```json
 {
@@ -87,7 +92,68 @@ The manga manifest defines series metadata, provider bindings, and user tracking
       "label": "MangaDex",
       "url": "https://mangadex.org/title/abc123"
     }
-  ],
+  ]
+}
+```
+
+#### Field Specifications
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | string | Canonical display title of the series |
+| `aliases` | string[] | Alternative titles, transliterations, or localized names |
+| `description` | string | Synopsis or plot summary |
+| `authors` | string[] | Story writers / authors |
+| `artists` | string[] | Illustrators / artists |
+| `tags` | string[] | Normalized taxonomy tags (e.g. `type:manga`, `Fantasy`) |
+| `collections` | string[] | User-assigned collections / shelves (e.g. `Favorites`) |
+| `publishers` | string[] | Publishing imprints or serialization magazines |
+| `start_date` | string | Publication start date (`YYYY-MM-DD`) |
+| `end_date` | string | Publication end date (`YYYY-MM-DD`) or empty if ongoing |
+| `country` | string | ISO-3166-1 alpha-2 country code of origin (`JP`, `KR`, `CN`, `US`) |
+| `cover_url` | string | Canonical cover image URL (set by provider; not user-supplied) |
+| `external_links` | object[] | Related web links (`provider`, `label`, `url`) |
+
+---
+
+### User State Manifest (`<library_root>/<manga_id>/user_state.json`)
+
+The user state manifest stores per-user tracking data for a manga: reading status, personal rating, notes, and reading position.
+
+```json
+{
+  "user_status": "plan_to_read",
+  "user_rating": 8.5,
+  "user_favorite": true,
+  "user_notes": "Great world building and story pacing.",
+  "last_read_chapter_id": "ch-001",
+  "last_read_at": "2026-08-06T10:15:00Z",
+  "added_at": "2026-07-01T00:00:00Z",
+  "updated_at": "2026-08-06T10:00:00Z"
+}
+```
+
+#### Field Specifications
+
+| Field | Type | Description |
+|---|---|---|
+| `user_status` | string | Reading status: `unread`, `reading`, `completed`, `on_hold`, `dropped`, `plan_to_read` |
+| `user_rating` | number | User score (0.0 to 10.0; 0 indicates unrated) |
+| `user_favorite` | boolean | Favorite / starred series indicator |
+| `user_notes` | string | User's private freeform notes |
+| `last_read_chapter_id` | string | Local chapter ID of the most recently read chapter |
+| `last_read_at` | timestamp | ISO 8601 timestamp of last reading activity |
+| `added_at` | timestamp | ISO 8601 timestamp when manga was added to library |
+| `updated_at` | timestamp | ISO 8601 timestamp of last user-state modification |
+
+---
+
+### Bindings Manifest (`<library_root>/<manga_id>/bindings.json`)
+
+The bindings manifest stores the list of all bound providers and the active content source pointer.
+
+```json
+{
   "content": {
     "provider_id": "mangadex",
     "provider_manga_id": "abc123",
@@ -105,15 +171,7 @@ The manga manifest defines series metadata, provider bindings, and user tracking
       "provider_manga_id": "xyz789",
       "manga_title": "Sample Manga (Kitsu)"
     }
-  ],
-  "user_status": "plan_to_read",
-  "user_rating": 8.5,
-  "user_favorite": true,
-  "user_notes": "Great world building and story pacing.",
-  "last_read_chapter_id": "ch-001",
-  "last_read_at": "2026-08-06T10:15:00Z",
-  "added_at": "2026-07-01T00:00:00Z",
-  "updated_at": "2026-08-06T10:00:00Z"
+  ]
 }
 ```
 
@@ -121,21 +179,7 @@ The manga manifest defines series metadata, provider bindings, and user tracking
 
 | Field | Type | Description |
 |---|---|---|
-| `title` | string | Canonical display title of the series |
-| `aliases` | string[] | Alternative titles, transliterations, or localized names |
-| `description` | string | Synopsis or plot summary |
-| `authors` | string[] | Story writers / authors |
-| `artists` | string[] | Illustrators / artists |
-| `tags` | string[] | Normalized taxonomy tags (e.g. `type:manga`, `Fantasy`) |
-| `collections` | string[] | User-assigned collections / shelves (e.g. `Favorites`) |
-| `content_rating` | string | Content rating: `safe`, `suggestive`, `erotica`, `pornographic` |
-| `publishers` | string[] | Publishing imprints or serialization magazines |
-| `release_year` | integer | Publication release year |
-| `start_date` | string | Publication start date (`YYYY-MM-DD`) |
-| `end_date` | string | Publication end date (`YYYY-MM-DD`) or empty if ongoing |
-| `country` | string | ISO-3166-1 alpha-2 country code of origin (`JP`, `KR`, `CN`, `US`) |
-| `external_links[].url` | string | Target web URL |
-| `content` | object | Active content provider source configuration (optional) |
+| `content` | object | Active content provider source configuration |
 | `content.provider_id` | string | Active content provider identifier |
 | `content.provider_manga_id` | string | Active provider series remote identifier |
 | `content.reading_mode` | string | Series layout direction: `ltr`, `rtl`, `vertical`, `longstrip` |
@@ -144,14 +188,6 @@ The manga manifest defines series metadata, provider bindings, and user tracking
 | `providers[].provider_id` | string | Bound provider identifier |
 | `providers[].provider_manga_id` | string | Remote series identifier on that provider |
 | `providers[].manga_title` | string | Canonical series title reported by provider |
-| `user_status` | string | Reading status: `unread`, `reading`, `completed`, `on_hold`, `dropped`, `plan_to_read` |
-| `user_rating` | number | User score (0.0 to 10.0; 0 indicates unrated) |
-| `user_favorite` | boolean | Favorite / starred series indicator |
-| `user_notes` | string | User's private freeform notes |
-| `last_read_chapter_id` | string | Local chapter ID of the most recently read chapter |
-| `last_read_at` | timestamp | ISO 8601 timestamp of last reading activity |
-| `added_at` | timestamp | ISO 8601 timestamp when manga was added to library |
-| `updated_at` | timestamp | ISO 8601 timestamp of last metadata modification |
 
 ---
 
@@ -324,7 +360,7 @@ Refreshing a manga reconciles local chapter manifests with the latest release li
 
 ```
 1. Client triggers POST /api/v1/library/manga/:mangaId/refresh.
-2. Read manga-level meta.json to identify active content provider (content.provider_id).
+2. Read bindings.json to identify active content provider (content.provider_id).
 3. Fetch latest chapter list from the upstream provider API.
 4. Read existing chapter manifests from <library_root>/<manga_id>/<provider_id>/.
 5. Compare upstream list with local manifests:
@@ -334,7 +370,7 @@ Refreshing a manga reconciles local chapter manifests with the latest release li
 6. If the provider returns 0 chapters (potential error/takedown):
    - Abort reconciliation and surface error to client.
    - Preserve all local files and manifests without modification.
-7. Update content.last_synced_at in manga-level meta.json.
+7. Update content.last_synced_at in bindings.json only (no touch to metadata.json or user_state.json).
 ```
 
 ---
@@ -343,8 +379,8 @@ Refreshing a manga reconciles local chapter manifests with the latest release li
 
 Kiyomi supports binding multiple content providers to a single manga entry without cross-correlating chapter IDs:
 
-1. **Add Provider Binding**: Appends a new `{ provider_id, provider_manga_id, manga_title }` entry to `providers[]` in manga `meta.json`.
-2. **Switch Active Provider**: Updates `content.provider_id` and `content.provider_manga_id` in manga `meta.json`.
+1. **Add Provider Binding**: Appends a new `{ provider_id, provider_manga_id, manga_title }` entry to `providers[]` in `bindings.json`.
+2. **Switch Active Provider**: Updates `content.provider_id` and `content.provider_manga_id` in `bindings.json`.
 3. **Isolation**: Chapter manifests and downloaded images for the previous provider remain untouched on disk under `<library_root>/<manga_id>/<old_provider_id>/`.
 4. **No Deletions**: Switching providers never deletes downloaded files or reading progress from other providers.
 
@@ -354,7 +390,7 @@ Kiyomi supports binding multiple content providers to a single manga entry witho
 
 ### Reading Progress Updates
 - Updates `is_read`, `last_read_page`, and `last_read_at` in chapter `meta.json`.
-- Simultaneously updates `last_read_chapter_id` and `last_read_at` in the manga `meta.json`.
+- Simultaneously updates `last_read_chapter_id` and `last_read_at` in `user_state.json` (the manga user-state concern).
 
 ### Delete Chapter Files
 - Removes downloaded page images (`*.jpg`, `*.png`, etc.) and `pages.json` from the chapter directory.

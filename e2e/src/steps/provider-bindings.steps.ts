@@ -85,8 +85,8 @@ Given('a seeded library with manga-x bound to mock-primary and mock-secondary is
     throw new Error(`Could not parse manga id from import response: ${JSON.stringify(importRes.data)}`);
   }
 
-  // Add mock-secondary as an additional provider binding via POST /providers
-  await axios.post(`${base}/api/v1/library/manga/${mangaId}/providers`, {
+  // Add mock-secondary as an additional provider binding via POST /bindings
+  await axios.post(`${base}/api/v1/library/manga/${mangaId}/bindings`, {
     provider_id: 'mock-secondary',
     provider_manga_id: 'alpha',
     manga_title: 'Alpha (Secondary)',
@@ -101,19 +101,19 @@ Given('the manga has only provider {string}', async function (providerId: string
   const base = `http://localhost:${port}`;
 
   // GET current providers
-  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 10000 });
+  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 10000 });
   const providers: any[] = res.data?.providers || [];
   // Remove all providers that are not the target
   for (const p of providers) {
     if (p.provider_id !== providerId) {
       await axios.delete(
-        `${base}/api/v1/library/manga/${mangaId}/providers/${p.provider_id}/${encodeURIComponent(p.provider_manga_id)}`,
+        `${base}/api/v1/library/manga/${mangaId}/bindings/${p.provider_id}/${encodeURIComponent(p.provider_manga_id)}`,
         { timeout: 10000 }
       );
     }
   }
   // Verify only target remains
-  const after = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 10000 });
+  const after = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 10000 });
   const remaining: any[] = after.data?.providers || [];
   expect(remaining).toHaveLength(1);
   expect(remaining[0].provider_id).toBe(providerId);
@@ -126,7 +126,7 @@ Given('the manga has providers {string}', async function (p1: string) {
   const { page, port } = getWorld();
   const mangaId = await getMangaIdFromUrl(page);
   const base = `http://localhost:${port}`;
-  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 10000 });
+  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 10000 });
   const providers: any[] = res.data?.providers || [];
   expect(providers.some((p: any) => p.provider_id === p1)).toBe(true);
 });
@@ -137,7 +137,7 @@ Given('the manga has providers {string} and {string}', async function (p1: strin
   const base = `http://localhost:${port}`;
 
   // Ensure both are present (add if missing) by binding to existing manga
-  const existing = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 10000 });
+  const existing = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 10000 });
   const current: any[] = existing.data?.providers || [];
   const ids = new Set(current.map((p: any) => p.provider_id));
 
@@ -150,7 +150,7 @@ Given('the manga has providers {string} and {string}', async function (p1: strin
   for (const providerId of [p1, p2]) {
     if (!ids.has(providerId)) {
       const mangaTitle = providerTitles[providerId] || current[0]?.manga_title || 'Alpha Manga';
-      await axios.post(`${base}/api/v1/library/manga/${mangaId}/providers`, {
+      await axios.post(`${base}/api/v1/library/manga/${mangaId}/bindings`, {
         provider_id: providerId,
         provider_manga_id: 'alpha',
         manga_title: mangaTitle,
@@ -168,13 +168,13 @@ Given('{string} is the active content provider', async function (providerId: str
   const base = `http://localhost:${port}`;
 
   // Find provider_manga_id for this provider from current bindings
-  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 10000 });
+  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 10000 });
   const providers: any[] = res.data?.providers || [];
   const target = providers.find((p: any) => p.provider_id === providerId);
   expect(target).toBeDefined();
 
   await axios.patch(
-    `${base}/api/v1/library/manga/${mangaId}/content`,
+    `${base}/api/v1/library/manga/${mangaId}/bindings/content`,
     { provider_id: providerId, provider_manga_id: target.provider_manga_id },
     { timeout: 10000 }
   );
@@ -332,8 +332,8 @@ When('I PATCH the manga\'s content provider with a metadata-only binding', async
   }
 
   // Find a provider binding for this source on the manga
-  const providersRes = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 10000 });
-  const providers: any[] = providersRes.data || [];
+  const providersRes = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 10000 });
+  const providers: any[] = providersRes.data?.providers || [];
   const binding = providers.find((p: any) => p.provider_id === metadataOnly.id);
   if (!binding) {
     (this as any)._skipSwitch = true;
@@ -343,7 +343,7 @@ When('I PATCH the manga\'s content provider with a metadata-only binding', async
   // Attempt the switch — should fail with 400
   try {
     const errRes = await axios.patch(
-      `${base}/api/v1/library/manga/${mangaId}/content`,
+      `${base}/api/v1/library/manga/${mangaId}/bindings/content`,
       { provider_id: metadataOnly.id, provider_manga_id: binding.provider_manga_id },
       { validateStatus: () => true, timeout: 10000 }
     );
@@ -460,7 +460,7 @@ Then('the provider {string} is added to the manga', async function (providerId: 
   const { page, port } = getWorld();
   const mangaId = await getMangaIdFromUrl(page);
   const base = `http://localhost:${port}`;
-  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 15000 });
+  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 15000 });
   const providers: any[] = res.data?.providers || [];
   expect(providers.some((p: any) => p.provider_id === providerId)).toBe(true);
 });
@@ -469,7 +469,7 @@ Then('the provider {string} is removed from the manga', async function (provider
   const { page, port } = getWorld();
   const mangaId = await getMangaIdFromUrl(page);
   const base = `http://localhost:${port}`;
-  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 15000 });
+  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 15000 });
   const providers: any[] = res.data?.providers || [];
   expect(providers.some((p: any) => p.provider_id === providerId)).toBe(false);
 });
@@ -489,6 +489,7 @@ Then('{string} becomes the active content provider', async function (providerId:
   const { page, port } = getWorld();
   const mangaId = await getMangaIdFromUrl(page);
   const base = `http://localhost:${port}`;
+  // Verify manga's content provider matches
   const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}`, { timeout: 15000 });
   const manga: any = res.data;
   const activeProvider = manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id;
@@ -499,6 +500,7 @@ Then('{string} remains the active content provider', async function (providerId:
   const { page, port } = getWorld();
   const mangaId = await getMangaIdFromUrl(page);
   const base = `http://localhost:${port}`;
+  // Verify manga's content provider matches
   const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}`, { timeout: 15000 });
   const manga: any = res.data;
   const activeProvider = manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id;
@@ -509,8 +511,8 @@ Then('the provider {string} remains in the providers list', async function (prov
   const { page, port } = getWorld();
   const mangaId = await getMangaIdFromUrl(page);
   const base = `http://localhost:${port}`;
-  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/providers`, { timeout: 15000 });
-  const providers: any[] = res.data || [];
+  const res = await axios.get(`${base}/api/v1/library/manga/${mangaId}/bindings`, { timeout: 15000 });
+  const providers: any[] = res.data?.providers || [];
   expect(providers.some((p: any) => p.provider_id === providerId)).toBe(true);
 });
 

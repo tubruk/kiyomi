@@ -15,7 +15,9 @@ Chapter metadata and downloaded image files are partitioned by provider ID direc
 ```
 <library_root>/
 └── <manga_id>/
-    ├── meta.json                     # Manga manifest
+    ├── metadata.json                 # Provider metadata manifest (title, description, authors, tags, cover_url, etc.)
+    ├── user_state.json               # User reading state (status, rating, favorite, notes, last_read_chapter_id, etc.)
+    ├── bindings.json                 # Provider bindings list and active content source pointer
     ├── cover.<ext>                   # Cover image (e.g. cover.jpg, cover.webp)
     ├── banner.<ext>                  # Banner image (optional)
     └── <provider_id>/                # Grouped by content provider (e.g. mangadex, mangafox, local)
@@ -47,13 +49,13 @@ Kiyomi coordinates multi-provider metadata through the manga manifest and chapte
 
 > **Note**: See [Library Storage Architecture](./library.md) for full manifest schemas and comprehensive field-by-field definitions.
 
-### Manga Manifest Provider Bindings (`<library_root>/<manga_id>/meta.json`)
+### Manga Manifest Provider Bindings
 
-The manga manifest records all bound providers alongside the active provider pointer:
+The manga manifest is split into three concern files. Provider bindings and the active content pointer live in `bindings.json`:
 
 ```json
+// bindings.json
 {
-  "title": "Sample Manga",
   "content": {
     "provider_id": "mangadex",
     "provider_manga_id": "abc123",
@@ -71,16 +73,24 @@ The manga manifest records all bound providers alongside the active provider poi
       "provider_manga_id": "xyz789",
       "manga_title": "Sample Manga (Kitsu)"
     }
-  ],
+  ]
+}
+```
+
+User-state fields that were previously in `meta.json` now live in `user_state.json`:
+
+```json
+// user_state.json
+{
   "last_read_chapter_id": "ch-001",
   "last_read_at": "2026-08-06T10:15:00Z"
 }
 ```
 
 #### Key Provider Fields
-- `content`: Object identifying the current active content provider (`provider_id`, `provider_manga_id`, `reading_mode`, `last_synced_at`).
-- `providers[]`: Array of all bound provider references (`provider_id`, `provider_manga_id`, `manga_title`).
-- `last_read_chapter_id` / `last_read_at`: Manga-level pointer to the most recently read chapter across all providers.
+- `content`: Object in `bindings.json` identifying the current active content provider (`provider_id`, `provider_manga_id`, `reading_mode`, `last_synced_at`).
+- `providers[]`: Array in `bindings.json` of all bound provider references (`provider_id`, `provider_manga_id`, `manga_title`).
+- `last_read_chapter_id` / `last_read_at`: Stored in `user_state.json`, pointing to the most recently read chapter across all providers.
 
 ### Chapter Manifest Provider Coordinates (`<library_root>/<manga_id>/<provider_id>/<chapter_id>/meta.json`)
 
@@ -148,9 +158,9 @@ Treating chapters as provider-isolated entities simplifies provider management f
 ### Lifecycle Workflow:
 
 1. **Bind Provider**:
-   - Appends a new `{ provider_id, provider_manga_id, manga_title }` record to `providers[]` in the manga manifest.
+   - Appends a new `{ provider_id, provider_manga_id, manga_title }` record to `providers[]` in `bindings.json`.
 2. **Switch Active Provider**:
-   - Updates `content.provider_id` and `content.provider_manga_id` in the manga manifest to point to the selected provider.
+   - Updates `content.provider_id` and `content.provider_manga_id` in `bindings.json` to point to the selected provider.
 3. **Manifest Acquisition & Synchronization**:
    - If switching to a provider for the first time, Kiyomi queries the provider API and writes chapter manifests into `<library_root>/<manga_id>/<provider_id>/<chapter_id>/`.
 4. **Non-Destructive Preservation**:

@@ -157,7 +157,7 @@ func TestProxyHandlerRoutes(t *testing.T) {
 	h.registry.Register(mockP)
 
 	// Save chapter to library first for proxyPageImage test
-	_ = h.lib.SaveManga("manga1", &library.MangaMeta{Title: "Manga 1"})
+	_ = h.lib.SaveManga("manga1", library.Manga{Metadata: library.MangaMetadata{Title: "Manga 1"}})
 	_ = h.lib.SaveChapter("manga1", library.LocalProviderID, "ch1", &library.ChapterMeta{Title: "Chapter 1"})
 
 	t.Run("GET /providers/:providerId/manga/:remoteId/chapters/:chapterId/pages", func(t *testing.T) {
@@ -180,8 +180,8 @@ func TestProxyHandlerRoutes(t *testing.T) {
 		}
 	})
 
-	t.Run("GET /chapters/:chapterId/pages alias", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/chapters/ch-1/pages?providerId=testprov", nil)
+	t.Run("GET /library/manga/:mangaId/chapters/:chapterId/pages", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/mock-1/chapters/ch-1/pages?providerId=testprov", nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 
@@ -223,7 +223,7 @@ func TestGetChapterPages_ConcurrentFallbackSearch(t *testing.T) {
 
 	for i := 1; i <= numManga; i++ {
 		mID := fmt.Sprintf("manga-%d", i)
-		_ = h.lib.SaveManga(mID, &library.MangaMeta{Title: fmt.Sprintf("Manga %d", i)})
+		_ = h.lib.SaveManga(mID, library.Manga{Metadata: library.MangaMetadata{Title: fmt.Sprintf("Manga %d", i)}})
 	}
 
 	// Save target chapter in targetMangaID with ProviderID set
@@ -238,8 +238,8 @@ func TestGetChapterPages_ConcurrentFallbackSearch(t *testing.T) {
 		t.Fatalf("failed to save chapter: %v", err)
 	}
 
-	// Request GET /chapters/:chapterId/pages without providerId or mangaId
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/chapters/"+targetChapterID+"/pages", nil)
+	// Request GET /library/manga/unknown-manga/chapters/:chapterId/pages without providerId (triggers fallback search)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/unknown-manga/chapters/"+targetChapterID+"/pages", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -420,11 +420,13 @@ func TestGetChapterPages_LazyLoadingAndRefresh(t *testing.T) {
 	mangaID := "manga-lazy"
 	chapterID := "ch-lazy"
 
-	_ = h.lib.SaveManga(mangaID, &library.MangaMeta{
-		Title: "Lazy Manga",
-		Content: &library.ContentSource{
-			ProviderID:      "countingprov",
-			ProviderMangaID: mangaID,
+	_ = h.lib.SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Lazy Manga"},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID:      "countingprov",
+				ProviderMangaID: mangaID,
+			},
 		},
 	})
 	_ = h.lib.SaveChapter(mangaID, "countingprov", chapterID, &library.ChapterMeta{
@@ -444,7 +446,7 @@ func TestGetChapterPages_LazyLoadingAndRefresh(t *testing.T) {
 	}
 
 	// 1. First request: Should fetch from provider and save to library
-	req1 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/chapters/%s/pages?providerId=countingprov&mangaId=%s", chapterID, mangaID), nil)
+	req1 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/library/manga/%s/chapters/%s/pages?providerId=countingprov", mangaID, chapterID), nil)
 	rec1 := httptest.NewRecorder()
 	e.ServeHTTP(rec1, req1)
 
@@ -476,7 +478,7 @@ func TestGetChapterPages_LazyLoadingAndRefresh(t *testing.T) {
 	}
 
 	// 2. Second request: Should return from library without calling provider mock
-	req2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/chapters/%s/pages?providerId=countingprov&mangaId=%s", chapterID, mangaID), nil)
+	req2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/library/manga/%s/chapters/%s/pages?providerId=countingprov", mangaID, chapterID), nil)
 	rec2 := httptest.NewRecorder()
 	e.ServeHTTP(rec2, req2)
 
@@ -499,7 +501,7 @@ func TestGetChapterPages_LazyLoadingAndRefresh(t *testing.T) {
 	}
 
 	// 3. Third request with ?refresh=true: Should bypass library and fetch fresh from provider
-	req3 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/chapters/%s/pages?providerId=countingprov&mangaId=%s&refresh=true", chapterID, mangaID), nil)
+	req3 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/library/manga/%s/chapters/%s/pages?providerId=countingprov&refresh=true", mangaID, chapterID), nil)
 	rec3 := httptest.NewRecorder()
 	e.ServeHTTP(rec3, req3)
 
@@ -560,7 +562,7 @@ func TestProxyPageImage_DiskCacheServing(t *testing.T) {
 	chapterID := "proxy-ch"
 	providerID := "local"
 
-	_ = h.lib.SaveManga(mangaID, &library.MangaMeta{Title: "Proxy Manga"})
+	_ = h.lib.SaveManga(mangaID, library.Manga{Metadata: library.MangaMetadata{Title: "Proxy Manga"}})
 	_ = h.lib.SaveChapter(mangaID, providerID, chapterID, &library.ChapterMeta{
 		Title: "Proxy Chapter",
 	})
@@ -695,7 +697,7 @@ func TestProxyPageImage_RetainProviderID(t *testing.T) {
 	chapterID := "retain-prov-ch"
 	providerID := "mangafox"
 
-	_ = h.lib.SaveManga(mangaID, &library.MangaMeta{Title: "Retain Prov Manga"})
+	_ = h.lib.SaveManga(mangaID, library.Manga{Metadata: library.MangaMetadata{Title: "Retain Prov Manga"}})
 	// Chapter exists, but chMeta.Content is nil
 	_ = h.lib.SaveChapter(mangaID, providerID, chapterID, &library.ChapterMeta{
 		Title:   "Chapter 1",
@@ -742,11 +744,13 @@ func TestGetChapterPages_ResolvesRemoteIDs(t *testing.T) {
 	remoteMangaID := "remote-manga-100"
 	remoteChapterRef := "remote-ch-200"
 
-	_ = h.lib.SaveManga(localMangaID, &library.MangaMeta{
-		Title: "Local Manga 1",
-		Content: &library.ContentSource{
-			ProviderID:      "remoteprov",
-			ProviderMangaID: remoteMangaID,
+	_ = h.lib.SaveManga(localMangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Local Manga 1"},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID:      "remoteprov",
+				ProviderMangaID: remoteMangaID,
+			},
 		},
 	})
 	_ = h.lib.SaveChapter(localMangaID, "remoteprov", localChapterID, &library.ChapterMeta{
@@ -757,7 +761,7 @@ func TestGetChapterPages_ResolvesRemoteIDs(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/chapters/%s/pages?providerId=remoteprov&mangaId=%s", localChapterID, localMangaID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/library/manga/%s/chapters/%s/pages?providerId=remoteprov", localMangaID, localChapterID), nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -783,12 +787,14 @@ func TestGetChapterPages_ResolvesRemoteIDs(t *testing.T) {
 	remoteMangaID2 := "remote-manga-300"
 	remoteChapterRef2 := "remote-ch-400"
 
-	_ = h.lib.SaveManga(localMangaID2, &library.MangaMeta{
-		Title: "Local Manga 2",
-		Providers: []library.ProviderRef{
-			{
-				ProviderID:      "remoteprov",
-				ProviderMangaID: remoteMangaID2,
+	_ = h.lib.SaveManga(localMangaID2, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Local Manga 2"},
+		Bindings: library.MangaBindings{
+			Providers: []library.ProviderRef{
+				{
+					ProviderID:      "remoteprov",
+					ProviderMangaID: remoteMangaID2,
+				},
 			},
 		},
 	})
@@ -800,7 +806,7 @@ func TestGetChapterPages_ResolvesRemoteIDs(t *testing.T) {
 		},
 	})
 
-	req2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/chapters/%s/pages?providerId=remoteprov&mangaId=%s", localChapterID2, localMangaID2), nil)
+	req2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/library/manga/%s/chapters/%s/pages?providerId=remoteprov", localMangaID2, localChapterID2), nil)
 	rec2 := httptest.NewRecorder()
 	e.ServeHTTP(rec2, req2)
 

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -25,22 +28,24 @@ func (h *Handler) listLibraryManga(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 	res := make([]echo.Map, 0, len(mangas))
-	for _, m := range mangas {
+	for _, info := range mangas {
 		var providerID string
 		var readingMode string
-		if m.Meta.Content != nil {
-			providerID = m.Meta.Content.ProviderID
-			readingMode = m.Meta.Content.ReadingMode
+		if info.Bindings.Content != nil {
+			providerID = info.Bindings.Content.ProviderID
+			readingMode = info.Bindings.Content.ReadingMode
 		}
 		item := echo.Map{
-			"id":                  m.ID,
-			"title":               m.Meta.Title,
-			"cover":               m.Meta.CoverURL,
+			"id":                  info.ID,
+			"title":               info.Metadata.Title,
+			"cover":               info.Metadata.CoverURL,
 			"content_provider_id": providerID,
 			"sourceId":            providerID,
-			"external_links":      m.Meta.ExternalLinks,
-			"externalLinks":       m.Meta.ExternalLinks,
-			"meta":                m.Meta,
+			"external_links":      info.Metadata.ExternalLinks,
+			"externalLinks":       info.Metadata.ExternalLinks,
+			"metadata":            info.Metadata,
+			"user_state":          info.UserState,
+			"bindings":            info.Bindings,
 		}
 		if readingMode != "" {
 			item["reading_mode"] = readingMode
@@ -52,31 +57,33 @@ func (h *Handler) listLibraryManga(c echo.Context) error {
 
 func (h *Handler) getLibraryManga(c echo.Context) error {
 	id := c.Param("mangaId")
-	meta, err := h.lib.GetManga(id)
+	info, err := h.lib.GetManga(id)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
 	}
 	var providerID string
 	var readingMode string
-	if meta.Content != nil {
-		providerID = meta.Content.ProviderID
-		readingMode = meta.Content.ReadingMode
+	if info.Bindings.Content != nil {
+		providerID = info.Bindings.Content.ProviderID
+		readingMode = info.Bindings.Content.ReadingMode
 	}
 	resp := echo.Map{
 		"id":                  id,
-		"title":               meta.Title,
-		"aliases":             meta.Aliases,
-		"cover":               meta.CoverURL,
-		"description":         meta.Description,
-		"authors":             meta.Authors,
-		"artists":             meta.Artists,
-		"tags":                meta.Tags,
+		"title":               info.Metadata.Title,
+		"aliases":             info.Metadata.Aliases,
+		"cover":               info.Metadata.CoverURL,
+		"description":         info.Metadata.Description,
+		"authors":             info.Metadata.Authors,
+		"artists":             info.Metadata.Artists,
+		"tags":                info.Metadata.Tags,
 		"content_provider_id": providerID,
 		"sourceId":            providerID,
-		"external_links":      meta.ExternalLinks,
-		"externalLinks":       meta.ExternalLinks,
-		"meta":                meta,
+		"external_links":      info.Metadata.ExternalLinks,
+		"externalLinks":       info.Metadata.ExternalLinks,
+		"metadata":            info.Metadata,
+		"user_state":          info.UserState,
+		"bindings":            info.Bindings,
 	}
 	if readingMode != "" {
 		resp["reading_mode"] = readingMode
@@ -86,9 +93,11 @@ func (h *Handler) getLibraryManga(c echo.Context) error {
 
 func (h *Handler) createLibraryManga(c echo.Context) error {
 	var body struct {
-		ID      string                 `json:"id"`
-		Meta    library.MangaMeta      `json:"meta"`
-		Content *library.ContentSource `json:"content"`
+		ID        string                 `json:"id"`
+		Metadata  library.MangaMetadata  `json:"metadata"`
+		UserState library.UserState      `json:"user_state"`
+		Bindings  library.MangaBindings  `json:"bindings"`
+		Content   *library.ContentSource `json:"content"`
 	}
 	if err := c.Bind(&body); err != nil {
 		c.Set("handler_error", err.Error())
@@ -100,76 +109,159 @@ func (h *Handler) createLibraryManga(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "id is required"})
 	}
 
-	if body.Meta.UserStatus != "" && !library.IsValidUserStatus(body.Meta.UserStatus) {
+	if body.UserState.Status != "" && !library.IsValidUserStatus(body.UserState.Status) {
 		c.Set("handler_error", "invalid user_status")
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid user_status"})
 	}
 
-	if body.Meta.Content == nil && body.Content != nil {
-		body.Meta.Content = body.Content
+	if body.Bindings.Content == nil && body.Content != nil {
+		body.Bindings.Content = body.Content
 	}
 
-	if err := h.lib.SaveManga(body.ID, &body.Meta); err != nil {
+	if err := h.lib.SaveManga(body.ID, library.Manga{
+		Metadata:  body.Metadata,
+		UserState: body.UserState,
+		Bindings:  body.Bindings,
+	}); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, echo.Map{
-		"id":   body.ID,
-		"meta": body.Meta,
+		"id":         body.ID,
+		"metadata":   body.Metadata,
+		"user_state": body.UserState,
+		"bindings":   body.Bindings,
 	})
 }
 
 func (h *Handler) updateLibraryManga(c echo.Context) error {
 	id := c.Param("mangaId")
-	var meta library.MangaMeta
-	if err := c.Bind(&meta); err != nil {
+	var body library.Manga
+	if err := c.Bind(&body); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	if meta.UserStatus != "" && !library.IsValidUserStatus(meta.UserStatus) {
+	if body.UserState.Status != "" && !library.IsValidUserStatus(body.UserState.Status) {
 		c.Set("handler_error", "invalid user_status")
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid user_status"})
 	}
 
-	if err := h.lib.SaveManga(id, &meta); err != nil {
+	if err := h.lib.SaveManga(id, body); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{
-		"id":   id,
-		"meta": meta,
+		"id":         id,
+		"metadata":   body.Metadata,
+		"user_state": body.UserState,
+		"bindings":   body.Bindings,
 	})
 }
 
 func (h *Handler) patchLibraryManga(c echo.Context) error {
 	id := c.Param("mangaId")
-	existing, err := h.lib.GetManga(id)
-	if err != nil {
-		c.Set("handler_error", err.Error())
-		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	var body struct {
+		Metadata   *library.MangaMetadata `json:"metadata,omitempty"`
+		UserState  *library.UserState     `json:"user_state,omitempty"`
+		Bindings   *library.MangaBindings `json:"bindings,omitempty"`
+		UserStatus string                 `json:"user_status,omitempty"`
+		UserRating *float64               `json:"user_rating,omitempty"`
+		UserFav    *bool                  `json:"user_favorite,omitempty"`
+		UserNotes  string                 `json:"user_notes,omitempty"`
 	}
-
-	if err := c.Bind(existing); err != nil {
+	if err := c.Bind(&body); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	if existing.UserStatus != "" && !library.IsValidUserStatus(existing.UserStatus) {
+	// Legacy callers (api.patchLibraryManga) still send flat user_* fields.
+	// Merge them into UserState so the deprecated endpoint keeps working
+	// until every consumer migrates to /library/manga/:id/user_state. Always
+	// start from the stored state so unrelated fields (status, rating,
+	// favorite, notes) survive a single-field PATCH.
+	if body.UserState == nil &&
+		(body.UserStatus != "" || body.UserRating != nil || body.UserFav != nil || body.UserNotes != "") {
+		existing, err := h.lib.GetUserState(id)
+		if err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		body.UserState = &existing
+	}
+	if body.UserState != nil {
+		if body.UserStatus != "" {
+			body.UserState.Status = body.UserStatus
+		}
+		if body.UserRating != nil {
+			body.UserState.Rating = *body.UserRating
+		}
+		if body.UserFav != nil {
+			body.UserState.Favorite = *body.UserFav
+		}
+		if body.UserNotes != "" {
+			body.UserState.Notes = body.UserNotes
+		}
+	}
+
+	if body.UserState != nil && body.UserState.Status != "" && !library.IsValidUserStatus(body.UserState.Status) {
 		c.Set("handler_error", "invalid user_status")
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid user_status"})
 	}
 
-	if err := h.lib.SaveManga(id, existing); err != nil {
-		c.Set("handler_error", err.Error())
-		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	info := library.Manga{ID: id}
+	if body.Metadata != nil {
+		if err := h.lib.SaveMetadata(id, *body.Metadata); err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		info.Metadata = *body.Metadata
+	} else {
+		m, err := h.lib.GetMetadata(id)
+		if err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		info.Metadata = m
+	}
+
+	if body.UserState != nil {
+		if err := h.lib.SaveUserState(id, *body.UserState); err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		info.UserState = *body.UserState
+	} else {
+		u, err := h.lib.GetUserState(id)
+		if err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		info.UserState = u
+	}
+
+	if body.Bindings != nil {
+		if err := h.lib.SaveBindings(id, *body.Bindings); err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		info.Bindings = *body.Bindings
+	} else {
+		b, err := h.lib.GetBindings(id)
+		if err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		info.Bindings = b
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{
-		"id":   id,
-		"meta": existing,
+		"id":         id,
+		"metadata":   info.Metadata,
+		"user_state": info.UserState,
+		"bindings":   info.Bindings,
 	})
 }
 
@@ -183,22 +275,22 @@ func (h *Handler) deleteLibraryManga(c echo.Context) error {
 }
 
 func (h *Handler) refreshChaptersFromContent(ctx context.Context, providerID string, mangaID string) (int, int, error) {
-	meta, err := h.lib.GetManga(mangaID)
+	info, err := h.lib.GetManga(mangaID)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	if meta.Content == nil || meta.Content.ProviderID == "" {
+	if info.Bindings.Content == nil || info.Bindings.Content.ProviderID == "" {
 		return 0, 0, fmt.Errorf("manga has no connected content provider")
 	}
 
-	providerID = meta.Content.ProviderID
+	providerID = info.Bindings.Content.ProviderID
 	_, contentProvider, err := h.getProvider(providerID)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	remoteID := meta.Content.ProviderMangaID
+	remoteID := info.Bindings.Content.ProviderMangaID
 	if remoteID == "" {
 		remoteID = mangaID
 	}
@@ -290,7 +382,7 @@ func (h *Handler) refreshChaptersFromContent(ctx context.Context, providerID str
 	}
 
 	// Orphan detection: chapters on disk not in API result
-	if meta.Content.ProviderID != library.LocalProviderID {
+	if info.Bindings.Content.ProviderID != library.LocalProviderID {
 		for _, ch := range existingChapters {
 			found := false
 			for _, apiCh := range chapters {
@@ -309,9 +401,11 @@ func (h *Handler) refreshChaptersFromContent(ctx context.Context, providerID str
 		return int(added), int(orphaned), ctx.Err()
 	}
 
-	meta.Content.LastSyncedAt = now
-	if err := h.lib.SaveManga(mangaID, meta); err != nil {
-		return int(added), int(orphaned), err
+	if info.Bindings.Content != nil {
+		info.Bindings.Content.LastSyncedAt = now
+		if err := h.lib.SaveBindings(mangaID, info.Bindings); err != nil {
+			return int(added), int(orphaned), err
+		}
 	}
 
 	return int(added), int(orphaned), nil
@@ -320,18 +414,18 @@ func (h *Handler) refreshChaptersFromContent(ctx context.Context, providerID str
 func (h *Handler) refreshLibraryManga(c echo.Context) error {
 	mangaID := c.Param("mangaId")
 
-	meta, err := h.lib.GetManga(mangaID)
+	info, err := h.lib.GetManga(mangaID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
 	}
 
-	if meta.Content == nil || meta.Content.ProviderID == "" {
+	if info.Bindings.Content == nil || info.Bindings.Content.ProviderID == "" {
 		c.Set("handler_error", "manga has no connected content provider")
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "manga has no connected content provider"})
 	}
 
-	providerID := meta.Content.ProviderID
+	providerID := info.Bindings.Content.ProviderID
 	added, orphaned, err := h.refreshChaptersFromContent(c.Request().Context(), providerID, mangaID)
 	if err != nil {
 		return handleProviderError(c, providerID, err)
@@ -364,8 +458,8 @@ func (h *Handler) listChapters(c echo.Context) error {
 	// Determine active provider namespace; chapters from other namespaces are orphaned.
 	activeProviderID := providerID
 	if activeProviderID == "" {
-		if meta, metaErr := h.lib.GetManga(id); metaErr == nil && meta.Content != nil {
-			activeProviderID = meta.Content.ProviderID
+		if info, infoErr := h.lib.GetManga(id); infoErr == nil && info.Bindings.Content != nil {
+			activeProviderID = info.Bindings.Content.ProviderID
 		}
 	}
 
@@ -410,12 +504,25 @@ func (h *Handler) listChapters(c echo.Context) error {
 	})
 }
 
+// findChapter resolves a chapter's metadata and provider ID by searching the manga's
+// provider directories. Returns the chapter metadata, provider ID, or an error.
+func (h *Handler) findChapter(mangaID, chapterID string) (*library.ChapterMeta, string, error) {
+	meta, foundProviderID, err := h.lib.FindChapter(mangaID, chapterID)
+	if err != nil {
+		return nil, "", err
+	}
+	providerID := foundProviderID
+	if meta != nil && meta.Content != nil && meta.Content.ProviderID != "" {
+		providerID = meta.Content.ProviderID
+	}
+	return meta, providerID, nil
+}
+
 func (h *Handler) getChapter(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 	chapterID := c.Param("chapterId")
 
-	meta, err := h.lib.GetChapter(mangaID, providerID, chapterID)
+	meta, providerID, err := h.findChapter(mangaID, chapterID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
@@ -431,12 +538,77 @@ func (h *Handler) getChapter(c echo.Context) error {
 
 func (h *Handler) saveChapter(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 	chapterID := c.Param("chapterId")
-	var meta library.ChapterMeta
-	if err := c.Bind(&meta); err != nil {
+
+	var body struct {
+		ID         string `json:"id"`
+		ChapterID  string `json:"chapter_id"`
+		ProviderID string `json:"provider_id"`
+		library.ChapterMeta
+	}
+	if err := c.Bind(&body); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+
+	meta := body.ChapterMeta
+	if chapterID == "" {
+		chapterID = body.ID
+		if chapterID == "" {
+			chapterID = body.ChapterID
+		}
+		if chapterID == "" && meta.Content != nil {
+			chapterID = meta.Content.ChapterRef
+		}
+	}
+
+	if chapterID == "" {
+		c.Set("handler_error", "chapterId is required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "chapterId is required"})
+	}
+
+	// Resolve provider ID
+	providerID := ""
+	if existingMeta, existingProvID, err := h.findChapter(mangaID, chapterID); err == nil {
+		providerID = existingProvID
+		if existingMeta != nil && existingMeta.Content != nil && existingMeta.Content.ProviderID != "" {
+			providerID = existingMeta.Content.ProviderID
+		}
+	}
+	if providerID == "" && meta.Content != nil && meta.Content.ProviderID != "" {
+		providerID = meta.Content.ProviderID
+	}
+	if providerID == "" && body.ProviderID != "" {
+		providerID = body.ProviderID
+	}
+	if providerID == "" {
+		providerID = c.QueryParam("provider_id")
+	}
+	if providerID == "" {
+		providerID = c.QueryParam("providerId")
+	}
+	if providerID == "" {
+		if manga, err := h.lib.GetManga(mangaID); err == nil && manga.Bindings.Content != nil {
+			providerID = manga.Bindings.Content.ProviderID
+		}
+	}
+	if providerID == "" {
+		providerID = library.LocalProviderID
+	}
+
+	// If chapterID is not empty, set it on the chapter before saving
+	if meta.Content == nil {
+		meta.Content = &library.ContentSource{
+			ProviderID: providerID,
+			ChapterRef: chapterID,
+		}
+	} else {
+		if meta.Content.ProviderID == "" {
+			meta.Content.ProviderID = providerID
+		}
+		if meta.Content.ChapterRef == "" {
+			meta.Content.ChapterRef = chapterID
+		}
 	}
 
 	if err := h.lib.SaveChapter(mangaID, providerID, chapterID, &meta); err != nil {
@@ -454,8 +626,13 @@ func (h *Handler) saveChapter(c echo.Context) error {
 
 func (h *Handler) deleteChapter(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 	chapterID := c.Param("chapterId")
+
+	_, providerID, err := h.findChapter(mangaID, chapterID)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
 
 	if err := h.lib.DeleteChapter(mangaID, providerID, chapterID); err != nil {
 		c.Set("handler_error", err.Error())
@@ -466,7 +643,6 @@ func (h *Handler) deleteChapter(c echo.Context) error {
 
 func (h *Handler) patchChapterProgress(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 	chapterID := c.Param("chapterId")
 
 	var req struct {
@@ -478,7 +654,7 @@ func (h *Handler) patchChapterProgress(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	existing, err := h.lib.GetChapter(mangaID, providerID, chapterID)
+	existing, providerID, err := h.findChapter(mangaID, chapterID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
@@ -505,7 +681,6 @@ func (h *Handler) patchChapterProgress(c echo.Context) error {
 
 func (h *Handler) patchChaptersProgressBatch(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 
 	var req struct {
 		ChapterIDs   []string `json:"chapter_ids"`
@@ -517,9 +692,9 @@ func (h *Handler) patchChaptersProgressBatch(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	if mangaID == "" || providerID == "" || len(req.ChapterIDs) == 0 {
-		c.Set("handler_error", "mangaId, providerId, and chapter_ids are required")
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId, providerId, and chapter_ids are required"})
+	if mangaID == "" || len(req.ChapterIDs) == 0 {
+		c.Set("handler_error", "mangaId and chapter_ids are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId and chapter_ids are required"})
 	}
 
 	isRead := false
@@ -532,42 +707,72 @@ func (h *Handler) patchChaptersProgressBatch(c echo.Context) error {
 		lastReadPage = *req.LastReadPage
 	}
 
-	updated, err := h.lib.BatchUpdateChapterProgress(mangaID, providerID, req.ChapterIDs, isRead, lastReadPage)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such file or directory") || strings.Contains(err.Error(), "not found") {
-			c.Set("handler_error", err.Error())
-			return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	type chapterEntry struct {
+		id         string
+		providerID string
+	}
+	var entries []chapterEntry
+	for _, chID := range req.ChapterIDs {
+		_, provID, err := h.findChapter(mangaID, chID)
+		if err != nil {
+			c.Set("handler_error", fmt.Sprintf("chapter %s not found", chID))
+			return c.JSON(http.StatusNotFound, echo.Map{"error": fmt.Sprintf("chapter %s not found", chID)})
 		}
-		c.Set("handler_error", err.Error())
-		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		entries = append(entries, chapterEntry{id: chID, providerID: provID})
 	}
 
-	chapterIDs := make([]string, 0, len(updated))
-	for _, u := range updated {
-		chapterIDs = append(chapterIDs, u.ID)
+	byProvider := make(map[string][]string)
+	for _, e := range entries {
+		byProvider[e.providerID] = append(byProvider[e.providerID], e.id)
+	}
+
+	totalUpdated := 0
+	updatedMap := make(map[string]bool)
+	for provID, chIDs := range byProvider {
+		updated, err := h.lib.BatchUpdateChapterProgress(mangaID, provID, chIDs, isRead, lastReadPage)
+		if err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
+		totalUpdated += len(updated)
+		for _, u := range updated {
+			updatedMap[u.ID] = true
+		}
+	}
+
+	var resultIDs []string
+	for _, id := range req.ChapterIDs {
+		if updatedMap[id] {
+			resultIDs = append(resultIDs, id)
+		}
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{
-		"updated":     len(updated),
-		"chapter_ids": chapterIDs,
+		"updated":     totalUpdated,
+		"chapter_ids": resultIDs,
 	})
 }
 
-// pullChapter handles POST /library/manga/:mangaId/providers/:providerId/chapters/:chapterId/pull.
+// pullChapter handles POST /library/manga/:mangaId/chapters/:chapterId/pull.
 // Creates and enqueues a pull_chapter job for the specified chapter.
 func (h *Handler) pullChapter(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 	chapterID := c.Param("chapterId")
 
-	if mangaID == "" || providerID == "" || chapterID == "" {
-		c.Set("handler_error", "mangaId, providerId, and chapterId are required")
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId, providerId, and chapterId are required"})
+	if mangaID == "" || chapterID == "" {
+		c.Set("handler_error", "mangaId and chapterId are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId and chapterId are required"})
 	}
 
 	if _, err := h.lib.GetManga(mangaID); err != nil {
 		c.Set("handler_error", "manga not found")
 		return c.JSON(http.StatusNotFound, echo.Map{"error": "manga not found"})
+	}
+
+	_, providerID, err := h.findChapter(mangaID, chapterID)
+	if err != nil {
+		c.Set("handler_error", "chapter not found")
+		return c.JSON(http.StatusNotFound, echo.Map{"error": "chapter not found"})
 	}
 
 	if err := h.requireContentCapability(providerID); err != nil {
@@ -623,11 +828,10 @@ func (h *Handler) pullChapter(c echo.Context) error {
 	})
 }
 
-// pullChaptersBatch handles POST /library/manga/:mangaId/providers/:providerId/chapters/pull.
+// pullChaptersBatch handles POST /library/manga/:mangaId/batch/chapters/pull.
 // Creates and enqueues a pull_chapter job for each requested chapter ID.
 func (h *Handler) pullChaptersBatch(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 
 	var req struct {
 		ChapterIDs []string `json:"chapter_ids"`
@@ -637,9 +841,9 @@ func (h *Handler) pullChaptersBatch(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	if mangaID == "" || providerID == "" || len(req.ChapterIDs) == 0 {
-		c.Set("handler_error", "mangaId, providerId, and chapter_ids are required")
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId, providerId, and chapter_ids are required"})
+	if mangaID == "" || len(req.ChapterIDs) == 0 {
+		c.Set("handler_error", "mangaId and chapter_ids are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId and chapter_ids are required"})
 	}
 
 	if _, err := h.lib.GetManga(mangaID); err != nil {
@@ -647,22 +851,35 @@ func (h *Handler) pullChaptersBatch(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, echo.Map{"error": "manga not found"})
 	}
 
-	if err := h.requireContentCapability(providerID); err != nil {
-		c.Set("handler_error", err.Error())
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
-	}
-
 	if h.jobStore == nil || h.enqueuer == nil {
 		return c.JSON(http.StatusServiceUnavailable, echo.Map{"error": "job queue not configured"})
 	}
 
-	now := time.Now()
-	jobIDs := make([]string, 0, len(req.ChapterIDs))
+	type chapterJobInfo struct {
+		chapterID  string
+		providerID string
+	}
+	jobsToCreate := make([]chapterJobInfo, 0, len(req.ChapterIDs))
 	for _, chapterID := range req.ChapterIDs {
+		_, providerID, err := h.findChapter(mangaID, chapterID)
+		if err != nil {
+			c.Set("handler_error", fmt.Sprintf("chapter %s not found", chapterID))
+			return c.JSON(http.StatusNotFound, echo.Map{"error": fmt.Sprintf("chapter %s not found", chapterID)})
+		}
+		if err := h.requireContentCapability(providerID); err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+		}
+		jobsToCreate = append(jobsToCreate, chapterJobInfo{chapterID: chapterID, providerID: providerID})
+	}
+
+	now := time.Now()
+	jobIDs := make([]string, 0, len(jobsToCreate))
+	for _, item := range jobsToCreate {
 		payloadBytes, err := json.Marshal(queue.PullChapterPayload{
 			MangaID:    mangaID,
-			ProviderID: providerID,
-			ChapterID:  chapterID,
+			ProviderID: item.providerID,
+			ChapterID:  item.chapterID,
 		})
 		if err != nil {
 			c.Set("handler_error", err.Error())
@@ -675,13 +892,13 @@ func (h *Handler) pullChaptersBatch(c echo.Context) error {
 			Payload:          string(payloadBytes),
 			Status:           queue.StatusPending,
 			MaxRetries:       3,
-			ConcurrencyGroup: "pull:" + providerID,
+			ConcurrencyGroup: "pull:" + item.providerID,
 			CreatedAt:        now,
 			UpdatedAt:        now,
 			Metadata: map[string]string{
 				"manga_id":    mangaID,
-				"provider_id": providerID,
-				"chapter_id":  chapterID,
+				"provider_id": item.providerID,
+				"chapter_id":  item.chapterID,
 			},
 		}
 
@@ -706,21 +923,19 @@ func (h *Handler) pullChaptersBatch(c echo.Context) error {
 	})
 }
 
-func (h *Handler) refreshChaptersBatch(c echo.Context) error {
+func (h *Handler) refreshChapter(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
+	chapterID := c.Param("chapterId")
 
-	var req struct {
-		ChapterIDs []string `json:"chapter_ids"`
-	}
-	if err := c.Bind(&req); err != nil {
-		c.Set("handler_error", err.Error())
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	if mangaID == "" || chapterID == "" {
+		c.Set("handler_error", "mangaId and chapterId are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId and chapterId are required"})
 	}
 
-	if mangaID == "" || providerID == "" || len(req.ChapterIDs) == 0 {
-		c.Set("handler_error", "mangaId, providerId, and chapter_ids are required")
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId, providerId, and chapter_ids are required"})
+	chMeta, providerID, err := h.findChapter(mangaID, chapterID)
+	if err != nil {
+		c.Set("handler_error", "chapter not found")
+		return c.JSON(http.StatusNotFound, echo.Map{"error": "chapter not found"})
 	}
 
 	if err := h.requireContentCapability(providerID); err != nil {
@@ -734,18 +949,18 @@ func (h *Handler) refreshChaptersBatch(c echo.Context) error {
 	}
 
 	remoteMangaID := mangaID
-	if mangaMeta, err := h.lib.GetManga(mangaID); err == nil {
-		if mangaMeta.Content != nil && mangaMeta.Content.ProviderID == providerID && mangaMeta.Content.ProviderMangaID != "" {
-			remoteMangaID = mangaMeta.Content.ProviderMangaID
+	if info, err := h.lib.GetManga(mangaID); err == nil {
+		if info.Bindings.Content != nil && info.Bindings.Content.ProviderID == providerID && info.Bindings.Content.ProviderMangaID != "" {
+			remoteMangaID = info.Bindings.Content.ProviderMangaID
 		} else {
-			for _, p := range mangaMeta.Providers {
+			for _, p := range info.Bindings.Providers {
 				if p.ProviderID == providerID && p.ProviderMangaID != "" {
 					remoteMangaID = p.ProviderMangaID
 					break
 				}
 			}
-			if remoteMangaID == mangaID && mangaMeta.Content != nil && mangaMeta.Content.ProviderMangaID != "" {
-				remoteMangaID = mangaMeta.Content.ProviderMangaID
+			if remoteMangaID == mangaID && info.Bindings.Content != nil && info.Bindings.Content.ProviderMangaID != "" {
+				remoteMangaID = info.Bindings.Content.ProviderMangaID
 			}
 		}
 	}
@@ -755,51 +970,228 @@ func (h *Handler) refreshChaptersBatch(c echo.Context) error {
 		return handleProviderError(c, providerID, err)
 	}
 
-	upstreamMap := make(map[string]sdk.Chapter, len(chapters))
+	var upCh *sdk.Chapter
 	for _, ch := range chapters {
-		upstreamMap[ch.ID] = ch
+		if ch.ID == chapterID || (chMeta.Content != nil && ch.ID == chMeta.Content.ChapterRef) {
+			chCopy := ch
+			upCh = &chCopy
+			break
+		}
+	}
+
+	if upCh == nil {
+		c.Set("handler_error", "chapter not found in provider")
+		return c.JSON(http.StatusNotFound, echo.Map{"error": "chapter not found in provider"})
 	}
 
 	now := time.Now()
-	refreshedIDs := make([]string, 0)
+	chMeta.Title = upCh.Name
+	chMeta.Number = upCh.Number
+	chMeta.UploadDate = upCh.UploadDate
+	chMeta.SourceOrder = upCh.SourceOrder
+	if chMeta.Content == nil {
+		chMeta.Content = &library.ContentSource{
+			ProviderID: providerID,
+			ChapterRef: upCh.ID,
+		}
+	}
+	chMeta.Content.LastSyncedAt = now
+
+	if err := h.lib.SaveChapter(mangaID, providerID, chapterID, chMeta); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, echo.Map{
+		"id":          chapterID,
+		"manga_id":    mangaID,
+		"provider_id": providerID,
+		"meta":        chMeta,
+	})
+}
+
+func (h *Handler) refreshChaptersBatch(c echo.Context) error {
+	mangaID := c.Param("mangaId")
+
+	var req struct {
+		ChapterIDs []string `json:"chapter_ids"`
+	}
+	if err := c.Bind(&req); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+
+	if mangaID == "" || len(req.ChapterIDs) == 0 {
+		c.Set("handler_error", "mangaId and chapter_ids are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId and chapter_ids are required"})
+	}
+
+	mangaInfo, err := h.lib.GetManga(mangaID)
+	defaultProviderID := ""
+	if err == nil && mangaInfo.Bindings.Content != nil {
+		defaultProviderID = mangaInfo.Bindings.Content.ProviderID
+	}
+
+	type chapterTarget struct {
+		id         string
+		providerID string
+	}
+	var targets []chapterTarget
 	for _, chID := range req.ChapterIDs {
-		upCh, found := upstreamMap[chID]
-		if !found {
-			continue
+		provID := defaultProviderID
+		if _, foundProvID, findErr := h.findChapter(mangaID, chID); findErr == nil && foundProvID != "" {
+			provID = foundProvID
+		}
+		if provID == "" {
+			provID = library.LocalProviderID
+		}
+		if err := h.requireContentCapability(provID); err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+		}
+		targets = append(targets, chapterTarget{id: chID, providerID: provID})
+	}
+
+	byProvider := make(map[string][]string)
+	for _, t := range targets {
+		byProvider[t.providerID] = append(byProvider[t.providerID], t.id)
+	}
+
+	now := time.Now()
+	refreshedSet := make(map[string]bool)
+	for providerID, chIDs := range byProvider {
+		_, contentProvider, err := h.getProvider(providerID)
+		if err != nil || contentProvider == nil {
+			return handleProviderError(c, providerID, fmt.Errorf("provider not available: %s", providerID))
 		}
 
-		chMeta, err := h.lib.GetChapter(mangaID, providerID, chID)
-		if err != nil || chMeta == nil {
-			chMeta = &library.ChapterMeta{
-				Content: &library.ContentSource{
+		remoteMangaID := mangaID
+		if mangaInfo.Bindings.Content != nil && mangaInfo.Bindings.Content.ProviderID == providerID && mangaInfo.Bindings.Content.ProviderMangaID != "" {
+			remoteMangaID = mangaInfo.Bindings.Content.ProviderMangaID
+		} else {
+			for _, p := range mangaInfo.Bindings.Providers {
+				if p.ProviderID == providerID && p.ProviderMangaID != "" {
+					remoteMangaID = p.ProviderMangaID
+					break
+				}
+			}
+			if remoteMangaID == mangaID && mangaInfo.Bindings.Content != nil && mangaInfo.Bindings.Content.ProviderMangaID != "" {
+				remoteMangaID = mangaInfo.Bindings.Content.ProviderMangaID
+			}
+		}
+
+		chapters, err := contentProvider.FetchChapters(c.Request().Context(), remoteMangaID)
+		if err != nil {
+			return handleProviderError(c, providerID, err)
+		}
+
+		upstreamMap := make(map[string]sdk.Chapter, len(chapters))
+		for _, ch := range chapters {
+			upstreamMap[ch.ID] = ch
+		}
+
+		for _, chID := range chIDs {
+			upCh, found := upstreamMap[chID]
+			if !found {
+				// Also try matching by chapter ref if chMeta already exists
+				if chMeta, err := h.lib.GetChapter(mangaID, providerID, chID); err == nil && chMeta.Content != nil && chMeta.Content.ChapterRef != "" {
+					upCh, found = upstreamMap[chMeta.Content.ChapterRef]
+				}
+			}
+			if !found {
+				continue
+			}
+
+			chMeta, err := h.lib.GetChapter(mangaID, providerID, chID)
+			if err != nil || chMeta == nil {
+				chMeta = &library.ChapterMeta{
+					Content: &library.ContentSource{
+						ProviderID: providerID,
+						ChapterRef: chID,
+					},
+				}
+			}
+
+			chMeta.Title = upCh.Name
+			chMeta.Number = upCh.Number
+			chMeta.UploadDate = upCh.UploadDate
+			chMeta.SourceOrder = upCh.SourceOrder
+			if chMeta.Content == nil {
+				chMeta.Content = &library.ContentSource{
 					ProviderID: providerID,
 					ChapterRef: chID,
-				},
+				}
 			}
-		}
+			chMeta.Content.LastSyncedAt = now
 
-		chMeta.Title = upCh.Name
-		chMeta.Number = upCh.Number
-		chMeta.UploadDate = upCh.UploadDate
-		chMeta.SourceOrder = upCh.SourceOrder
-		if chMeta.Content == nil {
-			chMeta.Content = &library.ContentSource{
-				ProviderID: providerID,
-				ChapterRef: chID,
+			if err := h.lib.SaveChapter(mangaID, providerID, chID, chMeta); err != nil {
+				c.Set("handler_error", err.Error())
+				return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 			}
+			refreshedSet[chID] = true
 		}
-		chMeta.Content.LastSyncedAt = now
+	}
 
-		if err := h.lib.SaveChapter(mangaID, providerID, chID, chMeta); err != nil {
-			c.Set("handler_error", err.Error())
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	var refreshedIDs []string
+	for _, id := range req.ChapterIDs {
+		if refreshedSet[id] {
+			refreshedIDs = append(refreshedIDs, id)
 		}
-		refreshedIDs = append(refreshedIDs, chID)
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{
 		"refreshed":   len(refreshedIDs),
 		"chapter_ids": refreshedIDs,
+	})
+}
+
+func (h *Handler) getChapterFiles(c echo.Context) error {
+	mangaID := c.Param("mangaId")
+	chapterID := c.Param("chapterId")
+
+	_, providerID, err := h.findChapter(mangaID, chapterID)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
+
+	chapterDir := h.lib.ProviderChapterDir(mangaID, providerID, chapterID)
+	entries, err := os.ReadDir(chapterDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return c.JSON(http.StatusOK, echo.Map{"files": []echo.Map{}})
+		}
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	}
+
+	exts := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true, ".avif": true,
+	}
+	var files []echo.Map
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if !exts[ext] {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, echo.Map{
+			"name": entry.Name(),
+			"size": info.Size(),
+		})
+	}
+	if files == nil {
+		files = []echo.Map{}
+	}
+
+	return c.JSON(http.StatusOK, echo.Map{
+		"files": files,
 	})
 }
 
@@ -822,12 +1214,12 @@ func (h *Handler) requireContentCapability(providerID string) error {
 
 func (h *Handler) listProviders(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	meta, err := h.lib.GetManga(mangaID)
+	bindings, err := h.lib.GetBindings(mangaID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
 	}
-	providers := meta.Providers
+	providers := bindings.Providers
 	if providers == nil {
 		providers = []library.ProviderRef{}
 	}
@@ -839,7 +1231,7 @@ func (h *Handler) listProviders(c echo.Context) error {
 func (h *Handler) addProvider(c echo.Context) error {
 	mangaID := c.Param("mangaId")
 	// Check manga exists
-	meta, err := h.lib.GetManga(mangaID)
+	info, err := h.lib.GetManga(mangaID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
@@ -881,7 +1273,7 @@ func (h *Handler) addProvider(c echo.Context) error {
 	if body.SetAsContent {
 		title := body.MangaTitle
 		if title == "" {
-			title = meta.Title
+			title = info.Metadata.Title
 		}
 		if err := h.lib.SwitchContentProvider(mangaID, body.ProviderID, body.ProviderMangaID, title); err != nil {
 			c.Set("handler_error", err.Error())
@@ -899,7 +1291,7 @@ func (h *Handler) addProvider(c echo.Context) error {
 		}
 	}
 
-	updated, _ := h.lib.GetManga(mangaID)
+	updated, _ := h.lib.GetBindings(mangaID)
 	return c.JSON(http.StatusCreated, echo.Map{
 		"providers": updated.Providers,
 		"added":     added,
@@ -935,7 +1327,7 @@ func (h *Handler) removeProvider(c echo.Context) error {
 func (h *Handler) switchContentProvider(c echo.Context) error {
 	mangaID := c.Param("mangaId")
 	// Check manga exists
-	meta, err := h.lib.GetManga(mangaID)
+	info, err := h.lib.GetManga(mangaID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
@@ -958,23 +1350,275 @@ func (h *Handler) switchContentProvider(c echo.Context) error {
 	}
 
 	// Verify provider exists in providers list or let it be added
-	if err := h.lib.SwitchContentProvider(mangaID, body.ProviderID, body.ProviderMangaID, meta.Title); err != nil {
+	if err := h.lib.SwitchContentProvider(mangaID, body.ProviderID, body.ProviderMangaID, info.Metadata.Title); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 
-	updated, _ := h.lib.GetManga(mangaID)
+	updated, _ := h.lib.GetBindings(mangaID)
 	return c.JSON(http.StatusOK, echo.Map{
-		"id":    mangaID,
-		"meta":  updated,
-		"added": 0,
+		"id":       mangaID,
+		"bindings": updated,
+		"added":    0,
 	})
+}
+
+// mergeLibraryManga handles POST /api/v1/library/manga/merge.
+// Merges one or more source manga into a single keep manga, consolidating
+// providers, metadata, chapters, and cover files. Source manga directories
+// are removed after their content is moved into keep.
+//
+// content_provider is optional: when omitted, the handler inherits keep's
+// current Content binding if it survives the merged Providers list.
+// Chapter collisions always resolve keep-wins (no strategy exposed).
+//
+// Best-effort filesystem operations: if a chapter move fails the handler logs
+// and continues — sources are still deleted, the merged meta is still saved.
+// SaveManga is the point of no return; failures abort the handler.
+func (h *Handler) mergeLibraryManga(c echo.Context) error {
+	var body struct {
+		KeepMangaID     string   `json:"keep_manga_id"`
+		SourceMangaIDs  []string `json:"source_manga_ids"`
+		ContentProvider *struct {
+			ProviderID      string `json:"provider_id"`
+			ProviderMangaID string `json:"provider_manga_id"`
+		} `json:"content_provider"`
+		Metadata map[string]string `json:"metadata"`
+	}
+	if err := c.Bind(&body); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+
+	if body.KeepMangaID == "" {
+		c.Set("handler_error", "keep_manga_id is required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "keep_manga_id is required"})
+	}
+	if len(body.SourceMangaIDs) == 0 {
+		c.Set("handler_error", "source_manga_ids is required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "source_manga_ids is required"})
+	}
+	for _, srcID := range body.SourceMangaIDs {
+		if srcID == body.KeepMangaID {
+			c.Set("handler_error", "keep_manga_id cannot appear in source_manga_ids")
+			return c.JSON(http.StatusBadRequest, echo.Map{"error": "keep_manga_id cannot appear in source_manga_ids"})
+		}
+	}
+	if body.ContentProvider != nil && (body.ContentProvider.ProviderID == "" || body.ContentProvider.ProviderMangaID == "") {
+		c.Set("handler_error", "content_provider.provider_id and content_provider.provider_manga_id are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "content_provider.provider_id and content_provider.provider_manga_id are required"})
+	}
+
+	// 1. Load keep.
+	keepInfo, err := h.lib.GetManga(body.KeepMangaID)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
+
+	// 2. Load sources.
+	sources := make(map[string]library.Manga, len(body.SourceMangaIDs))
+	for _, srcID := range body.SourceMangaIDs {
+		srcInfo, err := h.lib.GetManga(srcID)
+		if err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+		}
+		sources[srcID] = srcInfo
+	}
+
+	// 3. Build merged metadata in a working copy of keep's metadata.
+	mergedMeta := keepInfo.Metadata
+	for _, srcInfo := range sources {
+		mergedMeta.Aliases = append(mergedMeta.Aliases, srcInfo.Metadata.Aliases...)
+		mergedMeta.Tags = append(mergedMeta.Tags, srcInfo.Metadata.Tags...)
+		mergedMeta.Authors = append(mergedMeta.Authors, srcInfo.Metadata.Authors...)
+		mergedMeta.Artists = append(mergedMeta.Artists, srcInfo.Metadata.Artists...)
+		mergedMeta.Publishers = append(mergedMeta.Publishers, srcInfo.Metadata.Publishers...)
+	}
+
+	// Scalar fields: per-field selection. Only `source:<id>` overrides; "keep"
+	// and "merge" both leave keep's value untouched. `metadata.providers` is
+	// honored by step 4 (always union) and otherwise ignored here.
+	if sel, ok := body.Metadata["title"]; ok {
+		if srcID, found := strings.CutPrefix(sel, "source:"); found {
+			if srcInfo, ok := sources[srcID]; ok {
+				mergedMeta.Title = srcInfo.Metadata.Title
+			}
+		}
+	}
+	if sel, ok := body.Metadata["description"]; ok {
+		if srcID, found := strings.CutPrefix(sel, "source:"); found {
+			if srcInfo, ok := sources[srcID]; ok {
+				mergedMeta.Description = srcInfo.Metadata.Description
+			}
+		}
+	}
+	if sel, ok := body.Metadata["release_year"]; ok {
+		if srcID, found := strings.CutPrefix(sel, "source:"); found {
+			if srcInfo, ok := sources[srcID]; ok {
+				mergedMeta.ReleaseYear = srcInfo.Metadata.ReleaseYear
+			}
+		}
+	}
+	coverSel, _ := body.Metadata["cover_url"]
+	if srcID, found := strings.CutPrefix(coverSel, "source:"); found {
+		if srcInfo, ok := sources[srcID]; ok {
+			mergedMeta.CoverURL = srcInfo.Metadata.CoverURL
+		}
+	}
+
+	// 4. Bindings: providers union, content provider resolution.
+	sourceProviders := make(map[string][]library.ProviderRef, len(sources))
+	for srcID, srcInfo := range sources {
+		sourceProviders[srcID] = srcInfo.Bindings.Providers
+	}
+	mergedProviders := mergeProviderRefs(keepInfo.Bindings.Providers, sourceProviders)
+
+	cpProviderID, cpProviderMangaID := "", ""
+	if body.ContentProvider != nil {
+		cpProviderID = body.ContentProvider.ProviderID
+		cpProviderMangaID = body.ContentProvider.ProviderMangaID
+	} else if keepInfo.Bindings.Content != nil {
+		cpProviderID = keepInfo.Bindings.Content.ProviderID
+		cpProviderMangaID = keepInfo.Bindings.Content.ProviderMangaID
+	} else {
+		c.Set("handler_error", "cannot infer content_provider: keep manga has no active content provider that survives merge; specify content_provider explicitly")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "cannot infer content_provider: keep manga has no active content provider that survives merge; specify content_provider explicitly"})
+	}
+
+	mergedBindings := library.MangaBindings{
+		Providers: mergedProviders,
+		Content: &library.ContentSource{
+			ProviderID:      cpProviderID,
+			ProviderMangaID: cpProviderMangaID,
+			ReadingMode:     keepReadingMode(keepInfo.Bindings.Content),
+		},
+	}
+
+	cpValid := false
+	for _, p := range mergedProviders {
+		if p.ProviderID == cpProviderID && p.ProviderMangaID == cpProviderMangaID {
+			cpValid = true
+			break
+		}
+	}
+	if !cpValid {
+		c.Set("handler_error", "content_provider not present in merged providers list")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "content_provider not present in merged providers list"})
+	}
+
+	// 5. Move chapter dirs (best-effort, keep wins on collision).
+	for _, srcID := range body.SourceMangaIDs {
+		if err := h.lib.MergeChapters(body.KeepMangaID, srcID); err != nil {
+			slog.Warn("merge: chapters move failed",
+				slog.String("keep", body.KeepMangaID),
+				slog.String("source", srcID),
+				slog.String("error", err.Error()))
+		}
+	}
+
+	// 6. Cover replacement (best-effort).
+	if srcID, found := strings.CutPrefix(coverSel, "source:"); found {
+		if _, ok := sources[srcID]; ok {
+			if _, err := h.lib.ReplaceCoverFromSource(body.KeepMangaID, srcID); err != nil {
+				slog.Warn("merge: cover replacement failed",
+					slog.String("keep", body.KeepMangaID),
+					slog.String("source", srcID),
+					slog.String("error", err.Error()))
+			}
+		}
+	}
+
+	// 7. Delete source manga dirs (best-effort).
+	for _, srcID := range body.SourceMangaIDs {
+		if err := h.lib.DeleteManga(srcID); err != nil {
+			slog.Warn("merge: source delete failed",
+				slog.String("source", srcID),
+				slog.String("error", err.Error()))
+		}
+	}
+
+	// 8. Save merged keep per concern — point of no return.
+	if err := h.lib.SaveMetadata(body.KeepMangaID, mergedMeta); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	}
+	if err := h.lib.SaveBindings(body.KeepMangaID, mergedBindings); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	}
+
+	// 9. Return updated Manga.
+	saved, _ := h.lib.GetManga(body.KeepMangaID)
+	var providerID, readingMode string
+	if saved.Bindings.Content != nil {
+		providerID = saved.Bindings.Content.ProviderID
+		readingMode = saved.Bindings.Content.ReadingMode
+	}
+	resp := echo.Map{
+		"id":                  body.KeepMangaID,
+		"title":               saved.Metadata.Title,
+		"aliases":             saved.Metadata.Aliases,
+		"cover":               saved.Metadata.CoverURL,
+		"description":         saved.Metadata.Description,
+		"authors":             saved.Metadata.Authors,
+		"artists":             saved.Metadata.Artists,
+		"tags":                saved.Metadata.Tags,
+		"content_provider_id": providerID,
+		"sourceId":            providerID,
+		"external_links":      saved.Metadata.ExternalLinks,
+		"externalLinks":       saved.Metadata.ExternalLinks,
+		"metadata":            saved.Metadata,
+		"user_state":          saved.UserState,
+		"bindings":            saved.Bindings,
+	}
+	if readingMode != "" {
+		resp["reading_mode"] = readingMode
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// keepReadingMode returns the ReadingMode from the existing Content if any.
+func keepReadingMode(c *library.ContentSource) string {
+	if c == nil {
+		return ""
+	}
+	return c.ReadingMode
+}
+
+// mergeProviderRefs returns the union of keep and source provider refs, deduped
+// on (ProviderID, ProviderMangaID) and preserving first-seen order.
+func mergeProviderRefs(keep []library.ProviderRef, sources map[string][]library.ProviderRef) []library.ProviderRef {
+	seen := make(map[string]bool)
+	var out []library.ProviderRef
+	add := func(refs []library.ProviderRef) {
+		for _, p := range refs {
+			key := p.ProviderID + "\x00" + p.ProviderMangaID
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, p)
+		}
+	}
+	add(keep)
+	for _, srcRefs := range sources {
+		add(srcRefs)
+	}
+	return out
 }
 
 func (h *Handler) deleteChapterFiles(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 	chapterID := c.Param("chapterId")
+
+	_, providerID, err := h.findChapter(mangaID, chapterID)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
+
 	if err := h.lib.DeleteChapterFiles(mangaID, providerID, chapterID); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
@@ -984,7 +1628,6 @@ func (h *Handler) deleteChapterFiles(c echo.Context) error {
 
 func (h *Handler) deleteChapterFilesBatch(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 
 	var req struct {
 		ChapterIDs []string `json:"chapter_ids"`
@@ -994,18 +1637,30 @@ func (h *Handler) deleteChapterFilesBatch(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	if mangaID == "" || providerID == "" || len(req.ChapterIDs) == 0 {
-		c.Set("handler_error", "mangaId, providerId, and chapter_ids are required")
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId, providerId, and chapter_ids are required"})
+	if mangaID == "" || len(req.ChapterIDs) == 0 {
+		c.Set("handler_error", "mangaId and chapter_ids are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId and chapter_ids are required"})
 	}
 
-	if err := h.lib.BatchDeleteChapterFiles(mangaID, providerID, req.ChapterIDs); err != nil {
-		if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "no such file or directory") {
-			c.Set("handler_error", err.Error())
-			return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	byProvider := make(map[string][]string)
+	for _, chID := range req.ChapterIDs {
+		_, provID, err := h.findChapter(mangaID, chID)
+		if err != nil {
+			c.Set("handler_error", fmt.Sprintf("chapter %s not found", chID))
+			return c.JSON(http.StatusNotFound, echo.Map{"error": fmt.Sprintf("chapter %s not found", chID)})
 		}
-		c.Set("handler_error", err.Error())
-		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		byProvider[provID] = append(byProvider[provID], chID)
+	}
+
+	for provID, chIDs := range byProvider {
+		if err := h.lib.BatchDeleteChapterFiles(mangaID, provID, chIDs); err != nil {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "no such file or directory") {
+				c.Set("handler_error", err.Error())
+				return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+			}
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{
@@ -1015,7 +1670,6 @@ func (h *Handler) deleteChapterFilesBatch(c echo.Context) error {
 
 func (h *Handler) deleteChaptersBatch(c echo.Context) error {
 	mangaID := c.Param("mangaId")
-	providerID := c.Param("providerId")
 
 	var req struct {
 		ChapterIDs []string `json:"chapter_ids"`
@@ -1025,14 +1679,24 @@ func (h *Handler) deleteChaptersBatch(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
-	if mangaID == "" || providerID == "" || len(req.ChapterIDs) == 0 {
-		c.Set("handler_error", "mangaId, providerId, and chapter_ids are required")
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId, providerId, and chapter_ids are required"})
+	if mangaID == "" || len(req.ChapterIDs) == 0 {
+		c.Set("handler_error", "mangaId and chapter_ids are required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId and chapter_ids are required"})
 	}
 
-	if err := h.lib.BatchDeleteChapters(mangaID, providerID, req.ChapterIDs); err != nil {
-		c.Set("handler_error", err.Error())
-		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	byProvider := make(map[string][]string)
+	for _, chID := range req.ChapterIDs {
+		_, provID, err := h.findChapter(mangaID, chID)
+		if err == nil && provID != "" {
+			byProvider[provID] = append(byProvider[provID], chID)
+		}
+	}
+
+	for provID, chIDs := range byProvider {
+		if err := h.lib.BatchDeleteChapters(mangaID, provID, chIDs); err != nil {
+			c.Set("handler_error", err.Error())
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+		}
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{
@@ -1055,7 +1719,7 @@ func (h *Handler) pullManga(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId is required"})
 	}
 
-	meta, err := h.lib.GetManga(mangaID)
+	info, err := h.lib.GetManga(mangaID)
 	if err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
@@ -1063,16 +1727,16 @@ func (h *Handler) pullManga(c echo.Context) error {
 
 	providerID := c.QueryParam("provider_id")
 	if providerID == "" {
-		if meta.Content == nil || meta.Content.ProviderID == "" {
+		if info.Bindings.Content == nil || info.Bindings.Content.ProviderID == "" {
 			c.Set("handler_error", "manga has no connected content provider and provider_id query param missing")
 			return c.JSON(http.StatusBadRequest, echo.Map{"error": "manga has no connected content provider and provider_id query param missing"})
 		}
-		providerID = meta.Content.ProviderID
+		providerID = info.Bindings.Content.ProviderID
 	}
 
 	providerMangaID := c.QueryParam("provider_manga_id")
-	if providerMangaID == "" && meta.Content != nil {
-		providerMangaID = meta.Content.ProviderMangaID
+	if providerMangaID == "" && info.Bindings.Content != nil {
+		providerMangaID = info.Bindings.Content.ProviderMangaID
 	}
 	if providerMangaID == "" {
 		c.Set("handler_error", "provider_manga_id required when manga has no content binding")
@@ -1088,7 +1752,7 @@ func (h *Handler) pullManga(c echo.Context) error {
 		MangaID:         mangaID,
 		ProviderID:      providerID,
 		ProviderMangaID: providerMangaID,
-		CoverURL:        meta.CoverURL,
+		CoverURL:        info.Metadata.CoverURL,
 	})
 	if err != nil {
 		c.Set("handler_error", err.Error())
@@ -1126,3 +1790,149 @@ func (h *Handler) pullManga(c echo.Context) error {
 	})
 }
 
+// getLibraryMetadata handles GET /library/manga/:mangaId/metadata.
+func (h *Handler) getLibraryMetadata(c echo.Context) error {
+	id := c.Param("mangaId")
+	meta, err := h.lib.GetMetadata(id)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, meta)
+}
+
+// patchLibraryMetadata handles PATCH /library/manga/:mangaId/metadata.
+func (h *Handler) patchLibraryMetadata(c echo.Context) error {
+	id := c.Param("mangaId")
+	var body library.MangaMetadata
+	if err := c.Bind(&body); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+	if err := h.lib.SaveMetadata(id, body); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, body)
+}
+
+// getLibraryUserState handles GET /library/manga/:mangaId/user_state.
+func (h *Handler) getLibraryUserState(c echo.Context) error {
+	id := c.Param("mangaId")
+	us, err := h.lib.GetUserState(id)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, us)
+}
+
+// patchLibraryUserState handles PATCH /library/manga/:mangaId/user_state.
+func (h *Handler) patchLibraryUserState(c echo.Context) error {
+	id := c.Param("mangaId")
+	var body library.UserState
+	if err := c.Bind(&body); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
+	}
+	if body.Status != "" && !library.IsValidUserStatus(body.Status) {
+		c.Set("handler_error", "invalid user_status")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid user_status"})
+	}
+	if err := h.lib.SaveUserState(id, body); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, body)
+}
+
+// getLibraryBindings handles GET /library/manga/:mangaId/bindings.
+func (h *Handler) getLibraryBindings(c echo.Context) error {
+	id := c.Param("mangaId")
+	b, err := h.lib.GetBindings(id)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, b)
+}
+
+// refreshMetadata handles POST /library/manga/:mangaId/metadata/refresh.
+// Enqueues a refresh_metadata job that pulls fresh details from the manga's
+// active content provider's metadata capability and writes to metadata.json.
+func (h *Handler) refreshMetadata(c echo.Context) error {
+	if h.jobStore == nil || h.enqueuer == nil {
+		c.Set("handler_error", "job queue not configured")
+		return c.JSON(http.StatusServiceUnavailable, echo.Map{"error": "job queue not configured"})
+	}
+
+	mangaID := c.Param("mangaId")
+	if mangaID == "" {
+		c.Set("handler_error", "mangaId is required")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "mangaId is required"})
+	}
+
+	info, err := h.lib.GetManga(mangaID)
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusNotFound, echo.Map{"error": err.Error()})
+	}
+
+	// Pick the provider to refresh from. Default to the active content
+	// provider; fallback to the first entry in bindings.Providers.
+	providerID := ""
+	providerMangaID := ""
+	if info.Bindings.Content != nil && info.Bindings.Content.ProviderID != "" {
+		providerID = info.Bindings.Content.ProviderID
+		providerMangaID = info.Bindings.Content.ProviderMangaID
+	} else if len(info.Bindings.Providers) > 0 {
+		providerID = info.Bindings.Providers[0].ProviderID
+		providerMangaID = info.Bindings.Providers[0].ProviderMangaID
+	}
+	if providerID == "" || providerMangaID == "" {
+		c.Set("handler_error", "manga has no provider binding to refresh metadata from")
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "manga has no provider binding to refresh metadata from"})
+	}
+
+	payloadBytes, err := json.Marshal(queue.RefreshMetadataPayload{
+		MangaID:         mangaID,
+		ProviderID:      providerID,
+		ProviderMangaID: providerMangaID,
+	})
+	if err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": fmt.Sprintf("marshal refresh_metadata payload: %v", err)})
+	}
+
+	now := time.Now()
+	job := &queue.Job{
+		ID:         uuid.New().String(),
+		Type:       queue.JobTypeRefreshMetadata,
+		Payload:    string(payloadBytes),
+		Status:     queue.StatusPending,
+		MaxRetries: 3,
+		// Metadata refreshes are not provider-fan-out hot — share a single bucket.
+		ConcurrencyGroup: "refresh_metadata",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		Metadata: map[string]string{
+			"manga_id":    mangaID,
+			"provider_id": providerID,
+		},
+	}
+
+	if err := h.jobStore.CreateJob(c.Request().Context(), job); err != nil {
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to persist job"})
+	}
+	if err := h.enqueuer.Enqueue(c.Request().Context(), job); err != nil {
+		_ = h.jobStore.DeleteJob(c.Request().Context(), job.ID)
+		c.Set("handler_error", err.Error())
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to enqueue job"})
+	}
+
+	return c.JSON(http.StatusAccepted, echo.Map{
+		"job_id":      job.ID,
+		"provider_id": providerID,
+	})
+}

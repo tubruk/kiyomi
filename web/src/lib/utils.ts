@@ -34,7 +34,7 @@ export function getPageImageUrl(
     if (page.url) {
       params.set('url', page.url);
     }
-    if (providerId) {
+    if (providerId && providerId !== 'chapters') {
       params.set('provider_id', providerId);
     }
     const query = params.toString();

@@ -1,8 +1,9 @@
 package library
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,88 +26,95 @@ func TestLibraryCRUD(t *testing.T) {
 
 	// Test SaveManga
 	mangaID := "manga-01"
-	mangaMeta := &MangaMeta{
-		Title:         "Test Manga",
-		Description:   "Sample description",
-		Authors:       []string{"Author 1"},
-		Artists:       []string{"Artist 1"},
-		Tags:          []string{"Action", "Fantasy"},
-		Aliases:       []string{"Test Manga Alias"},
-		Collections:   []string{"Favorites"},
-		Publishers:    []string{"Test Publisher"},
-		ReleaseYear:   2021,
-		StartDate:     "2021-05-10",
-		EndDate:       "2022-12-25",
-		Country:       "JP",
-		ExternalLinks: []ExternalLink{
-			{
-				Provider: "mangadex",
-				Label:    "MangaDex",
-				URL:      "https://mangadex.org/title/remote-manga-123",
+	info := Manga{
+		ID: mangaID,
+		Metadata: MangaMetadata{
+			Title:         "Test Manga",
+			Description:   "Sample description",
+			Authors:       []string{"Author 1"},
+			Artists:       []string{"Artist 1"},
+			Tags:          []string{"Action", "Fantasy"},
+			Aliases:       []string{"Test Manga Alias"},
+			Collections:   []string{"Favorites"},
+			Publishers:    []string{"Test Publisher"},
+			ReleaseYear:   2021,
+			StartDate:     "2021-05-10",
+			EndDate:       "2022-12-25",
+			Country:       "JP",
+			ExternalLinks: []ExternalLink{
+				{
+					Provider: "mangadex",
+					Label:    "MangaDex",
+					URL:      "https://mangadex.org/title/remote-manga-123",
+				},
 			},
 		},
-		UserStatus:   "reading",
-		UserRating:   9.0,
-		UserFavorite: true,
-		Content: &ContentSource{
-			ProviderID:      "mangadex",
-			ProviderMangaID: "remote-manga-123",
-			ReadingMode:     "rtl",
-			LastSyncedAt:    time.Now().Truncate(time.Second),
+		UserState: UserState{
+			Status:   "reading",
+			Rating:   9.0,
+			Favorite: true,
+		},
+		Bindings: MangaBindings{
+			Content: &ContentSource{
+				ProviderID:      "mangadex",
+				ProviderMangaID: "remote-manga-123",
+				ReadingMode:     "rtl",
+				LastSyncedAt:    time.Now().Truncate(time.Second),
+			},
 		},
 	}
 
-	if err := lib.SaveManga(mangaID, mangaMeta); err != nil {
+	if err := lib.SaveManga(mangaID, info); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
 	// Test GetManga
-	gotMeta, err := lib.GetManga(mangaID)
+	got, err := lib.GetManga(mangaID)
 	if err != nil {
 		t.Fatalf("failed to get manga: %v", err)
 	}
 
-	if gotMeta.Title != mangaMeta.Title {
-		t.Errorf("expected title %q, got %q", mangaMeta.Title, gotMeta.Title)
+	if got.Metadata.Title != info.Metadata.Title {
+		t.Errorf("expected title %q, got %q", info.Metadata.Title, got.Metadata.Title)
 	}
-	if gotMeta.UserFavorite != mangaMeta.UserFavorite {
-		t.Errorf("expected user_favorite %v, got %v", mangaMeta.UserFavorite, gotMeta.UserFavorite)
+	if got.UserState.Favorite != info.UserState.Favorite {
+		t.Errorf("expected favorite %v, got %v", info.UserState.Favorite, got.UserState.Favorite)
 	}
-	if gotMeta.UserStatus != mangaMeta.UserStatus {
-		t.Errorf("expected user_status %q, got %q", mangaMeta.UserStatus, gotMeta.UserStatus)
+	if got.UserState.Status != info.UserState.Status {
+		t.Errorf("expected status %q, got %q", info.UserState.Status, got.UserState.Status)
 	}
-	if gotMeta.UserRating != mangaMeta.UserRating {
-		t.Errorf("expected user_rating %v, got %v", mangaMeta.UserRating, gotMeta.UserRating)
+	if got.UserState.Rating != info.UserState.Rating {
+		t.Errorf("expected rating %v, got %v", info.UserState.Rating, got.UserState.Rating)
 	}
-	if !reflect.DeepEqual(gotMeta.Publishers, mangaMeta.Publishers) {
-		t.Errorf("expected publishers %v, got %v", mangaMeta.Publishers, gotMeta.Publishers)
+	if !reflect.DeepEqual(got.Metadata.Publishers, info.Metadata.Publishers) {
+		t.Errorf("expected publishers %v, got %v", info.Metadata.Publishers, got.Metadata.Publishers)
 	}
-	if gotMeta.StartDate != mangaMeta.StartDate {
-		t.Errorf("expected start_date %q, got %q", mangaMeta.StartDate, gotMeta.StartDate)
+	if got.Metadata.StartDate != info.Metadata.StartDate {
+		t.Errorf("expected start_date %q, got %q", info.Metadata.StartDate, got.Metadata.StartDate)
 	}
-	if gotMeta.EndDate != mangaMeta.EndDate {
-		t.Errorf("expected end_date %q, got %q", mangaMeta.EndDate, gotMeta.EndDate)
+	if got.Metadata.EndDate != info.Metadata.EndDate {
+		t.Errorf("expected end_date %q, got %q", info.Metadata.EndDate, got.Metadata.EndDate)
 	}
-	if gotMeta.Country != mangaMeta.Country {
-		t.Errorf("expected country %q, got %q", mangaMeta.Country, gotMeta.Country)
+	if got.Metadata.Country != info.Metadata.Country {
+		t.Errorf("expected country %q, got %q", info.Metadata.Country, got.Metadata.Country)
 	}
-	if gotMeta.ReleaseYear != mangaMeta.ReleaseYear {
-		t.Errorf("expected release_year %d, got %d", mangaMeta.ReleaseYear, gotMeta.ReleaseYear)
+	if got.Metadata.ReleaseYear != info.Metadata.ReleaseYear {
+		t.Errorf("expected release_year %d, got %d", info.Metadata.ReleaseYear, got.Metadata.ReleaseYear)
 	}
-	if !reflect.DeepEqual(gotMeta.Aliases, mangaMeta.Aliases) {
-		t.Errorf("expected aliases %v, got %v", mangaMeta.Aliases, gotMeta.Aliases)
+	if !reflect.DeepEqual(got.Metadata.Aliases, info.Metadata.Aliases) {
+		t.Errorf("expected aliases %v, got %v", info.Metadata.Aliases, got.Metadata.Aliases)
 	}
-	if !reflect.DeepEqual(gotMeta.Collections, mangaMeta.Collections) {
-		t.Errorf("expected collections %v, got %v", mangaMeta.Collections, gotMeta.Collections)
+	if !reflect.DeepEqual(got.Metadata.Collections, info.Metadata.Collections) {
+		t.Errorf("expected collections %v, got %v", info.Metadata.Collections, got.Metadata.Collections)
 	}
-	if len(gotMeta.ExternalLinks) != 1 || gotMeta.ExternalLinks[0].Provider != "mangadex" || gotMeta.ExternalLinks[0].Label != "MangaDex" || gotMeta.ExternalLinks[0].URL != "https://mangadex.org/title/remote-manga-123" {
-		t.Errorf("expected ExternalLinks %+v, got %+v", mangaMeta.ExternalLinks, gotMeta.ExternalLinks)
+	if len(got.Metadata.ExternalLinks) != 1 || got.Metadata.ExternalLinks[0].Provider != "mangadex" || got.Metadata.ExternalLinks[0].Label != "MangaDex" || got.Metadata.ExternalLinks[0].URL != "https://mangadex.org/title/remote-manga-123" {
+		t.Errorf("expected ExternalLinks %+v, got %+v", info.Metadata.ExternalLinks, got.Metadata.ExternalLinks)
 	}
-	if gotMeta.Content == nil || gotMeta.Content.ProviderMangaID != mangaMeta.Content.ProviderMangaID {
-		t.Errorf("content binding mismatch: got %+v", gotMeta.Content)
+	if got.Bindings.Content == nil || got.Bindings.Content.ProviderMangaID != info.Bindings.Content.ProviderMangaID {
+		t.Errorf("content binding mismatch: got %+v", got.Bindings.Content)
 	}
-	if gotMeta.Content.ReadingMode != "rtl" {
-		t.Errorf("expected reading_mode %q, got %q", "rtl", gotMeta.Content.ReadingMode)
+	if got.Bindings.Content.ReadingMode != "rtl" {
+		t.Errorf("expected reading_mode %q, got %q", "rtl", got.Bindings.Content.ReadingMode)
 	}
 
 	// Test SaveChapter
@@ -226,9 +234,9 @@ func TestSanitizeID(t *testing.T) {
 
 	lib := NewLibrary(tempDir)
 	rawID := "/manga/one_piece/"
-	meta := &MangaMeta{Title: "One Piece"}
+	info := Manga{ID: rawID, Metadata: MangaMetadata{Title: "One Piece"}}
 
-	if err := lib.SaveManga(rawID, meta); err != nil {
+	if err := lib.SaveManga(rawID, info); err != nil {
 		t.Fatalf("SaveManga failed: %v", err)
 	}
 
@@ -290,10 +298,8 @@ func TestUpdateChapterProgress(t *testing.T) {
 	chapterID := "ch-progress-01"
 
 	// Initial manga
-	mangaMeta := &MangaMeta{
-		Title: "Progress Manga",
-	}
-	if err := lib.SaveManga(mangaID, mangaMeta); err != nil {
+	info := Manga{Metadata: MangaMetadata{Title: "Progress Manga"}}
+	if err := lib.SaveManga(mangaID, info); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -307,24 +313,24 @@ func TestUpdateChapterProgress(t *testing.T) {
 	}
 
 	// Update progress
-	info, err := lib.UpdateChapterProgress(mangaID, LocalProviderID, chapterID, true, 15)
+	chInfo, err := lib.UpdateChapterProgress(mangaID, LocalProviderID, chapterID, true, 15)
 	if err != nil {
 		t.Fatalf("failed to update chapter progress: %v", err)
 	}
 
-	if info.ID != chapterID {
-		t.Errorf("expected chapter ID %q, got %q", chapterID, info.ID)
+	if chInfo.ID != chapterID {
+		t.Errorf("expected chapter ID %q, got %q", chapterID, chInfo.ID)
 	}
-	if info.MangaID != mangaID {
-		t.Errorf("expected manga ID %q, got %q", mangaID, info.MangaID)
+	if chInfo.MangaID != mangaID {
+		t.Errorf("expected manga ID %q, got %q", mangaID, chInfo.MangaID)
 	}
-	if !info.Meta.IsRead {
-		t.Errorf("expected is_read to be true, got %v", info.Meta.IsRead)
+	if !chInfo.Meta.IsRead {
+		t.Errorf("expected is_read to be true, got %v", chInfo.Meta.IsRead)
 	}
-	if info.Meta.LastReadPage != 15 {
-		t.Errorf("expected last_read_page to be 15, got %d", info.Meta.LastReadPage)
+	if chInfo.Meta.LastReadPage != 15 {
+		t.Errorf("expected last_read_page to be 15, got %d", chInfo.Meta.LastReadPage)
 	}
-	if info.Meta.LastReadAt.IsZero() {
+	if chInfo.Meta.LastReadAt.IsZero() {
 		t.Errorf("expected last_read_at to be non-zero")
 	}
 
@@ -342,11 +348,11 @@ func TestUpdateChapterProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get saved manga: %v", err)
 	}
-	if savedManga.LastReadChapterID != chapterID {
-		t.Errorf("expected manga LastReadChapterID %q, got %q", chapterID, savedManga.LastReadChapterID)
+	if savedManga.UserState.LastReadChapterID != chapterID {
+		t.Errorf("expected manga UserState.LastReadChapterID %q, got %q", chapterID, savedManga.UserState.LastReadChapterID)
 	}
-	if savedManga.LastReadAt.IsZero() {
-		t.Errorf("expected manga LastReadAt to be non-zero")
+	if savedManga.UserState.LastReadAt.IsZero() {
+		t.Errorf("expected manga UserState.LastReadAt to be non-zero")
 	}
 
 	// Non-existent chapter
@@ -355,77 +361,13 @@ func TestUpdateChapterProgress(t *testing.T) {
 	}
 }
 
-func TestMangaMeta_UnmarshalLegacyReadingDirection(t *testing.T) {
-	// Case 1: Legacy reading_direction with no content struct
-	jsonData1 := []byte(`{
-		"title": "Legacy Manga",
-		"reading_direction": "vertical"
-	}`)
-
-	var meta1 MangaMeta
-	if err := json.Unmarshal(jsonData1, &meta1); err != nil {
-		t.Fatalf("failed to unmarshal legacy manga: %v", err)
-	}
-	if meta1.Content == nil || meta1.Content.ReadingMode != "vertical" {
-		t.Fatalf("expected content.reading_mode 'vertical', got %+v", meta1.Content)
-	}
-
-	// Case 2: Explicit content.reading_mode takes precedence over legacy reading_direction
-	jsonData2 := []byte(`{
-		"title": "New Manga",
-		"reading_direction": "rtl",
-		"content": {
-			"provider_id": "mangadex",
-			"reading_mode": "longstrip"
-		}
-	}`)
-
-	var meta2 MangaMeta
-	if err := json.Unmarshal(jsonData2, &meta2); err != nil {
-		t.Fatalf("failed to unmarshal manga: %v", err)
-	}
-	if meta2.Content == nil || meta2.Content.ReadingMode != "longstrip" {
-		t.Fatalf("expected content.reading_mode 'longstrip', got %+v", meta2.Content)
-	}
-
-	// Case 3: Top-level reading_mode with no content struct
-	jsonData3 := []byte(`{
-		"title": "Direct Reading Mode Manga",
-		"reading_mode": "longstrip"
-	}`)
-
-	var meta3 MangaMeta
-	if err := json.Unmarshal(jsonData3, &meta3); err != nil {
-		t.Fatalf("failed to unmarshal direct reading_mode manga: %v", err)
-	}
-	if meta3.Content == nil || meta3.Content.ReadingMode != "longstrip" {
-		t.Fatalf("expected content.reading_mode 'longstrip', got %+v", meta3.Content)
-	}
-
-	// Case 4: Marshaling does not output top-level reading_direction or reading_mode
-	bytes, err := json.Marshal(&meta1)
-	if err != nil {
-		t.Fatalf("failed to marshal meta: %v", err)
-	}
-	var rawMap map[string]any
-	if err := json.Unmarshal(bytes, &rawMap); err != nil {
-		t.Fatalf("failed to unmarshal into map: %v", err)
-	}
-	if _, ok := rawMap["reading_direction"]; ok {
-		t.Errorf("marshal output should not contain top-level reading_direction: %s", string(bytes))
-	}
-	if _, ok := rawMap["reading_mode"]; ok {
-		t.Errorf("marshal output should not contain top-level reading_mode: %s", string(bytes))
-	}
-}
-
-func TestMangaMeta_Normalize(t *testing.T) {
+func TestMangaMetadata_Normalize(t *testing.T) {
 	// Case 1: Nil receiver should not panic
-	var nilMeta *MangaMeta
+	var nilMeta *MangaMetadata
 	nilMeta.Normalize()
 
 	// Case 2: Case-insensitive deduplication, whitespace trimming, and empty string removal
-	meta := &MangaMeta{
+	m := MangaMetadata{
 		Title:       "Normalization Test",
 		Publishers:  []string{"Shueisha", "shueisha", "VIZ", "viz", "  VIZ  ", ""},
 		Authors:     []string{"Eiichiro Oda", "eiichiro oda", "EIICHIRO ODA", "Akira Toriyama", "   "},
@@ -435,114 +377,36 @@ func TestMangaMeta_Normalize(t *testing.T) {
 		Collections: []string{"Top Manga", "top manga", "Favorites", "favorites"},
 	}
 
-	meta.Normalize()
+	m.Normalize()
 
 	expectedPublishers := []string{"Shueisha", "VIZ"}
-	if !reflect.DeepEqual(meta.Publishers, expectedPublishers) {
-		t.Errorf("expected publishers %v, got %v", expectedPublishers, meta.Publishers)
+	if !reflect.DeepEqual(m.Publishers, expectedPublishers) {
+		t.Errorf("expected publishers %v, got %v", expectedPublishers, m.Publishers)
 	}
 
 	expectedAuthors := []string{"Eiichiro Oda", "Akira Toriyama"}
-	if !reflect.DeepEqual(meta.Authors, expectedAuthors) {
-		t.Errorf("expected authors %v, got %v", expectedAuthors, meta.Authors)
+	if !reflect.DeepEqual(m.Authors, expectedAuthors) {
+		t.Errorf("expected authors %v, got %v", expectedAuthors, m.Authors)
 	}
 
 	expectedArtists := []string{"Yusuke Murata", "ONE"}
-	if !reflect.DeepEqual(meta.Artists, expectedArtists) {
-		t.Errorf("expected artists %v, got %v", expectedArtists, meta.Artists)
+	if !reflect.DeepEqual(m.Artists, expectedArtists) {
+		t.Errorf("expected artists %v, got %v", expectedArtists, m.Artists)
 	}
 
 	expectedTags := []string{"Action", "Shounen", "Adventure"}
-	if !reflect.DeepEqual(meta.Tags, expectedTags) {
-		t.Errorf("expected tags %v, got %v", expectedTags, meta.Tags)
+	if !reflect.DeepEqual(m.Tags, expectedTags) {
+		t.Errorf("expected tags %v, got %v", expectedTags, m.Tags)
 	}
 
 	expectedAliases := []string{"One Piece", "OP"}
-	if !reflect.DeepEqual(meta.Aliases, expectedAliases) {
-		t.Errorf("expected aliases %v, got %v", expectedAliases, meta.Aliases)
+	if !reflect.DeepEqual(m.Aliases, expectedAliases) {
+		t.Errorf("expected aliases %v, got %v", expectedAliases, m.Aliases)
 	}
 
 	expectedCollections := []string{"Top Manga", "Favorites"}
-	if !reflect.DeepEqual(meta.Collections, expectedCollections) {
-		t.Errorf("expected collections %v, got %v", expectedCollections, meta.Collections)
-	}
-}
-
-func TestMangaMeta_UnmarshalJSON(t *testing.T) {
-	// Case 1: Legacy single publisher string into Publishers slice
-	jsonLegacy := []byte(`{
-		"title": "Legacy Single Publisher",
-		"publisher": "Shueisha"
-	}`)
-	var meta1 MangaMeta
-	if err := json.Unmarshal(jsonLegacy, &meta1); err != nil {
-		t.Fatalf("failed to unmarshal legacy publisher: %v", err)
-	}
-	expectedPublishers1 := []string{"Shueisha"}
-	if !reflect.DeepEqual(meta1.Publishers, expectedPublishers1) {
-		t.Errorf("expected publishers %v, got %v", expectedPublishers1, meta1.Publishers)
-	}
-
-	// Case 2: Standard publishers array
-	jsonStandard := []byte(`{
-		"title": "Standard Publishers Array",
-		"publishers": ["Shueisha", "VIZ"]
-	}`)
-	var meta2 MangaMeta
-	if err := json.Unmarshal(jsonStandard, &meta2); err != nil {
-		t.Fatalf("failed to unmarshal standard publishers: %v", err)
-	}
-	expectedPublishers2 := []string{"Shueisha", "VIZ"}
-	if !reflect.DeepEqual(meta2.Publishers, expectedPublishers2) {
-		t.Errorf("expected publishers %v, got %v", expectedPublishers2, meta2.Publishers)
-	}
-
-	// Case 3: Both publisher (legacy) and publishers (array) - array takes precedence
-	jsonBoth := []byte(`{
-		"title": "Both Publishers Fields",
-		"publisher": "Old Publisher",
-		"publishers": ["Publisher A", "Publisher B"]
-	}`)
-	var meta3 MangaMeta
-	if err := json.Unmarshal(jsonBoth, &meta3); err != nil {
-		t.Fatalf("failed to unmarshal both publishers: %v", err)
-	}
-	expectedPublishers3 := []string{"Publisher A", "Publisher B"}
-	if !reflect.DeepEqual(meta3.Publishers, expectedPublishers3) {
-		t.Errorf("expected publishers %v, got %v", expectedPublishers3, meta3.Publishers)
-	}
-
-	// Case 4: Case-insensitive deduplication during unmarshaling for all fields
-	jsonDuplicates := []byte(`{
-		"title": "Duplicate Fields",
-		"publishers": ["Shueisha", "shueisha", "VIZ"],
-		"authors": ["Oda", "oda", "ODA"],
-		"artists": ["Murata", "murata"],
-		"tags": ["Action", "action", "Adventure"],
-		"aliases": ["OP", "op"],
-		"collections": ["Favorites", "favorites"]
-	}`)
-	var meta4 MangaMeta
-	if err := json.Unmarshal(jsonDuplicates, &meta4); err != nil {
-		t.Fatalf("failed to unmarshal duplicates: %v", err)
-	}
-	if !reflect.DeepEqual(meta4.Publishers, []string{"Shueisha", "VIZ"}) {
-		t.Errorf("expected deduplicated publishers, got %v", meta4.Publishers)
-	}
-	if !reflect.DeepEqual(meta4.Authors, []string{"Oda"}) {
-		t.Errorf("expected deduplicated authors, got %v", meta4.Authors)
-	}
-	if !reflect.DeepEqual(meta4.Artists, []string{"Murata"}) {
-		t.Errorf("expected deduplicated artists, got %v", meta4.Artists)
-	}
-	if !reflect.DeepEqual(meta4.Tags, []string{"Action", "Adventure"}) {
-		t.Errorf("expected deduplicated tags, got %v", meta4.Tags)
-	}
-	if !reflect.DeepEqual(meta4.Aliases, []string{"OP"}) {
-		t.Errorf("expected deduplicated aliases, got %v", meta4.Aliases)
-	}
-	if !reflect.DeepEqual(meta4.Collections, []string{"Favorites"}) {
-		t.Errorf("expected deduplicated collections, got %v", meta4.Collections)
+	if !reflect.DeepEqual(m.Collections, expectedCollections) {
+		t.Errorf("expected collections %v, got %v", expectedCollections, m.Collections)
 	}
 }
 
@@ -555,27 +419,31 @@ func TestLibrary_MetadataFields_RoundTrip(t *testing.T) {
 
 	lib := NewLibrary(tempDir)
 	mangaID := "full-metadata-manga"
-	original := &MangaMeta{
-		Title:         "Full Metadata Manga",
-		Aliases:       []string{"Alias 1", "Alias 2"},
-		Description:   "Comprehensive metadata description",
-		Authors:       []string{"Author One", "Author Two"},
-		Artists:       []string{"Artist One", "Artist Two"},
-		Tags:          []string{"Action", "Adventure", "Fantasy"},
-		Collections:   []string{"Classics", "Must-Read"},
-		ContentRating: "safe",
-		Publishers:    []string{"Shueisha", "VIZ Media"},
-		ReleaseYear:   1997,
-		StartDate:     "1997-07-22",
-		EndDate:       "2024-12-31",
-		Country:       "JP",
-		CoverURL:      "https://example.com/cover.jpg",
-		UserStatus:    "reading",
-		UserRating:    9.5,
-		UserFavorite:  true,
-		UserNotes:     "Masterpiece",
-		AddedAt:       time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:     time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+	original := Manga{
+		ID: mangaID,
+		Metadata: MangaMetadata{
+			Title:         "Full Metadata Manga",
+			Aliases:       []string{"Alias 1", "Alias 2"},
+			Description:   "Comprehensive metadata description",
+			Authors:       []string{"Author One", "Author Two"},
+			Artists:       []string{"Artist One", "Artist Two"},
+			Tags:          []string{"Action", "Adventure", "Fantasy"},
+			Collections:   []string{"Classics", "Must-Read"},
+			ContentRating: "safe",
+			Publishers:    []string{"Shueisha", "VIZ Media"},
+			ReleaseYear:   1997,
+			StartDate:     "1997-07-22",
+			EndDate:       "2024-12-31",
+			Country:       "JP",
+			CoverURL:      "https://example.com/cover.jpg",
+		},
+		UserState: UserState{
+			Status:   "reading",
+			Rating:   9.5,
+			Favorite: true,
+			Notes:    "Masterpiece",
+			AddedAt:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
 	}
 
 	if err := lib.SaveManga(mangaID, original); err != nil {
@@ -587,43 +455,43 @@ func TestLibrary_MetadataFields_RoundTrip(t *testing.T) {
 		t.Fatalf("GetManga failed: %v", err)
 	}
 
-	if !reflect.DeepEqual(retrieved.Publishers, original.Publishers) {
-		t.Errorf("Publishers mismatch: got %v, want %v", retrieved.Publishers, original.Publishers)
+	if !reflect.DeepEqual(retrieved.Metadata.Publishers, original.Metadata.Publishers) {
+		t.Errorf("Publishers mismatch: got %v, want %v", retrieved.Metadata.Publishers, original.Metadata.Publishers)
 	}
-	if retrieved.StartDate != original.StartDate {
-		t.Errorf("StartDate mismatch: got %q, want %q", retrieved.StartDate, original.StartDate)
+	if retrieved.Metadata.StartDate != original.Metadata.StartDate {
+		t.Errorf("StartDate mismatch: got %q, want %q", retrieved.Metadata.StartDate, original.Metadata.StartDate)
 	}
-	if retrieved.EndDate != original.EndDate {
-		t.Errorf("EndDate mismatch: got %q, want %q", retrieved.EndDate, original.EndDate)
+	if retrieved.Metadata.EndDate != original.Metadata.EndDate {
+		t.Errorf("EndDate mismatch: got %q, want %q", retrieved.Metadata.EndDate, original.Metadata.EndDate)
 	}
-	if retrieved.Country != original.Country {
-		t.Errorf("Country mismatch: got %q, want %q", retrieved.Country, original.Country)
+	if retrieved.Metadata.Country != original.Metadata.Country {
+		t.Errorf("Country mismatch: got %q, want %q", retrieved.Metadata.Country, original.Metadata.Country)
 	}
-	if retrieved.ReleaseYear != original.ReleaseYear {
-		t.Errorf("ReleaseYear mismatch: got %d, want %d", retrieved.ReleaseYear, original.ReleaseYear)
+	if retrieved.Metadata.ReleaseYear != original.Metadata.ReleaseYear {
+		t.Errorf("ReleaseYear mismatch: got %d, want %d", retrieved.Metadata.ReleaseYear, original.Metadata.ReleaseYear)
 	}
-	if !reflect.DeepEqual(retrieved.Authors, original.Authors) {
-		t.Errorf("Authors mismatch: got %v, want %v", retrieved.Authors, original.Authors)
+	if !reflect.DeepEqual(retrieved.Metadata.Authors, original.Metadata.Authors) {
+		t.Errorf("Authors mismatch: got %v, want %v", retrieved.Metadata.Authors, original.Metadata.Authors)
 	}
-	if !reflect.DeepEqual(retrieved.Artists, original.Artists) {
-		t.Errorf("Artists mismatch: got %v, want %v", retrieved.Artists, original.Artists)
+	if !reflect.DeepEqual(retrieved.Metadata.Artists, original.Metadata.Artists) {
+		t.Errorf("Artists mismatch: got %v, want %v", retrieved.Metadata.Artists, original.Metadata.Artists)
 	}
-	if !reflect.DeepEqual(retrieved.Tags, original.Tags) {
-		t.Errorf("Tags mismatch: got %v, want %v", retrieved.Tags, original.Tags)
+	if !reflect.DeepEqual(retrieved.Metadata.Tags, original.Metadata.Tags) {
+		t.Errorf("Tags mismatch: got %v, want %v", retrieved.Metadata.Tags, original.Metadata.Tags)
 	}
-	if !reflect.DeepEqual(retrieved.Aliases, original.Aliases) {
-		t.Errorf("Aliases mismatch: got %v, want %v", retrieved.Aliases, original.Aliases)
+	if !reflect.DeepEqual(retrieved.Metadata.Aliases, original.Metadata.Aliases) {
+		t.Errorf("Aliases mismatch: got %v, want %v", retrieved.Metadata.Aliases, original.Metadata.Aliases)
 	}
-	if !reflect.DeepEqual(retrieved.Collections, original.Collections) {
-		t.Errorf("Collections mismatch: got %v, want %v", retrieved.Collections, original.Collections)
+	if !reflect.DeepEqual(retrieved.Metadata.Collections, original.Metadata.Collections) {
+		t.Errorf("Collections mismatch: got %v, want %v", retrieved.Metadata.Collections, original.Metadata.Collections)
 	}
 
 	// Update metadata and round-trip again
-	original.Publishers = []string{"Kodansha"}
-	original.StartDate = "2000-01-01"
-	original.EndDate = "2010-01-01"
-	original.Country = "US"
-	original.ReleaseYear = 2000
+	original.Metadata.Publishers = []string{"Kodansha"}
+	original.Metadata.StartDate = "2000-01-01"
+	original.Metadata.EndDate = "2010-01-01"
+	original.Metadata.Country = "US"
+	original.Metadata.ReleaseYear = 2000
 
 	if err := lib.SaveManga(mangaID, original); err != nil {
 		t.Fatalf("SaveManga update failed: %v", err)
@@ -633,71 +501,20 @@ func TestLibrary_MetadataFields_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetManga after update failed: %v", err)
 	}
-	if !reflect.DeepEqual(updated.Publishers, []string{"Kodansha"}) {
-		t.Errorf("updated Publishers mismatch: got %v, want %v", updated.Publishers, []string{"Kodansha"})
+	if !reflect.DeepEqual(updated.Metadata.Publishers, []string{"Kodansha"}) {
+		t.Errorf("updated Publishers mismatch: got %v, want %v", updated.Metadata.Publishers, []string{"Kodansha"})
 	}
-	if updated.StartDate != "2000-01-01" {
-		t.Errorf("updated StartDate mismatch: got %q, want %q", updated.StartDate, "2000-01-01")
+	if updated.Metadata.StartDate != "2000-01-01" {
+		t.Errorf("updated StartDate mismatch: got %q, want %q", updated.Metadata.StartDate, "2000-01-01")
 	}
-	if updated.EndDate != "2010-01-01" {
-		t.Errorf("updated EndDate mismatch: got %q, want %q", updated.EndDate, "2010-01-01")
+	if updated.Metadata.EndDate != "2010-01-01" {
+		t.Errorf("updated EndDate mismatch: got %q, want %q", updated.Metadata.EndDate, "2010-01-01")
 	}
-	if updated.Country != "US" {
-		t.Errorf("updated Country mismatch: got %q, want %q", updated.Country, "US")
+	if updated.Metadata.Country != "US" {
+		t.Errorf("updated Country mismatch: got %q, want %q", updated.Metadata.Country, "US")
 	}
-	if updated.ReleaseYear != 2000 {
-		t.Errorf("updated ReleaseYear mismatch: got %d, want %d", updated.ReleaseYear, 2000)
-	}
-}
-
-func TestMangaMeta_PublisherAndDeduplication(t *testing.T) {
-	// Case 1: Legacy publisher string unmarshals to publishers slice
-	jsonData := []byte(`{
-		"title": "Legacy Publisher Manga",
-		"publisher": "Shueisha",
-		"aliases": ["Alias 1", "alias 1", "ALIAS 1", "Alias 2"],
-		"tags": ["Action", "action", "Shounen"],
-		"authors": ["Oda", "ODA", "oda"],
-		"artists": ["Artist 1", "artist 1"],
-		"collections": ["Favorites", "favorites", "Shounen Hits"]
-	}`)
-
-	var meta MangaMeta
-	if err := json.Unmarshal(jsonData, &meta); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
-	}
-
-	if len(meta.Publishers) != 1 || meta.Publishers[0] != "Shueisha" {
-		t.Errorf("expected publishers ['Shueisha'], got %v", meta.Publishers)
-	}
-	if len(meta.Aliases) != 2 || meta.Aliases[0] != "Alias 1" || meta.Aliases[1] != "Alias 2" {
-		t.Errorf("expected deduplicated aliases ['Alias 1', 'Alias 2'], got %v", meta.Aliases)
-	}
-	if len(meta.Tags) != 2 || meta.Tags[0] != "Action" || meta.Tags[1] != "Shounen" {
-		t.Errorf("expected deduplicated tags ['Action', 'Shounen'], got %v", meta.Tags)
-	}
-	if len(meta.Authors) != 1 || meta.Authors[0] != "Oda" {
-		t.Errorf("expected deduplicated authors ['Oda'], got %v", meta.Authors)
-	}
-	if len(meta.Artists) != 1 || meta.Artists[0] != "Artist 1" {
-		t.Errorf("expected deduplicated artists ['Artist 1'], got %v", meta.Artists)
-	}
-	if len(meta.Collections) != 2 || meta.Collections[0] != "Favorites" || meta.Collections[1] != "Shounen Hits" {
-		t.Errorf("expected deduplicated collections ['Favorites', 'Shounen Hits'], got %v", meta.Collections)
-	}
-
-	// Case 2: Explicit publishers slice takes precedence over publisher
-	jsonData2 := []byte(`{
-		"title": "New Publishers Manga",
-		"publisher": "OldPublisher",
-		"publishers": ["Kodansha", "kodansha", "Del Rey"]
-	}`)
-	var meta2 MangaMeta
-	if err := json.Unmarshal(jsonData2, &meta2); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
-	}
-	if len(meta2.Publishers) != 2 || meta2.Publishers[0] != "Kodansha" || meta2.Publishers[1] != "Del Rey" {
-		t.Errorf("expected publishers ['Kodansha', 'Del Rey'], got %v", meta2.Publishers)
+	if updated.Metadata.ReleaseYear != 2000 {
+		t.Errorf("updated ReleaseYear mismatch: got %d, want %d", updated.Metadata.ReleaseYear, 2000)
 	}
 }
 
@@ -721,7 +538,7 @@ func TestListManga_ParallelAndSorted(t *testing.T) {
 
 	for i, title := range titles {
 		id := fmt.Sprintf("manga-%02d", i)
-		if err := lib.SaveManga(id, &MangaMeta{Title: title}); err != nil {
+		if err := lib.SaveManga(id, Manga{Metadata: MangaMetadata{Title: title}}); err != nil {
 			t.Fatalf("failed to save manga %s: %v", id, err)
 		}
 	}
@@ -731,11 +548,11 @@ func TestListManga_ParallelAndSorted(t *testing.T) {
 	if err := os.MkdirAll(corruptDir, 0o755); err != nil {
 		t.Fatalf("failed to create corrupt dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(corruptDir, "meta.json"), []byte("invalid json{"), 0o644); err != nil {
-		t.Fatalf("failed to write corrupt meta: %v", err)
+	if err := os.WriteFile(filepath.Join(corruptDir, "metadata.json"), []byte("invalid json{"), 0o644); err != nil {
+		t.Fatalf("failed to write corrupt metadata: %v", err)
 	}
 
-	// Add an empty directory (no meta.json)
+	// Add an empty directory (no metadata.json)
 	emptyDir := filepath.Join(tempDir, "empty-manga")
 	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
 		t.Fatalf("failed to create empty dir: %v", err)
@@ -758,8 +575,8 @@ func TestListManga_ParallelAndSorted(t *testing.T) {
 
 	// Verify titles are sorted case-insensitively
 	for i := 1; i < len(mangas); i++ {
-		prev := strings.ToLower(mangas[i-1].Meta.Title)
-		curr := strings.ToLower(mangas[i].Meta.Title)
+		prev := strings.ToLower(mangas[i-1].Metadata.Title)
+		curr := strings.ToLower(mangas[i].Metadata.Title)
 		if prev > curr {
 			t.Errorf("manga not sorted at index %d: %q > %q", i, prev, curr)
 		}
@@ -776,7 +593,7 @@ func TestListChapters_ParallelAndSorted(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "test-manga-chapters"
 
-	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Test Manga"}); err != nil {
+	if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: "Test Manga"}}); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -885,7 +702,7 @@ func TestListChapters_EmptyAndNonExistent(t *testing.T) {
 	}
 
 	// Manga with no chapters
-	if err := lib.SaveManga("empty-manga", &MangaMeta{Title: "Empty"}); err != nil {
+	if err := lib.SaveManga("empty-manga", Manga{Metadata: MangaMetadata{Title: "Empty"}}); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 	chapters2, err := lib.ListChapters("empty-manga", "")
@@ -909,7 +726,7 @@ func TestLibrary_ConcurrentRaceCheck(t *testing.T) {
 	// Setup initial data
 	for i := 0; i < 20; i++ {
 		mangaID := fmt.Sprintf("race-manga-%02d", i)
-		if err := lib.SaveManga(mangaID, &MangaMeta{Title: fmt.Sprintf("Manga %d", i)}); err != nil {
+		if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: fmt.Sprintf("Manga %d", i)}}); err != nil {
 			t.Fatalf("failed to save manga: %v", err)
 		}
 		for j := 0; j < 10; j++ {
@@ -1029,7 +846,7 @@ func TestChapterPages_MetaPageCountUpdate(t *testing.T) {
 	chapterID := "ch-count-test"
 
 	// Create manga and chapter meta with 0 page count
-	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Count Test Manga"}); err != nil {
+	if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: "Count Test Manga"}}); err != nil {
 		t.Fatalf("SaveManga failed: %v", err)
 	}
 	if err := lib.SaveChapter(mangaID, LocalProviderID, chapterID, &ChapterMeta{
@@ -1113,9 +930,9 @@ func TestAddProvider(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "manga-prov-1"
 
-	// Create manga
-	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Provider Test Manga"}); err != nil {
-		t.Fatalf("failed to save manga: %v", err)
+	// Create manga metadata (so GetManga works).
+	if err := lib.SaveMetadata(mangaID, MangaMetadata{Title: "Provider Test Manga"}); err != nil {
+		t.Fatalf("failed to save manga metadata: %v", err)
 	}
 
 	// Add first provider
@@ -1124,12 +941,12 @@ func TestAddProvider(t *testing.T) {
 		t.Fatalf("failed to add provider: %v", err)
 	}
 
-	meta, _ := lib.GetManga(mangaID)
-	if len(meta.Providers) != 1 {
-		t.Errorf("expected 1 provider, got %d", len(meta.Providers))
+	got, _ := lib.GetManga(mangaID)
+	if len(got.Bindings.Providers) != 1 {
+		t.Errorf("expected 1 provider, got %d", len(got.Bindings.Providers))
 	}
-	if meta.Providers[0].ProviderID != "mangadex" {
-		t.Errorf("expected provider_id mangadex, got %s", meta.Providers[0].ProviderID)
+	if got.Bindings.Providers[0].ProviderID != "mangadex" {
+		t.Errorf("expected provider_id mangadex, got %s", got.Bindings.Providers[0].ProviderID)
 	}
 
 	// Add second provider
@@ -1138,9 +955,9 @@ func TestAddProvider(t *testing.T) {
 		t.Fatalf("failed to add second provider: %v", err)
 	}
 
-	meta, _ = lib.GetManga(mangaID)
-	if len(meta.Providers) != 2 {
-		t.Errorf("expected 2 providers, got %d", len(meta.Providers))
+	got, _ = lib.GetManga(mangaID)
+	if len(got.Bindings.Providers) != 2 {
+		t.Errorf("expected 2 providers, got %d", len(got.Bindings.Providers))
 	}
 
 	// Add duplicate should succeed and update title if provided (idempotent)
@@ -1149,12 +966,12 @@ func TestAddProvider(t *testing.T) {
 		t.Fatalf("expected nil error on duplicate add provider, got: %v", err)
 	}
 
-	meta, _ = lib.GetManga(mangaID)
-	if len(meta.Providers) != 2 {
-		t.Errorf("expected 2 providers, got %d", len(meta.Providers))
+	got, _ = lib.GetManga(mangaID)
+	if len(got.Bindings.Providers) != 2 {
+		t.Errorf("expected 2 providers, got %d", len(got.Bindings.Providers))
 	}
-	if meta.Providers[0].MangaTitle != "Updated Manga Title" {
-		t.Errorf("expected updated title %q, got %q", "Updated Manga Title", meta.Providers[0].MangaTitle)
+	if got.Bindings.Providers[0].MangaTitle != "Updated Manga Title" {
+		t.Errorf("expected updated title %q, got %q", "Updated Manga Title", got.Bindings.Providers[0].MangaTitle)
 	}
 
 	// Re-add duplicate with empty title should leave existing title unchanged
@@ -1162,9 +979,9 @@ func TestAddProvider(t *testing.T) {
 	if err := lib.AddProvider(mangaID, ref1NoTitle); err != nil {
 		t.Fatalf("expected nil error on duplicate add provider with empty title, got: %v", err)
 	}
-	meta, _ = lib.GetManga(mangaID)
-	if meta.Providers[0].MangaTitle != "Updated Manga Title" {
-		t.Errorf("expected unchanged title %q, got %q", "Updated Manga Title", meta.Providers[0].MangaTitle)
+	got, _ = lib.GetManga(mangaID)
+	if got.Bindings.Providers[0].MangaTitle != "Updated Manga Title" {
+		t.Errorf("expected unchanged title %q, got %q", "Updated Manga Title", got.Bindings.Providers[0].MangaTitle)
 	}
 }
 
@@ -1185,16 +1002,17 @@ func TestRemoveProvider(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "manga-remove-prov"
 
-	// Create manga with multiple providers
-	meta := &MangaMeta{
-		Title: "Remove Provider Test",
-		Providers: []ProviderRef{
-			{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Remove Test"},
-			{ProviderID: "mangafox", ProviderMangaID: "mf-456", MangaTitle: "Remove Test"},
+	info := Manga{
+		Metadata: MangaMetadata{Title: "Remove Provider Test"},
+		Bindings: MangaBindings{
+			Providers: []ProviderRef{
+				{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Remove Test"},
+				{ProviderID: "mangafox", ProviderMangaID: "mf-456", MangaTitle: "Remove Test"},
+			},
+			Content: &ContentSource{ProviderID: "mangadex", ProviderMangaID: "md-123"},
 		},
-		Content: &ContentSource{ProviderID: "mangadex", ProviderMangaID: "md-123"},
 	}
-	if err := lib.SaveManga(mangaID, meta); err != nil {
+	if err := lib.SaveManga(mangaID, info); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -1203,9 +1021,9 @@ func TestRemoveProvider(t *testing.T) {
 		t.Fatalf("failed to remove non-content provider: %v", err)
 	}
 
-	meta, _ = lib.GetManga(mangaID)
-	if len(meta.Providers) != 1 {
-		t.Errorf("expected 1 provider after removal, got %d", len(meta.Providers))
+	got, _ := lib.GetManga(mangaID)
+	if len(got.Bindings.Providers) != 1 {
+		t.Errorf("expected 1 provider after removal, got %d", len(got.Bindings.Providers))
 	}
 
 	// Remove mangadex (content provider) should fail since it's the last content-capable one
@@ -1229,15 +1047,16 @@ func TestSwitchContentProvider(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "manga-switch-prov"
 
-	// Create manga with content provider
-	meta := &MangaMeta{
-		Title: "Switch Provider Test",
-		Content: &ContentSource{ProviderID: "mangadex", ProviderMangaID: "md-123"},
-		Providers: []ProviderRef{
-			{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Switch Test"},
+	info := Manga{
+		Metadata: MangaMetadata{Title: "Switch Provider Test"},
+		Bindings: MangaBindings{
+			Content: &ContentSource{ProviderID: "mangadex", ProviderMangaID: "md-123"},
+			Providers: []ProviderRef{
+				{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Switch Test"},
+			},
 		},
 	}
-	if err := lib.SaveManga(mangaID, meta); err != nil {
+	if err := lib.SaveManga(mangaID, info); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -1246,13 +1065,13 @@ func TestSwitchContentProvider(t *testing.T) {
 		t.Fatalf("failed to switch content provider: %v", err)
 	}
 
-	meta, _ = lib.GetManga(mangaID)
-	if meta.Content.ProviderID != "mangafox" || meta.Content.ProviderMangaID != "mf-456" {
-		t.Errorf("expected content provider mangafox/mf-456, got %s/%s", meta.Content.ProviderID, meta.Content.ProviderMangaID)
+	got, _ := lib.GetManga(mangaID)
+	if got.Bindings.Content.ProviderID != "mangafox" || got.Bindings.Content.ProviderMangaID != "mf-456" {
+		t.Errorf("expected content provider mangafox/mf-456, got %s/%s", got.Bindings.Content.ProviderID, got.Bindings.Content.ProviderMangaID)
 	}
 	// mangafox should be added to providers
-	if len(meta.Providers) != 2 {
-		t.Errorf("expected 2 providers after switch, got %d", len(meta.Providers))
+	if len(got.Bindings.Providers) != 2 {
+		t.Errorf("expected 2 providers after switch, got %d", len(got.Bindings.Providers))
 	}
 
 	// Switch to mangadex (existing provider in list)
@@ -1260,9 +1079,9 @@ func TestSwitchContentProvider(t *testing.T) {
 		t.Fatalf("failed to switch back to existing provider: %v", err)
 	}
 
-	meta, _ = lib.GetManga(mangaID)
-	if meta.Content.ProviderID != "mangadex" {
-		t.Errorf("expected content provider mangadex, got %s", meta.Content.ProviderID)
+	got, _ = lib.GetManga(mangaID)
+	if got.Bindings.Content.ProviderID != "mangadex" {
+		t.Errorf("expected content provider mangadex, got %s", got.Bindings.Content.ProviderID)
 	}
 }
 
@@ -1283,14 +1102,15 @@ func TestHasContentProvider(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "manga-has-content"
 
-	// Create manga with one provider
-	meta := &MangaMeta{
-		Title: "Has Content Test",
-		Providers: []ProviderRef{
-			{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Has Content Test"},
+	info := Manga{
+		Metadata: MangaMetadata{Title: "Has Content Test"},
+		Bindings: MangaBindings{
+			Providers: []ProviderRef{
+				{ProviderID: "mangadex", ProviderMangaID: "md-123", MangaTitle: "Has Content Test"},
+			},
 		},
 	}
-	if err := lib.SaveManga(mangaID, meta); err != nil {
+	if err := lib.SaveManga(mangaID, info); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -1303,9 +1123,12 @@ func TestHasContentProvider(t *testing.T) {
 		t.Errorf("expected false when excluding only content provider, got true")
 	}
 
-	// Add another content provider
-	meta.Providers = append(meta.Providers, ProviderRef{ProviderID: "mangafox", ProviderMangaID: "mf-456", MangaTitle: "Has Content Test"})
-	lib.SaveManga(mangaID, meta)
+	// Add another content provider via direct SaveBindings.
+	if err := lib.SaveBindings(mangaID, MangaBindings{
+		Providers: append(info.Bindings.Providers, ProviderRef{ProviderID: "mangafox", ProviderMangaID: "mf-456", MangaTitle: "Has Content Test"}),
+	}); err != nil {
+		t.Fatalf("failed to save bindings: %v", err)
+	}
 
 	// Now excluding mangadex should return true (mangafox is still there)
 	has, err = lib.HasContentProvider(mangaID, "mangadex", "md-123", capLookup)
@@ -1492,7 +1315,7 @@ func TestLibrary_ConcurrentReadWrite(t *testing.T) {
 	const numManga = 10
 	for i := 0; i < numManga; i++ {
 		mangaID := fmt.Sprintf("manga-%d", i)
-		if err := lib.SaveManga(mangaID, &MangaMeta{Title: fmt.Sprintf("Title %d", i)}); err != nil {
+		if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: fmt.Sprintf("Title %d", i)}}); err != nil {
 			t.Fatalf("failed to save manga: %v", err)
 		}
 		for j := 0; j < 5; j++ {
@@ -1566,7 +1389,7 @@ func TestBatchUpdateChapterProgress(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "batch-progress-manga"
 
-	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Batch Progress Manga"}); err != nil {
+	if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: "Batch Progress Manga"}}); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -1601,7 +1424,7 @@ func TestBatchUpdateChapterProgress(t *testing.T) {
 			t.Errorf("chapter %s: expected last_read_page 20, got %d", u.ID, u.Meta.LastReadPage)
 		}
 		if u.Meta.LastReadAt.IsZero() {
-			t.Errorf("chapter %s: expected last_read_at to be non-zero", u.ID)
+			t.Errorf("chapter %s: expected last_read_at to be non-zero, got %v", u.ID, u.Meta.LastReadAt)
 		}
 	}
 
@@ -1610,11 +1433,11 @@ func TestBatchUpdateChapterProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetManga failed: %v", err)
 	}
-	if manga.LastReadChapterID != "ch-03" {
-		t.Errorf("expected LastReadChapterID 'ch-03', got %q", manga.LastReadChapterID)
+	if manga.UserState.LastReadChapterID != "ch-03" {
+		t.Errorf("expected UserState.LastReadChapterID 'ch-03', got %q", manga.UserState.LastReadChapterID)
 	}
-	if manga.LastReadAt.IsZero() {
-		t.Errorf("expected LastReadAt to be set")
+	if manga.UserState.LastReadAt.IsZero() {
+		t.Errorf("expected UserState.LastReadAt to be set")
 	}
 
 	// 2. Error case: non-existent chapter
@@ -1634,7 +1457,7 @@ func TestBatchDeleteChapters(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "batch-del-manga"
 
-	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Batch Delete Manga"}); err != nil {
+	if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: "Batch Delete Manga"}}); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -1680,7 +1503,7 @@ func TestBatchDeleteChapterFiles(t *testing.T) {
 	lib := NewLibrary(tempDir)
 	mangaID := "batch-files-manga"
 
-	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Batch Files Manga"}); err != nil {
+	if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: "Batch Files Manga"}}); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -1736,7 +1559,7 @@ func TestChapterDownloadedPagesTracking(t *testing.T) {
 	mangaID := "manga-track"
 	provID := "prov-test"
 
-	if err := lib.SaveManga(mangaID, &MangaMeta{Title: "Tracking Manga"}); err != nil {
+	if err := lib.SaveManga(mangaID, Manga{Metadata: MangaMetadata{Title: "Tracking Manga"}}); err != nil {
 		t.Fatalf("failed to save manga: %v", err)
 	}
 
@@ -1906,7 +1729,7 @@ func TestLibrary_PathTraversal(t *testing.T) {
 		if _, err := lib.GetManga(badID); err == nil {
 			t.Errorf("expected GetManga(%q) to fail with path traversal, got nil", badID)
 		}
-		if err := lib.SaveManga(badID, &MangaMeta{Title: "Bad"}); err == nil {
+		if err := lib.SaveManga(badID, Manga{Metadata: MangaMetadata{Title: "Bad"}}); err == nil {
 			t.Errorf("expected SaveManga(%q) to fail with path traversal, got nil", badID)
 		}
 		if err := lib.DeleteManga(badID); err == nil {
@@ -1931,23 +1754,25 @@ func TestLibrary_ExternalLinks(t *testing.T) {
 	tempDir := t.TempDir()
 	lib := NewLibrary(tempDir)
 
-	meta := &MangaMeta{
-		Title: "External Links Test Manga",
-		ExternalLinks: []ExternalLink{
-			{
-				Provider: "mangadex",
-				Label:    "MangaDex",
-				URL:      "https://mangadex.org/title/manga-1",
-			},
-			{
-				Provider: "anilist",
-				Label:    "AniList",
-				URL:      "https://anilist.co/manga/1",
+	info := Manga{
+		Metadata: MangaMetadata{
+			Title: "External Links Test Manga",
+			ExternalLinks: []ExternalLink{
+				{
+					Provider: "mangadex",
+					Label:    "MangaDex",
+					URL:      "https://mangadex.org/title/manga-1",
+				},
+				{
+					Provider: "anilist",
+					Label:    "AniList",
+					URL:      "https://anilist.co/manga/1",
+				},
 			},
 		},
 	}
 
-	if err := lib.SaveManga("manga-links", meta); err != nil {
+	if err := lib.SaveManga("manga-links", info); err != nil {
 		t.Fatalf("SaveManga failed: %v", err)
 	}
 
@@ -1956,15 +1781,313 @@ func TestLibrary_ExternalLinks(t *testing.T) {
 		t.Fatalf("GetManga failed: %v", err)
 	}
 
-	if len(got.ExternalLinks) != 2 {
-		t.Fatalf("expected 2 external links, got %d", len(got.ExternalLinks))
+	if len(got.Metadata.ExternalLinks) != 2 {
+		t.Fatalf("expected 2 external links, got %d", len(got.Metadata.ExternalLinks))
 	}
 
-	if got.ExternalLinks[0].Provider != "mangadex" || got.ExternalLinks[0].Label != "MangaDex" || got.ExternalLinks[0].URL != "https://mangadex.org/title/manga-1" {
-		t.Errorf("unexpected first external link: %+v", got.ExternalLinks[0])
+	if got.Metadata.ExternalLinks[0].Provider != "mangadex" || got.Metadata.ExternalLinks[0].Label != "MangaDex" || got.Metadata.ExternalLinks[0].URL != "https://mangadex.org/title/manga-1" {
+		t.Errorf("unexpected first external link: %+v", got.Metadata.ExternalLinks[0])
 	}
-	if got.ExternalLinks[1].Provider != "anilist" || got.ExternalLinks[1].Label != "AniList" || got.ExternalLinks[1].URL != "https://anilist.co/manga/1" {
-		t.Errorf("unexpected second external link: %+v", got.ExternalLinks[1])
+	if got.Metadata.ExternalLinks[1].Provider != "anilist" || got.Metadata.ExternalLinks[1].Label != "AniList" || got.Metadata.ExternalLinks[1].URL != "https://anilist.co/manga/1" {
+		t.Errorf("unexpected second external link: %+v", got.Metadata.ExternalLinks[1])
 	}
 }
 
+func TestLibrary_GetMetadata_SaveMetadata(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+	id := "manga-meta"
+
+	// Round-trip empty
+	if err := lib.SaveMetadata(id, MangaMetadata{}); err != nil {
+		t.Fatalf("SaveMetadata empty: %v", err)
+	}
+	m, err := lib.GetMetadata(id)
+	if err != nil {
+		t.Fatalf("GetMetadata: %v", err)
+	}
+	if m.Title != "" {
+		t.Errorf("expected empty title, got %q", m.Title)
+	}
+
+	// Round-trip populated
+	want := MangaMetadata{
+		Title:       "Berserk",
+		Authors:     []string{"Kentarou Miura"},
+		Tags:        []string{"fantasy", "Fantasy", "seinen"}, // test dedup
+		CoverURL:    "https://example.com/cover.jpg",
+		ReleaseYear: 1989,
+		ExternalLinks: []ExternalLink{
+			{Provider: "mangadex", Label: "MangaDex", URL: "https://mangadex.org/title/1"},
+		},
+	}
+	if err := lib.SaveMetadata(id, want); err != nil {
+		t.Fatalf("SaveMetadata populated: %v", err)
+	}
+	got, err := lib.GetMetadata(id)
+	if err != nil {
+		t.Fatalf("GetMetadata populated: %v", err)
+	}
+	if got.Title != want.Title {
+		t.Errorf("Title mismatch: %q != %q", got.Title, want.Title)
+	}
+	if !reflect.DeepEqual(got.Authors, want.Authors) {
+		t.Errorf("Authors mismatch: %v != %v", got.Authors, want.Authors)
+	}
+	if !reflect.DeepEqual(got.Tags, []string{"fantasy", "seinen"}) {
+		t.Errorf("Tags dedup mismatch: %v", got.Tags)
+	}
+	if got.ReleaseYear != 1989 {
+		t.Errorf("ReleaseYear mismatch: %d", got.ReleaseYear)
+	}
+	if !reflect.DeepEqual(got.ExternalLinks, want.ExternalLinks) {
+		t.Errorf("ExternalLinks mismatch: %v != %v", got.ExternalLinks, want.ExternalLinks)
+	}
+
+	// Missing file returns zero value + nil
+	empty, err := lib.GetMetadata("nonexistent")
+	if err != nil {
+		t.Fatalf("GetMetadata missing: %v", err)
+	}
+	if !reflect.DeepEqual(empty, MangaMetadata{}) {
+		t.Errorf("expected zero MangaMetadata for missing file, got %+v", empty)
+	}
+}
+
+func TestLibrary_GetUserState_SaveUserState(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+	id := "manga-userstate"
+
+	// First save populates AddedAt and UpdatedAt.
+	beforeSave := time.Now()
+	if err := lib.SaveUserState(id, UserState{Status: UserStatusReading, Rating: 9.5, Favorite: true, Notes: "great"}); err != nil {
+		t.Fatalf("SaveUserState: %v", err)
+	}
+	afterSave := time.Now()
+
+	got, err := lib.GetUserState(id)
+	if err != nil {
+		t.Fatalf("GetUserState: %v", err)
+	}
+	if got.Status != UserStatusReading {
+		t.Errorf("Status mismatch: %q", got.Status)
+	}
+	if got.Rating != 9.5 {
+		t.Errorf("Rating mismatch: %v", got.Rating)
+	}
+	if !got.Favorite {
+		t.Errorf("Favorite mismatch: %v", got.Favorite)
+	}
+	if got.Notes != "great" {
+		t.Errorf("Notes mismatch: %q", got.Notes)
+	}
+	if got.AddedAt.Before(beforeSave) || got.AddedAt.After(afterSave) {
+		t.Errorf("AddedAt %v not in [%v, %v]", got.AddedAt, beforeSave, afterSave)
+	}
+	if got.UpdatedAt.Before(beforeSave) || got.UpdatedAt.After(afterSave) {
+		t.Errorf("UpdatedAt %v not in [%v, %v]", got.UpdatedAt, beforeSave, afterSave)
+	}
+	if got.AddedAt.IsZero() {
+		t.Errorf("AddedAt should be auto-set")
+	}
+	if got.UpdatedAt.IsZero() {
+		t.Errorf("UpdatedAt should be auto-set")
+	}
+
+	// Second save should bump UpdatedAt but keep AddedAt.
+	firstAddedAt := got.AddedAt
+	firstUpdatedAt := got.UpdatedAt
+	time.Sleep(2 * time.Millisecond) // ensure clock advances
+	if err := lib.SaveUserState(id, UserState{Status: UserStatusCompleted, AddedAt: firstAddedAt}); err != nil {
+		t.Fatalf("SaveUserState second: %v", err)
+	}
+	got2, err := lib.GetUserState(id)
+	if err != nil {
+		t.Fatalf("GetUserState second: %v", err)
+	}
+	if !got2.AddedAt.Equal(firstAddedAt) {
+		t.Errorf("AddedAt should be preserved: was %v, now %v", firstAddedAt, got2.AddedAt)
+	}
+	if !got2.UpdatedAt.After(firstUpdatedAt) {
+		t.Errorf("UpdatedAt should bump forward: was %v, now %v", firstUpdatedAt, got2.UpdatedAt)
+	}
+
+	// Missing file returns zero value + nil.
+	empty, err := lib.GetUserState("nonexistent")
+	if err != nil {
+		t.Fatalf("GetUserState missing: %v", err)
+	}
+	if !reflect.DeepEqual(empty, UserState{}) {
+		t.Errorf("expected zero UserState, got %+v", empty)
+	}
+}
+
+func TestLibrary_GetBindings_SaveBindings(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+	id := "manga-bindings"
+
+	want := MangaBindings{
+		Providers: []ProviderRef{
+			{ProviderID: "mangadex", ProviderMangaID: "md-1", MangaTitle: "Title"},
+			{ProviderID: "mangadex", ProviderMangaID: "md-1", MangaTitle: "Dup"}, // duplicate
+			{ProviderID: "anilist", ProviderMangaID: "al-1", MangaTitle: "Title"},
+		},
+		Content: &ContentSource{ProviderID: "mangadex", ProviderMangaID: "md-1", ReadingMode: "rtl"},
+	}
+	if err := lib.SaveBindings(id, want); err != nil {
+		t.Fatalf("SaveBindings: %v", err)
+	}
+
+	got, err := lib.GetBindings(id)
+	if err != nil {
+		t.Fatalf("GetBindings: %v", err)
+	}
+	if len(got.Providers) != 2 {
+		t.Fatalf("expected dedup to 2 providers, got %d: %+v", len(got.Providers), got.Providers)
+	}
+	if got.Providers[0].ProviderID != "mangadex" || got.Providers[0].ProviderMangaID != "md-1" {
+		t.Errorf("first provider mismatch: %+v", got.Providers[0])
+	}
+	if got.Providers[0].MangaTitle != "Title" {
+		t.Errorf("expected first-seen title preserved, got %q", got.Providers[0].MangaTitle)
+	}
+	if got.Providers[1].ProviderID != "anilist" {
+		t.Errorf("second provider mismatch: %+v", got.Providers[1])
+	}
+	if got.Content == nil || got.Content.ProviderID != "mangadex" {
+		t.Errorf("Content mismatch: %+v", got.Content)
+	}
+
+	// Missing file returns zero value + nil.
+	empty, err := lib.GetBindings("nonexistent")
+	if err != nil {
+		t.Fatalf("GetBindings missing: %v", err)
+	}
+	if !reflect.DeepEqual(empty, MangaBindings{}) {
+		t.Errorf("expected zero MangaBindings, got %+v", empty)
+	}
+}
+
+func TestLibrary_GetManga_ComposesAllThree(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+	id := "manga-compose"
+
+	if err := lib.SaveMetadata(id, MangaMetadata{Title: "Composed", Authors: []string{"Author"}}); err != nil {
+		t.Fatalf("SaveMetadata: %v", err)
+	}
+	if err := lib.SaveUserState(id, UserState{Status: UserStatusReading}); err != nil {
+		t.Fatalf("SaveUserState: %v", err)
+	}
+	if err := lib.SaveBindings(id, MangaBindings{
+		Providers: []ProviderRef{{ProviderID: "mangadex", ProviderMangaID: "x"}},
+		Content:   &ContentSource{ProviderID: "mangadex", ProviderMangaID: "x"},
+	}); err != nil {
+		t.Fatalf("SaveBindings: %v", err)
+	}
+
+	info, err := lib.GetManga(id)
+	if err != nil {
+		t.Fatalf("GetManga: %v", err)
+	}
+	if info.ID != id {
+		t.Errorf("ID mismatch: %q", info.ID)
+	}
+	if info.Metadata.Title != "Composed" {
+		t.Errorf("Metadata.Title mismatch: %q", info.Metadata.Title)
+	}
+	if info.UserState.Status != UserStatusReading {
+		t.Errorf("UserState.Status mismatch: %q", info.UserState.Status)
+	}
+	if len(info.Bindings.Providers) != 1 {
+		t.Errorf("Bindings.Providers mismatch: %+v", info.Bindings.Providers)
+	}
+
+	// Missing metadata.json → error
+	if _, err := lib.GetManga("nonexistent"); err == nil {
+		t.Errorf("expected error getting nonexistent manga, got nil")
+	}
+}
+
+func TestLibrary_ListManga_ReadsThreeFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+
+	// Set up two manga with distinct state
+	for _, tt := range []struct {
+		id, title, status string
+		providers         []ProviderRef
+	}{
+		{"a", "Alpha", UserStatusReading, []ProviderRef{{ProviderID: "md", ProviderMangaID: "1"}}},
+		{"b", "Beta", UserStatusCompleted, nil},
+	} {
+		if err := lib.SaveMetadata(tt.id, MangaMetadata{Title: tt.title}); err != nil {
+			t.Fatalf("SaveMetadata %s: %v", tt.id, err)
+		}
+		if err := lib.SaveUserState(tt.id, UserState{Status: tt.status}); err != nil {
+			t.Fatalf("SaveUserState %s: %v", tt.id, err)
+		}
+		if err := lib.SaveBindings(tt.id, MangaBindings{Providers: tt.providers}); err != nil {
+			t.Fatalf("SaveBindings %s: %v", tt.id, err)
+		}
+	}
+
+	list, err := lib.ListManga()
+	if err != nil {
+		t.Fatalf("ListManga: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 manga, got %d", len(list))
+	}
+	// Sorted case-insensitive by title: Alpha, Beta
+	if list[0].Metadata.Title != "Alpha" || list[1].Metadata.Title != "Beta" {
+		t.Errorf("sort mismatch: %q, %q", list[0].Metadata.Title, list[1].Metadata.Title)
+	}
+	if list[0].UserState.Status != UserStatusReading {
+		t.Errorf("Alpha user state mismatch: %q", list[0].UserState.Status)
+	}
+	if list[1].UserState.Status != UserStatusCompleted {
+		t.Errorf("Beta user state mismatch: %q", list[1].UserState.Status)
+	}
+	if len(list[0].Bindings.Providers) != 1 {
+		t.Errorf("Alpha bindings.Providers mismatch: %+v", list[0].Bindings.Providers)
+	}
+	if len(list[1].Bindings.Providers) != 0 {
+		t.Errorf("Beta bindings.Providers mismatch: %+v", list[1].Bindings.Providers)
+	}
+}
+
+func TestLibrary_SaveJSONAtomic_Atomic(t *testing.T) {
+	tempDir := t.TempDir()
+	lib := NewLibrary(tempDir)
+	id := "atomic-manga"
+	target := filepath.Join(tempDir, id, "metadata.json")
+
+	// Happy path
+	if err := lib.SaveMetadata(id, MangaMetadata{Title: "Atomic"}); err != nil {
+		t.Fatalf("SaveMetadata: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("expected file at %s: %v", target, err)
+	}
+	// Verify no leftover temp files
+	entries, _ := os.ReadDir(filepath.Join(tempDir, id))
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp.") {
+			t.Errorf("leftover temp file: %s", e.Name())
+		}
+	}
+
+	// Error path: invalid JSON value (channel is not JSON-serializable)
+	//   We can't easily feed a non-marshalable value via the public API,
+	//   so we exercise the helper directly to confirm cleanup.
+	badPath := filepath.Join(tempDir, id, "bad.json")
+	if err := saveJSONAtomic(badPath, make(chan int)); err == nil {
+		t.Errorf("expected error marshaling channel, got nil")
+	}
+	if _, err := os.Stat(badPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("expected no file at %s after encode error, got err=%v", badPath, err)
+	}
+}

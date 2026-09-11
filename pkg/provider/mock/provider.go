@@ -179,7 +179,7 @@ func (p *Provider) Search(ctx context.Context, query string, opts sdk.SearchOpti
 				RemoteID:     entry.RemoteID,
 				Title:        entry.Title,
 				Aliases:      entry.Aliases,
-				CoverURL:     entry.CoverURL,
+				CoverURL:     coverPathFor(entry.RemoteID),
 				URL:          entry.URL,
 				Availability: entry.Availability,
 			})
@@ -219,7 +219,7 @@ func (p *Provider) Details(ctx context.Context, remoteID string) (sdk.MangaMetad
 		RemoteID:      m.RemoteID,
 		Title:         m.Title,
 		Aliases:       m.Aliases,
-		CoverURL:      m.CoverURL,
+		CoverURL:      coverPathFor(m.RemoteID),
 		Synopsis:      m.Synopsis,
 		Status:        m.Status,
 		Authors:       authors,
@@ -243,8 +243,16 @@ func (p *Provider) Cover(ctx context.Context, remoteID string, size sdk.ImageSiz
 		return sdk.ImageRef{}, fmt.Errorf("mock: manga not found: %s", remoteID)
 	}
 	return sdk.ImageRef{
-		URL: m.CoverURL,
+		URL: coverPathFor(remoteID),
 	}, nil
+}
+
+// coverPathFor builds a URL the e2e binary serves as a transparent PNG. Use
+// this for every mock cover URL the frontend receives so CoverImage can
+// transition to loaded (opacity-100) instead of erroring out when the proxy
+// layer rejects opaque fixture URLs.
+func coverPathFor(remoteID string) string {
+	return fmt.Sprintf("/api/v1/mock/covers/%s", remoteID)
 }
 
 func (p *Provider) Aliases(ctx context.Context, remoteID string) ([]string, error) {

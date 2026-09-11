@@ -114,7 +114,7 @@ export function useDetailsManga(options: UseDetailsMangaOptions = {}): UseDetail
 
   const activeContentProviderId = isRemoteRoute
     ? providerIdParam
-    : manga?.contentProviderId || manga?.sourceId || manga?.meta?.content?.provider_id;
+    : manga?.bindings?.content?.provider_id ?? manga?.contentProviderId ?? manga?.sourceId ?? manga?.meta?.content?.provider_id;
 
   // 3. Fetch Manga Chapters
   const {

@@ -1,9 +1,10 @@
-import { Manga, Source, ExternalLink } from '../../types/api';
+import { Manga, Source, ExternalLink, ProviderRef } from '../../types/api';
 
 export type DialogStep = 'search' | 'compare';
 export type SearchMode = 'keyword' | 'direct';
 export type Choice = 'current' | 'incoming';
 export type MultiChoice = 'current' | 'incoming' | 'merged';
+export type ProviderRefChoice = 'current' | 'incoming' | 'merged';
 
 export interface MetadataValues {
   title: string;
@@ -22,6 +23,7 @@ export interface MetadataValues {
   country: string;
   readingMode: string;
   externalLinks: ExternalLink[];
+  providers: ProviderRef[];
 }
 
 export interface MetadataDiffs {
@@ -41,6 +43,7 @@ export interface MetadataDiffs {
   country: boolean;
   readingMode: boolean;
   externalLinks: boolean;
+  providers: boolean;
 }
 
 export interface ImportMetadataDialogProps {
@@ -51,4 +54,7 @@ export interface ImportMetadataDialogProps {
   initialProviderId?: string;
   initialRemoteId?: string;
   onSuccess?: (manga: Manga) => void;
+  mode?: 'import' | 'merge';
+  incomingManga?: Manga;
+  sourceMangaIds?: string[];
 }

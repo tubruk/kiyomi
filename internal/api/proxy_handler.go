@@ -67,10 +67,19 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 	chapterRef := c.Param("chapterId")
 	providerID := c.Param("providerId")
 	if providerID == "" {
+		providerID = c.QueryParam("provider_id")
+	}
+	if providerID == "" {
 		providerID = c.QueryParam("providerId")
 	}
 
-	mangaRef := c.QueryParam("mangaId")
+	mangaRef := c.Param("mangaId")
+	if mangaRef == "" {
+		mangaRef = c.QueryParam("mangaId")
+	}
+	if mangaRef == "" {
+		mangaRef = c.QueryParam("manga_id")
+	}
 	if mangaRef == "" {
 		mangaRef = c.Param("remoteId")
 	}
@@ -112,7 +121,7 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 					}
 
 					wg.Add(1)
-					go func(m library.MangaInfo) {
+					go func(m library.Manga) {
 						defer wg.Done()
 						defer func() { <-sem }()
 
@@ -174,11 +183,11 @@ func (h *Handler) getChapterPages(c echo.Context) error {
 	remoteMangaID := mangaRef
 	remoteChapterRef := chapterRef
 	if mangaRef != "" {
-		if mangaMeta, err := h.lib.GetManga(mangaRef); err == nil {
-			if mangaMeta.Content != nil && mangaMeta.Content.ProviderID == providerID && mangaMeta.Content.ProviderMangaID != "" {
-				remoteMangaID = mangaMeta.Content.ProviderMangaID
+		if info, err := h.lib.GetManga(mangaRef); err == nil {
+			if info.Bindings.Content != nil && info.Bindings.Content.ProviderID == providerID && info.Bindings.Content.ProviderMangaID != "" {
+				remoteMangaID = info.Bindings.Content.ProviderMangaID
 			} else {
-				for _, p := range mangaMeta.Providers {
+				for _, p := range info.Bindings.Providers {
 					if p.ProviderID == providerID && p.ProviderMangaID != "" {
 						remoteMangaID = p.ProviderMangaID
 						break
@@ -241,6 +250,9 @@ func (h *Handler) proxyPageImage(c echo.Context) error {
 	}
 
 	providerID := c.QueryParam("provider_id")
+	if providerID == "" {
+		providerID = c.QueryParam("providerId")
+	}
 	var chMeta *library.ChapterMeta
 	if providerID == "" {
 		// No provider specified — search all provider subdirs
@@ -251,6 +263,9 @@ func (h *Handler) proxyPageImage(c echo.Context) error {
 			return c.JSON(http.StatusNotFound, echo.Map{"error": "chapter meta not found"})
 		}
 		providerID = foundProviderID
+		if chMeta != nil && chMeta.Content != nil && chMeta.Content.ProviderID != "" {
+			providerID = chMeta.Content.ProviderID
+		}
 	} else {
 		chMeta, err = h.lib.GetChapter(mangaID, providerID, chapterID)
 		if err != nil {

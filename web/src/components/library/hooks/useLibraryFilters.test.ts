@@ -17,6 +17,9 @@ const mockMangaList: Manga[] = [
       added_at: '2023-01-01T00:00:00Z',
       updated_at: '2023-01-05T00:00:00Z',
     },
+    metadata: { title: 'Attack on Titan', aliases: [], description: '', authors: ['Hajime Isayama'], artists: [], tags: ['Action', 'Fantasy'], collections: [], publishers: [] },
+    user_state: { status: 'reading', rating: 9, favorite: true, notes: '', added_at: '2023-01-01T00:00:00Z', updated_at: '2023-01-05T00:00:00Z' },
+    bindings: { providers: [] },
   },
   {
     id: 'm-2',
@@ -31,6 +34,9 @@ const mockMangaList: Manga[] = [
       added_at: '2023-01-02T00:00:00Z',
       updated_at: '2023-01-04T00:00:00Z',
     },
+    metadata: { title: 'Berserk', aliases: [], description: '', authors: ['Kentaro Miura'], artists: [], tags: ['Dark Fantasy', 'Action'], collections: [], publishers: [] },
+    user_state: { status: 'completed', rating: 10, favorite: false, notes: '', added_at: '2023-01-02T00:00:00Z', updated_at: '2023-01-04T00:00:00Z' },
+    bindings: { providers: [] },
   },
   {
     id: 'm-3',
@@ -45,6 +51,9 @@ const mockMangaList: Manga[] = [
       added_at: '2023-01-03T00:00:00Z',
       updated_at: '2023-01-03T00:00:00Z',
     },
+    metadata: { title: 'Chainsaw Man', aliases: [], description: '', authors: ['Tatsuki Fujimoto'], artists: [], tags: ['Comedy', 'Action'], collections: [], publishers: [] },
+    user_state: { status: 'plan_to_read', rating: 7, favorite: true, notes: '', added_at: '2023-01-03T00:00:00Z', updated_at: '2023-01-03T00:00:00Z' },
+    bindings: { providers: [] },
   },
 ];
 

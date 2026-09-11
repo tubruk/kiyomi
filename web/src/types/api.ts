@@ -33,6 +33,9 @@ export type ContentAvailability = 'available' | 'unavailable' | 'unknown';
 
 export type UserStatus = 'unread' | 'reading' | 'completed' | 'on_hold' | 'dropped' | 'plan_to_read';
 
+// MangaMeta — LEGACY aggregated shape. Will be removed in Stage 4.
+// Existing components still reference it; new code should prefer the split
+// per-concern interfaces (MangaMetadata / MangaUserState / MangaBindings) below.
 export interface MangaMeta {
   title?: string;
   aliases?: string[];
@@ -68,9 +71,76 @@ export interface MangaMeta {
   updated_at?: string;
 }
 
+// Per-concern shapes introduced by the manga-metadata-separation refactor.
+// The backend persists metadata, user state, and bindings in separate files
+// and exposes dedicated PATCH endpoints for each. snake_case + camelCase
+// variants are exposed for backward-compatibility with existing consumers.
+export interface MangaMetadata {
+  title: string;
+  aliases: string[];
+  description: string;
+  authors: string[];
+  artists: string[];
+  tags: string[];
+  collections: string[];
+  publishers: string[];
+  release_year?: number;
+  releaseYear?: number;
+  start_date?: string;
+  startDate?: string;
+  end_date?: string;
+  endDate?: string;
+  country?: string;
+  content_rating?: string;
+  contentRating?: string;
+  cover_url?: string;
+  coverUrl?: string;
+  cover?: string;
+  banner?: string;
+  external_links?: ExternalLink[];
+  externalLinks?: ExternalLink[];
+}
+
+export interface MangaUserState {
+  status: UserStatus | string;
+  rating: number;
+  favorite: boolean;
+  notes: string;
+  last_read_chapter_id?: string;
+  lastReadChapterId?: string;
+  last_read_at?: string;
+  lastReadAt?: string;
+  added_at?: string;
+  addedAt?: string;
+  updated_at?: string;
+  updatedAt?: string;
+}
+
+export interface MangaBindings {
+  providers: ProviderRef[];
+  content?: ContentSource;
+}
+
 export interface Manga {
   id: string;
-  title: string;
+  // Per-concern fields are required after Stage 4 migration. Consumers
+  // always read manga.metadata.X / manga.user_state.X / manga.bindings.X
+  // (with legacy fallback). The backend joins all three into the GET
+  // response, so these are populated by the time any consumer sees them.
+  metadata: MangaMetadata;
+  user_state: MangaUserState;
+  bindings: MangaBindings;
+  // provider-context fields (unchanged):
+  sourceId?: string;
+  contentProviderId?: string;
+  contentRemoteId?: string;
+  availability?: ContentAvailability;
+  libraryMangaId?: string | null;
+  // Legacy fields from backend response (still echoed for backward compat).
+  // Stage 5 will remove these entirely. For now consumers must keep the
+  // `manga.metadata?.X ?? manga.X` fallback pattern so reads survive
+  // during the migration window.
+  title?: string;
   cover?: string;
   coverUrl?: string;
   coverAssetUrl?: string;
@@ -115,16 +185,8 @@ export interface Manga {
   end_date?: string;
   country?: string;
   externalLinks?: ExternalLink[];
-  sourceId?: string;
-  contentProviderId?: string;
-  contentRemoteId?: string;
   content?: ContentSource;
-  availability?: ContentAvailability;
-  meta?: MangaMeta;
-  // Only populated by useProviderMangaDetails (GET /providers/:providerId/manga/:remoteId).
-  // The id of the bound library manga entry if this provider item is linked to the library;
-  // null or absent if the provider item is not yet in the library.
-  libraryMangaId?: string | null;
+  meta?: MangaMeta;  // LEGACY — re-export so lingering consumers keep compiling during Stage 4.
 }
 
 export interface ChapterMeta {

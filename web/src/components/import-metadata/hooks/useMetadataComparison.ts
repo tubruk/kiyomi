@@ -1,7 +1,7 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../api/client';
-import { Manga, Source, ExternalLink, ProviderRef } from '../../../types/api';
+import { Manga, MangaMetadata, Source, ExternalLink, ProviderRef } from '../../../types/api';
 import { queryKeys } from '../../../lib/queryKeys';
 import { useToast } from '../../../context/ToastContext';
 import {
@@ -18,6 +18,9 @@ interface UseMetadataComparisonOptions {
   selectedProviderId: string;
   onSuccess?: (manga: Manga) => void;
   onClose: () => void;
+  mode?: 'import' | 'merge';
+  incomingManga?: Manga;
+  sourceMangaIds?: string[];
 }
 
 export const useMetadataComparison = ({
@@ -26,11 +29,16 @@ export const useMetadataComparison = ({
   selectedProviderId,
   onSuccess,
   onClose,
+  mode = 'import',
+  incomingManga,
+  sourceMangaIds,
 }: UseMetadataComparisonOptions) => {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
-  const [selectedRemoteManga, setSelectedRemoteManga] = useState<Manga | null>(null);
+  const [selectedRemoteManga, setSelectedRemoteManga] = useState<Manga | null>(
+    mode === 'merge' && incomingManga ? incomingManga : null
+  );
   const [diffOnly, setDiffOnly] = useState(true);
 
   // Field selection states
@@ -52,33 +60,66 @@ export const useMetadataComparison = ({
   const [selectedContentRating, setSelectedContentRating] = useState<Choice>('incoming');
   const [selectedCountry, setSelectedCountry] = useState<Choice>('incoming');
   const [selectedReadingMode, setSelectedReadingMode] = useState<Choice>('incoming');
+  const [selectedProvidersMode, setSelectedProvidersMode] = useState<MultiChoice>('merged');
 
   const selectedProvider = sources.find((s) => s.id === selectedProviderId);
 
-  // Normalized current values
+  // Normalized current values — read from manga.metadata (canonical per-concern store).
+  // Description now lives at manga.metadata.description (was incorrectly read from
+  // manga.meta?.description previously, which was always empty).
   const currentValues: MetadataValues = useMemo(() => {
     return {
-      title: manga.title || manga.meta?.title || '',
-      coverUrl: manga.coverUrl || manga.cover || manga.coverAssetUrl || manga.meta?.cover_url || '',
-      description: manga.description || manga.meta?.description || '',
-      authors: mergeStringArrays(manga.authors, manga.author ? [manga.author] : (manga.meta?.authors || [])),
-      artists: mergeStringArrays(manga.artists, manga.artist ? [manga.artist] : (manga.meta?.artists || [])),
-      publishers: mergeStringArrays(
-        manga.publishers,
-        manga.publisher ? [manga.publisher] : (manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : []))
-      ),
-      tags: mergeStringArrays(manga.tags, manga.genres || manga.meta?.tags),
-      aliases: manga.aliases || manga.meta?.aliases || [],
-      publisher: manga.publisher || manga.meta?.publisher || '',
-      releaseYear: manga.releaseYear || manga.release_year || manga.meta?.release_year || manga.meta?.releaseYear || 0,
-      startDate: manga.startDate || manga.start_date || manga.meta?.start_date || manga.meta?.startDate || '',
-      endDate: manga.endDate || manga.end_date || manga.meta?.end_date || manga.meta?.endDate || '',
-      contentRating: manga.contentRating || manga.meta?.content_rating || '',
-      country: manga.country || manga.meta?.country || '',
-      readingMode: manga.readingMode || manga.reading_mode || manga.readingDirection || manga.content?.reading_mode || manga.meta?.content?.reading_mode || '',
-      externalLinks: ((manga.externalLinks && manga.externalLinks.length > 0)
+      title: manga.metadata.title,
+      coverUrl:
+        manga.metadata.cover_url ??
+        manga.metadata.coverUrl ??
+        manga.coverUrl ??
+        manga.cover ??
+        manga.coverAssetUrl ??
+        '',
+      description: manga.metadata.description,
+      authors: mergeStringArrays(manga.metadata.authors, manga.authors, manga.author ? [manga.author] : []),
+      artists: mergeStringArrays(manga.metadata.artists, manga.artists, manga.artist ? [manga.artist] : []),
+      publishers: mergeStringArrays(manga.metadata.publishers, manga.publishers, manga.publisher ? [manga.publisher] : []),
+      tags: mergeStringArrays(manga.metadata.tags, manga.tags, manga.genres),
+      aliases: manga.metadata.aliases ?? manga.aliases ?? [],
+      publisher: (manga.metadata.publishers && manga.metadata.publishers.length > 0 ? manga.metadata.publishers[0] : manga.publisher) ?? '',
+      releaseYear:
+        manga.metadata.releaseYear ??
+        manga.metadata.release_year ??
+        manga.releaseYear ??
+        manga.release_year ??
+        0,
+      startDate:
+        manga.metadata.startDate ??
+        manga.metadata.start_date ??
+        manga.startDate ??
+        manga.start_date ??
+        '',
+      endDate:
+        manga.metadata.endDate ??
+        manga.metadata.end_date ??
+        manga.endDate ??
+        manga.end_date ??
+        '',
+      contentRating:
+        manga.metadata.content_rating ??
+        manga.metadata.contentRating ??
+        manga.contentRating ??
+        '',
+      country: manga.metadata.country ?? manga.country ?? '',
+      readingMode:
+        manga.bindings?.content?.reading_mode ??
+        manga.readingMode ??
+        manga.reading_mode ??
+        manga.readingDirection ??
+        '',
+      externalLinks: ((manga.metadata.externalLinks && manga.metadata.externalLinks.length > 0)
+        ? manga.metadata.externalLinks
+        : (manga.externalLinks && manga.externalLinks.length > 0)
         ? manga.externalLinks
-        : (manga.meta?.external_links || [])) as ExternalLink[],
+        : []) as ExternalLink[],
+      providers: manga.bindings.providers,
     };
   }, [manga]);
 
@@ -102,6 +143,7 @@ export const useMetadataComparison = ({
         country: '',
         readingMode: '',
         externalLinks: [],
+        providers: [],
       };
     }
 
@@ -114,7 +156,7 @@ export const useMetadataComparison = ({
         url: incomingUrl,
       });
     }
-    const remoteExtLinks: ExternalLink[] = selectedRemoteManga.externalLinks || (selectedRemoteManga.meta as any)?.external_links || [];
+    const remoteExtLinks: ExternalLink[] = selectedRemoteManga.externalLinks ?? [];
     for (const link of remoteExtLinks) {
       if (link && link.url?.trim() && !incomingLinks.some((l) => l.url.trim().toLowerCase() === link.url.trim().toLowerCase())) {
         incomingLinks.push(link);
@@ -129,18 +171,19 @@ export const useMetadataComparison = ({
       artists: mergeStringArrays(selectedRemoteManga.artists, selectedRemoteManga.artist ? [selectedRemoteManga.artist] : []),
       publishers: mergeStringArrays(
         selectedRemoteManga.publishers,
-        selectedRemoteManga.publisher ? [selectedRemoteManga.publisher] : (selectedRemoteManga.meta?.publishers || (selectedRemoteManga.meta?.publisher ? [selectedRemoteManga.meta.publisher] : []))
+        selectedRemoteManga.publisher ? [selectedRemoteManga.publisher] : []
       ),
       tags: mergeStringArrays(selectedRemoteManga.tags, selectedRemoteManga.genres),
       aliases: selectedRemoteManga.aliases || [],
       publisher: selectedRemoteManga.publisher?.trim() || '',
-      releaseYear: selectedRemoteManga.releaseYear || selectedRemoteManga.release_year || selectedRemoteManga.meta?.release_year || selectedRemoteManga.meta?.releaseYear || 0,
-      startDate: selectedRemoteManga.startDate || selectedRemoteManga.start_date || selectedRemoteManga.meta?.start_date || selectedRemoteManga.meta?.startDate || '',
-      endDate: selectedRemoteManga.endDate || selectedRemoteManga.end_date || selectedRemoteManga.meta?.end_date || selectedRemoteManga.meta?.endDate || '',
-      contentRating: selectedRemoteManga.contentRating || selectedRemoteManga.meta?.content_rating || '',
-      country: selectedRemoteManga.country || selectedRemoteManga.meta?.country || '',
+      releaseYear: selectedRemoteManga.releaseYear || selectedRemoteManga.release_year || 0,
+      startDate: selectedRemoteManga.startDate || selectedRemoteManga.start_date || '',
+      endDate: selectedRemoteManga.endDate || selectedRemoteManga.end_date || '',
+      contentRating: selectedRemoteManga.contentRating || '',
+      country: selectedRemoteManga.country || '',
       readingMode: selectedRemoteManga.readingMode || selectedRemoteManga.reading_mode || selectedRemoteManga.readingDirection || '',
       externalLinks: incomingLinks,
+      providers: selectedRemoteManga.bindings?.providers ?? [],
     };
   }, [selectedRemoteManga, selectedProviderId, selectedProvider]);
 
@@ -166,8 +209,16 @@ export const useMetadataComparison = ({
         incomingValues.externalLinks.length > 0 &&
         !areExternalLinkSetsEqual(currentValues.externalLinks, incomingValues.externalLinks)
       ),
+      providers: Boolean(
+        mode === 'merge' &&
+        incomingValues.providers.length > 0 &&
+        !areArraySetsEqual(
+          currentValues.providers.map((p) => `${p.provider_id}:${p.provider_manga_id}`),
+          incomingValues.providers.map((p) => `${p.provider_id}:${p.provider_manga_id}`)
+        )
+      ),
     };
-  }, [currentValues, incomingValues]);
+  }, [currentValues, incomingValues, mode]);
 
   const mergedExternalLinks = useMemo(
     () => mergeExternalLinkArrays(currentValues.externalLinks, incomingValues.externalLinks),
@@ -178,21 +229,26 @@ export const useMetadataComparison = ({
   const initComparisonState = useCallback((remote: Manga) => {
     setSelectedRemoteManga(remote);
 
-    // Current
-    const cTitle = manga.title || manga.meta?.title || '';
-    const cCover = manga.coverUrl || manga.cover || manga.coverAssetUrl || manga.meta?.cover_url || '';
-    const cDesc = manga.description || manga.meta?.description || '';
-    const cAuthors = mergeStringArrays(manga.authors, manga.author ? [manga.author] : (manga.meta?.authors || []));
-    const cArtists = mergeStringArrays(manga.artists, manga.artist ? [manga.artist] : (manga.meta?.artists || []));
-    const cPublishers = mergeStringArrays(
-      manga.publishers,
-      manga.publisher ? [manga.publisher] : (manga.meta?.publishers || (manga.meta?.publisher ? [manga.meta.publisher] : []))
-    );
-    const cTags = mergeStringArrays(manga.tags, manga.genres || manga.meta?.tags);
-    const cAliases = manga.aliases || manga.meta?.aliases || [];
-    const cExtLinks: ExternalLink[] = (manga.externalLinks && manga.externalLinks.length > 0)
+    // Current — read from manga.metadata
+    const cTitle = manga.metadata.title;
+    const cCover =
+      manga.metadata.cover_url ??
+      manga.metadata.coverUrl ??
+      manga.coverUrl ??
+      manga.cover ??
+      manga.coverAssetUrl ??
+      '';
+    const cDesc = manga.metadata.description;
+    const cAuthors = mergeStringArrays(manga.metadata.authors, manga.authors, manga.author ? [manga.author] : []);
+    const cArtists = mergeStringArrays(manga.metadata.artists, manga.artists, manga.artist ? [manga.artist] : []);
+    const cPublishers = mergeStringArrays(manga.metadata.publishers, manga.publishers, manga.publisher ? [manga.publisher] : []);
+    const cTags = mergeStringArrays(manga.metadata.tags, manga.tags, manga.genres);
+    const cAliases = manga.metadata.aliases ?? manga.aliases ?? [];
+    const cExtLinks: ExternalLink[] = (manga.metadata.externalLinks && manga.metadata.externalLinks.length > 0)
+      ? manga.metadata.externalLinks
+      : (manga.externalLinks && manga.externalLinks.length > 0)
       ? manga.externalLinks
-      : ((manga.meta as any)?.external_links || []);
+      : [];
 
     // Incoming
     const inTitle = remote.title?.trim() || '';
@@ -200,10 +256,7 @@ export const useMetadataComparison = ({
     const inDesc = remote.description?.trim() || '';
     const inAuthors = mergeStringArrays(remote.authors, remote.author ? [remote.author] : []);
     const inArtists = mergeStringArrays(remote.artists, remote.artist ? [remote.artist] : []);
-    const inPublishers = mergeStringArrays(
-      remote.publishers,
-      remote.publisher ? [remote.publisher] : (remote.meta?.publishers || (remote.meta?.publisher ? [remote.meta.publisher] : []))
-    );
+    const inPublishers = mergeStringArrays(remote.publishers, remote.publisher ? [remote.publisher] : []);
     const inTags = mergeStringArrays(remote.tags, remote.genres);
     const inAliases = remote.aliases || [];
     const inExtLinks: ExternalLink[] = [];
@@ -215,7 +268,7 @@ export const useMetadataComparison = ({
         url: inUrl,
       });
     }
-    const remoteExtLinks: ExternalLink[] = remote.externalLinks || (remote.meta as any)?.external_links || [];
+    const remoteExtLinks: ExternalLink[] = remote.externalLinks ?? [];
     for (const link of remoteExtLinks) {
       if (link && link.url?.trim() && !inExtLinks.some((l) => l.url.trim().toLowerCase() === link.url.trim().toLowerCase())) {
         inExtLinks.push(link);
@@ -240,15 +293,25 @@ export const useMetadataComparison = ({
     setSelectedAliases(mergeStringArrays(cAliases, inAliases));
 
     setSelectedPublisher(remote.publisher?.trim() ? 'incoming' : 'current');
-    setSelectedReleaseYear((remote.releaseYear || remote.release_year || remote.meta?.release_year || remote.meta?.releaseYear) ? 'incoming' : 'current');
-    const inStartDate = remote.startDate || remote.start_date || remote.meta?.start_date || remote.meta?.startDate || '';
-    const inEndDate = remote.endDate || remote.end_date || remote.meta?.end_date || remote.meta?.endDate || '';
+    setSelectedReleaseYear((remote.releaseYear || remote.release_year) ? 'incoming' : 'current');
+    const inStartDate = remote.startDate || remote.start_date || '';
+    const inEndDate = remote.endDate || remote.end_date || '';
     setSelectedStartDate(inStartDate ? 'incoming' : 'current');
     setSelectedEndDate(inEndDate ? 'incoming' : 'current');
-    setSelectedContentRating((remote.contentRating || remote.meta?.content_rating) ? 'incoming' : 'current');
-    setSelectedCountry((remote.country || remote.meta?.country) ? 'incoming' : 'current');
+    setSelectedContentRating((remote.contentRating) ? 'incoming' : 'current');
+    setSelectedCountry((remote.country) ? 'incoming' : 'current');
     setSelectedReadingMode((remote.readingMode || remote.reading_mode || remote.readingDirection) ? 'incoming' : 'current');
   }, [manga, selectedProviderId, selectedProvider]);
+
+  // In merge mode, run initialization once when the incoming manga is provided
+  // so that field-by-field selections reflect the actual diffs.
+  useEffect(() => {
+    if (mode === 'merge' && incomingManga) {
+      initComparisonState(incomingManga);
+      setSelectedProvidersMode('merged');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, incomingManga?.id]);
 
   // Tag Helpers
   const allAvailableTags = useMemo(
@@ -303,7 +366,7 @@ export const useMetadataComparison = ({
         incomingValues.title && incomingValues.title.toLowerCase() !== currentValues.title.toLowerCase()
           ? [incomingValues.title]
           : [],
-        currentValues.title && incomingValues.title.toLowerCase() !== currentValues.title.toLowerCase()
+        currentValues.title && incomingValues.title.toLowerCase() !== incomingValues.title.toLowerCase()
           ? [currentValues.title]
           : []
       ),
@@ -367,6 +430,7 @@ export const useMetadataComparison = ({
     setSelectedCountry(incomingValues.country ? 'incoming' : 'current');
     setSelectedReadingMode(incomingValues.readingMode ? 'incoming' : 'current');
     setSelectedExternalLinksMode(incomingValues.externalLinks.length > 0 ? 'incoming' : 'current');
+    setSelectedProvidersMode('merged');
   };
 
   const handleKeepCurrent = () => {
@@ -386,14 +450,49 @@ export const useMetadataComparison = ({
     setSelectedCountry('current');
     setSelectedReadingMode('current');
     setSelectedExternalLinksMode('current');
+    setSelectedProvidersMode('merged');
   };
 
   // Import & Save Mutation
   const importMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedRemoteManga || !selectedProviderId) throw new Error('No selection');
+      // Merge mode: skip the selection check — the source manga is provided
+      // via incomingManga/sourceMangaIds props and the search step is bypassed.
+      if (mode !== 'merge') {
+        if (!selectedRemoteManga || !selectedProviderId) throw new Error('No selection');
+      }
 
-      const fieldsToPatch: Record<string, any> = {};
+      // Merge mode: build merge payload and call the merge endpoint
+      if (mode === 'merge') {
+        const incoming = selectedRemoteManga ?? incomingManga;
+        if (!incoming) throw new Error('No incoming manga');
+        const incomingId = incoming.id;
+        const mergeMapScalar = (choice: Choice): 'keep' | `source:${string}` =>
+          choice === 'current' ? 'keep' : `source:${incomingId}`;
+
+        // For array fields that only accept 'merge' (aliases/tags/authors/artists/publishers)
+        // we always send 'merge' regardless of UI selection.
+        const mergePayload = {
+          keep_manga_id: manga.id,
+          source_manga_ids: sourceMangaIds && sourceMangaIds.length > 0 ? sourceMangaIds : [incomingId],
+          metadata: {
+            title: mergeMapScalar(selectedTitle),
+            description: mergeMapScalar(selectedDescription),
+            aliases: 'merge' as const,
+            tags: 'merge' as const,
+            authors: 'merge' as const,
+            artists: 'merge' as const,
+            publishers: 'merge' as const,
+            release_year: mergeMapScalar(selectedReleaseYear),
+            cover_url: mergeMapScalar(selectedCover),
+            providers: 'merge' as const,
+          },
+        };
+
+        return api.mergeLibraryManga(mergePayload);
+      }
+
+      const fieldsToPatch: Partial<MangaMetadata> = {};
 
       if (selectedTitle === 'incoming' && incomingValues.title && incomingValues.title !== currentValues.title) {
         fieldsToPatch.title = incomingValues.title;
@@ -416,34 +515,22 @@ export const useMetadataComparison = ({
       }
       if (selectedPublishersMode === 'incoming') {
         fieldsToPatch.publishers = incomingValues.publishers;
-        if (incomingValues.publishers.length > 0) {
-          fieldsToPatch.publisher = incomingValues.publishers[0];
-        }
       } else if (selectedPublishersMode === 'merged') {
         const mergedPubs = mergeStringArrays(currentValues.publishers, incomingValues.publishers);
         fieldsToPatch.publishers = mergedPubs;
-        if (mergedPubs.length > 0) {
-          fieldsToPatch.publisher = mergedPubs[0];
-        }
       }
 
       fieldsToPatch.tags = selectedTags;
       fieldsToPatch.aliases = selectedAliases;
 
-      if (selectedPublisher === 'incoming' && incomingValues.publisher) {
-        fieldsToPatch.publisher = incomingValues.publisher;
-      }
       if (selectedReleaseYear === 'incoming' && incomingValues.releaseYear) {
         fieldsToPatch.release_year = incomingValues.releaseYear;
-        fieldsToPatch.releaseYear = incomingValues.releaseYear;
       }
       if (selectedStartDate === 'incoming' && incomingValues.startDate) {
         fieldsToPatch.start_date = incomingValues.startDate;
-        fieldsToPatch.startDate = incomingValues.startDate;
       }
       if (selectedEndDate === 'incoming' && incomingValues.endDate) {
         fieldsToPatch.end_date = incomingValues.endDate;
-        fieldsToPatch.endDate = incomingValues.endDate;
       }
       if (selectedContentRating === 'incoming' && incomingValues.contentRating) {
         fieldsToPatch.content_rating = incomingValues.contentRating;
@@ -451,49 +538,54 @@ export const useMetadataComparison = ({
       if (selectedCountry === 'incoming' && incomingValues.country) {
         fieldsToPatch.country = incomingValues.country;
       }
-      if (selectedReadingMode === 'incoming' && incomingValues.readingMode) {
-        fieldsToPatch.reading_mode = incomingValues.readingMode;
-      }
       if (selectedExternalLinksMode === 'incoming') {
         fieldsToPatch.external_links = incomingValues.externalLinks;
-        fieldsToPatch.externalLinks = incomingValues.externalLinks;
       } else if (selectedExternalLinksMode === 'merged') {
         const merged = mergeExternalLinkArrays(currentValues.externalLinks, incomingValues.externalLinks);
         fieldsToPatch.external_links = merged;
-        fieldsToPatch.externalLinks = merged;
       }
 
-      // 1. Patch metadata
+      // 1. Patch metadata (per-concern endpoint)
       if (Object.keys(fieldsToPatch).length > 0) {
-        await api.patchLibraryManga(manga.id, fieldsToPatch);
+        await api.patchLibraryMangaMetadata(manga.id, fieldsToPatch);
       }
 
-      // 2. Add provider binding
+      // 2. Add provider binding (per-concern endpoint)
       const providerMangaId =
-        selectedRemoteManga.id ||
-        selectedRemoteManga.contentRemoteId ||
-        selectedRemoteManga.url ||
+        selectedRemoteManga!.id ||
+        selectedRemoteManga!.contentRemoteId ||
+        selectedRemoteManga!.url ||
         '';
       const ref: ProviderRef = {
-        provider_id: selectedProviderId,
+        provider_id: selectedProviderId!,
         provider_manga_id: providerMangaId,
-        manga_title: selectedRemoteManga.title || incomingValues.title,
+        manga_title: selectedRemoteManga!.title || incomingValues.title,
       };
-      return api.addProvider(manga.id, ref);
+      return api.addBinding(manga.id, ref);
     },
-    onSuccess: (updatedManga) => {
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.metadata(manga.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.manga.bindings(manga.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(manga.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.chapters.list(manga.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.providers(manga.id) });
-      const providerName = sources.find((s) => s.id === selectedProviderId)?.name || 'Provider';
-      showToast(`Metadata imported from "${providerName}"`, 'success');
+      if (mode === 'merge') {
+        showToast('Manga merged successfully', 'success');
+      } else {
+        const providerName = sources.find((s) => s.id === selectedProviderId)?.name || 'Provider';
+        showToast(`Metadata imported from "${providerName}"`, 'success');
+      }
       onClose();
-      onSuccess?.(updatedManga);
+      // Forward the result so consumers know the operation completed. The
+      // shape is merge-mode-Manga for merge calls and partial bindings for
+      // import calls — callers should treat it as opaque or re-fetch.
+      onSuccess?.(result as unknown as Manga);
     },
     onError: (err: any) => {
-      showToast(`Failed to import: ${err.message}`, 'error');
+      const verb = mode === 'merge' ? 'merge' : 'import';
+      showToast(`Failed to ${verb}: ${err.message}`, 'error');
     },
   });
 
@@ -523,6 +615,8 @@ export const useMetadataComparison = ({
     setSelectedPublishersMode,
     selectedExternalLinksMode,
     setSelectedExternalLinksMode,
+    selectedProvidersMode,
+    setSelectedProvidersMode,
     selectedTags,
     setSelectedTags,
     selectedAliases,
@@ -564,5 +658,7 @@ export const useMetadataComparison = ({
     handleKeepCurrent,
     importMutation,
     resetComparisonState,
+    mode,
+    incomingManga,
   };
 };

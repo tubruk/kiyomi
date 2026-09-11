@@ -40,11 +40,13 @@ export const DetailsUserMetadata: React.FC<DetailsUserMetadataProps> = ({
   const [hoverRating, setHoverRating] = useState<number | null>(null);
 
   const isFavorite = Boolean(
-    manga.userFavorite || manga.user_favorite || manga.meta?.user_favorite
+    manga.user_state?.favorite ?? manga.userFavorite ?? manga.user_favorite ?? manga.meta?.user_favorite
   );
-  const userStatus = manga.userStatus || manga.meta?.user_status || 'reading';
-  const userRating = manga.userRating || manga.meta?.user_rating || 0;
-  const userNotes = manga.userNotes || manga.meta?.user_notes || '';
+  const userStatus =
+    manga.user_state?.status ?? manga.userStatus ?? manga.user_status ?? manga.meta?.user_status ?? 'reading';
+  const userRating =
+    manga.user_state?.rating ?? manga.userRating ?? manga.user_rating ?? manga.meta?.user_rating ?? 0;
+  const userNotes = manga.user_state?.notes ?? manga.userNotes ?? manga.user_notes ?? manga.meta?.user_notes ?? '';
 
   useEffect(() => {
     if (!isEditingNotes) {

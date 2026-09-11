@@ -10,8 +10,9 @@ import {
   Calendar,
   ShieldAlert,
   Globe,
+  Plug,
 } from 'lucide-react';
-import { Manga, Source, ExternalLink } from '../../../types/api';
+import { Manga, Source, ExternalLink, ProviderRef } from '../../../types/api';
 import { Choice, MultiChoice, MetadataValues, MetadataDiffs } from '../types';
 import { DialogTitle } from '../../ui/dialog';
 import { Button } from '../../ui/button';
@@ -54,6 +55,8 @@ interface MetadataCompareStepProps {
   onSelectPublishersMode: (m: MultiChoice) => void;
   selectedExternalLinksMode: MultiChoice;
   onSelectExternalLinksMode: (m: MultiChoice) => void;
+  selectedProvidersMode: MultiChoice;
+  onSelectProvidersMode: (m: MultiChoice) => void;
 
   selectedTags: string[];
   unselectedTags: string[];
@@ -84,6 +87,8 @@ interface MetadataCompareStepProps {
   onSelectCountry: (c: Choice) => void;
   selectedReadingMode: Choice;
   onSelectReadingMode: (c: Choice) => void;
+
+  mode?: 'import' | 'merge';
 }
 
 export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
@@ -117,6 +122,10 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   onSelectPublishersMode,
   selectedExternalLinksMode,
   onSelectExternalLinksMode,
+  // Providers field is locked to 'merged' in merge mode; state is held in the
+  // parent for API consistency but the UI does not allow switching it.
+  selectedProvidersMode: _selectedProvidersMode,
+  onSelectProvidersMode: _onSelectProvidersMode,
 
   selectedTags,
   unselectedTags,
@@ -147,6 +156,8 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   onSelectCountry,
   selectedReadingMode,
   onSelectReadingMode,
+
+  mode = 'import',
 }) => {
   const isTitleDiff = diffs.title;
   const isCoverDiff = diffs.cover;
@@ -157,6 +168,7 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   const isTagsDiff = diffs.tags;
   const isAliasesDiff = diffs.aliases;
   const isExternalLinksDiff = diffs.externalLinks;
+  const isProvidersDiff = diffs.providers;
 
   const isYearDiff = diffs.releaseYear;
   const isStartDateDiff = diffs.startDate;
@@ -178,6 +190,7 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
     isTagsDiff ||
     isAliasesDiff ||
     isExternalLinksDiff ||
+    isProvidersDiff ||
     hasAnyAttributesDiff;
 
   const showCoverSection = incomingValues.coverUrl && (!diffOnly || isCoverDiff);
@@ -195,9 +208,29 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
   const showExternalLinksSection =
     (incomingValues.externalLinks.length > 0 || currentValues.externalLinks.length > 0) &&
     (!diffOnly || isExternalLinksDiff);
+  const showProvidersSection =
+    mode === 'merge' &&
+    (incomingValues.providers.length > 0 || currentValues.providers.length > 0) &&
+    (!diffOnly || isProvidersDiff);
   const showAttributesSection = !diffOnly || hasAnyAttributesDiff;
 
   const showNothingInDiff = diffOnly && !hasAnyDiff;
+
+  const renderProviderPills = (refs: ProviderRef[]) => {
+    if (refs.length === 0) {
+      return <span className="text-xs text-muted-foreground">—</span>;
+    }
+    return refs.map((ref, idx) => (
+      <span
+        key={`${ref.provider_id}-${ref.provider_manga_id}-${idx}`}
+        className="inline-flex items-center gap-1 text-[11px] bg-secondary/80 rounded px-1.5 py-0.5 max-w-full truncate"
+        title={`${ref.provider_id}: ${ref.provider_manga_id}`}
+      >
+        <Plug className="size-2.5 shrink-0" />
+        <span className="truncate">{ref.manga_title || ref.provider_manga_id}</span>
+      </span>
+    ));
+  };
 
   const targetTitleAlias = (selectedTitle === 'current' ? incomingValues.title : currentValues.title)?.trim() || '';
   const isTargetTitleInAliases = Boolean(
@@ -228,10 +261,12 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
             </Button>
             <div className="min-w-0">
               <DialogTitle className="text-base font-semibold truncate flex items-center gap-2">
-                <span>Compare & Import Metadata</span>
-                <Badge variant="outline" className="text-[10px] font-normal shrink-0">
-                  {selectedProvider?.name}
-                </Badge>
+                <span>{mode === 'merge' ? 'Merge Metadata' : 'Compare & Import Metadata'}</span>
+                {selectedProvider?.name && (
+                  <Badge variant="outline" className="text-[10px] font-normal shrink-0">
+                    {selectedProvider.name}
+                  </Badge>
+                )}
               </DialogTitle>
             </div>
           </div>
@@ -497,6 +532,48 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
               />
             )}
 
+            {/* 7b. Provider Bindings Comparison (merge mode only) */}
+            {showProvidersSection && (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold flex items-center gap-1.5">
+                    <Plug className="size-4 text-muted-foreground" />
+                    Provider Bindings
+                  </span>
+                  <span className="text-[10px] text-muted-foreground italic">
+                    Provider bindings are always merged.
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-border bg-card p-3.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Current:</span>
+                      <span className="text-[10px] text-muted-foreground">({currentValues.providers.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {renderProviderPills(currentValues.providers)}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-primary bg-primary/10 p-3.5 space-y-2 ring-1 ring-primary/40">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-bold text-primary">Merged (locked):</span>
+                      <span className="text-[10px] text-muted-foreground">({incomingValues.providers.length + currentValues.providers.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {renderProviderPills([
+                        ...currentValues.providers,
+                        ...incomingValues.providers.filter(
+                          (ip) => !currentValues.providers.some(
+                            (cp) => cp.provider_id === ip.provider_id && cp.provider_manga_id === ip.provider_manga_id
+                          )
+                        ),
+                      ])}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* 8. Attributes Comparative Grid */}
             {showAttributesSection && (
               <div className="space-y-2.5">
@@ -598,7 +675,7 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
           onClick={onBack}
           className="text-xs cursor-pointer"
         >
-          Back
+          {mode === 'merge' ? 'Cancel' : 'Back'}
         </Button>
 
         <Button
@@ -612,7 +689,7 @@ export const MetadataCompareStep: React.FC<MetadataCompareStepProps> = ({
           ) : (
             <Download className="size-3.5" />
           )}
-          Import & Bind Provider
+          {mode === 'merge' ? 'Merge' : 'Import & Bind Provider'}
         </Button>
       </div>
     </div>

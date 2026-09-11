@@ -24,8 +24,8 @@ export const useMetadataSearch = ({
   onErrorFallbackToSearch,
 }: UseMetadataSearchOptions) => {
   const boundProviders = useMemo(
-    () => manga.meta?.providers || [],
-    [manga.meta?.providers]
+    () => manga.bindings?.providers ?? [],
+    [manga.bindings?.providers]
   );
 
   const defaultProviderId = useMemo(() => {
@@ -38,7 +38,7 @@ export const useMetadataSearch = ({
 
   const [searchMode, setSearchMode] = useState<SearchMode>('keyword');
   const [selectedProviderId, setSelectedProviderId] = useState<string>(defaultProviderId);
-  const [searchQuery, setSearchQuery] = useState(manga.title || manga.meta?.title || '');
+  const [searchQuery, setSearchQuery] = useState(manga.metadata.title ?? manga.title ?? '');
   const [directIdOrUrl, setDirectIdOrUrl] = useState(initialRemoteId || '');
   const [searchResults, setSearchResults] = useState<Manga[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -79,7 +79,7 @@ export const useMetadataSearch = ({
         ? initialProviderId
         : defaultProviderId;
       setSelectedProviderId(pid);
-      setSearchQuery(manga.title || manga.meta?.title || '');
+      setSearchQuery(manga.metadata.title ?? manga.title ?? '');
       setDirectIdOrUrl(initialRemoteId || '');
       setSearchResults([]);
       setSearchError(null);
@@ -88,7 +88,7 @@ export const useMetadataSearch = ({
         loadMangaDetails(initialProviderId, initialRemoteId);
       }
     }
-  }, [open, initialProviderId, initialRemoteId, defaultProviderId, manga.title, manga.meta?.title, sources, loadMangaDetails]);
+  }, [open, initialProviderId, initialRemoteId, defaultProviderId, manga.metadata.title, manga.title, sources, loadMangaDetails]);
 
   // Search Mutation
   const searchMutation = useMutation({

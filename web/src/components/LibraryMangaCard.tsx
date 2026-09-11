@@ -20,13 +20,20 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
   isDeleting,
   unreadCount: unreadCountProp,
 }) => {
-  const coverSrc = manga.coverAssetUrl || getProxyImageUrl(manga.coverUrl || manga.cover, manga.url);
-  const authorDisplay = (manga.authors || (manga.author ? [manga.author] : [])).slice(0, 2).join(', ');
+  const coverSrc =
+    manga.coverAssetUrl ||
+    getProxyImageUrl(manga.metadata?.cover_url ?? manga.metadata?.coverUrl ?? manga.coverUrl ?? manga.cover, manga.url);
+  const authorDisplay = (
+    manga.metadata?.authors ?? manga.authors ?? (manga.author ? [manga.author] : [])
+  )
+    .slice(0, 2)
+    .join(', ');
 
-  const userFavorite = manga.userFavorite || manga.user_favorite || manga.meta?.user_favorite;
-  const userStatus = manga.userStatus || manga.user_status || manga.meta?.user_status;
-  const userRating = manga.userRating || manga.user_rating || manga.meta?.user_rating;
-  const providerId = manga.sourceId || manga.contentProviderId || manga.meta?.content?.provider_id;
+  const userFavorite = manga.user_state?.favorite ?? manga.userFavorite ?? manga.user_favorite ?? manga.meta?.user_favorite;
+  const userStatus = manga.user_state?.status ?? manga.userStatus ?? manga.user_status ?? manga.meta?.user_status;
+  const userRating = manga.user_state?.rating ?? manga.userRating ?? manga.user_rating ?? manga.meta?.user_rating;
+  const providerId =
+    manga.bindings?.content?.provider_id ?? manga.sourceId ?? manga.contentProviderId ?? manga.meta?.content?.provider_id;
 
   const { data: chaptersData } = useChapterList(manga.id, {
     enabled: unreadCountProp === undefined,
@@ -50,8 +57,12 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
         <div className="relative aspect-[2/3] w-full overflow-hidden bg-muted">
           <CoverImage
             src={coverSrc}
-            fallbackSrc={manga.coverAssetUrl ? getProxyImageUrl(manga.coverUrl || manga.cover, manga.url) : undefined}
-            alt={manga.title}
+            fallbackSrc={
+              manga.coverAssetUrl
+                ? getProxyImageUrl(manga.metadata?.cover_url ?? manga.metadata?.coverUrl ?? manga.coverUrl ?? manga.cover, manga.url)
+                : undefined
+            }
+            alt={manga.metadata?.title ?? manga.title}
             shape="auto"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
@@ -92,7 +103,7 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
         </div>
         <div className="p-3 flex flex-col flex-1 justify-between gap-1.5">
           <h3 className="line-clamp-2 text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
-            {manga.title}
+            {manga.metadata?.title ?? manga.title}
           </h3>
           {authorDisplay && (
             <p className="line-clamp-1 text-xs text-muted-foreground">{authorDisplay}</p>
@@ -129,7 +140,7 @@ export const LibraryMangaCard: React.FC<LibraryMangaCardProps> = memo(({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (confirm(`Remove "${manga.title}" from library?`)) {
+            if (confirm(`Remove "${manga.metadata?.title ?? manga.title}" from library?`)) {
               onDelete(manga.id);
             }
           }}

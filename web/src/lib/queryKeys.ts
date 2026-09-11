@@ -16,6 +16,14 @@ export const queryKeys = {
     details: (id: string) => [...queryKeys.manga.all, 'detail', id] as const,
     providerDetails: (providerId: string, remoteId: string) =>
       [...queryKeys.manga.all, 'provider', providerId, remoteId] as const,
+    // Per-concern keys (Stage 3 of manga-metadata-separation).
+    // detail uses the bare manga id as a prefix so the three concern keys
+    // (metadata / user_state / bindings) are nested under it for granular
+    // invalidation by useUpdateUserStateMutation etc.
+    detail: (id: string) => [...queryKeys.manga.all, id] as const,
+    metadata: (id: string) => [...queryKeys.manga.all, id, 'metadata'] as const,
+    userState: (id: string) => [...queryKeys.manga.all, id, 'user_state'] as const,
+    bindings: (id: string) => [...queryKeys.manga.all, id, 'bindings'] as const,
   },
   explore: {
     all: ['explore'] as const,

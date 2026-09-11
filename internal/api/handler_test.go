@@ -46,13 +46,13 @@ func TestStandardizedLibraryRoutes(t *testing.T) {
 		t.Errorf("expected manga id 'test-manga-1', got %v", getResp["id"])
 	}
 
-	// Save chapter: POST /library/manga/:mangaId/providers/:providerId/chapters/:chapterId
+	// Save chapter: POST /library/manga/:mangaId/chapters/:chapterId
 	chMeta := library.ChapterMeta{
 		Title:  "Chapter 1",
 		Number: 1,
 	}
 	chBytes, _ := json.Marshal(chMeta)
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/test-manga-1/providers/local/chapters/ch-100", bytes.NewReader(chBytes))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/manga/test-manga-1/chapters/ch-100", bytes.NewReader(chBytes))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -70,8 +70,8 @@ func TestStandardizedLibraryRoutes(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// GET /library/manga/:mangaId/providers/:providerId/chapters/:chapterId
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/test-manga-1/providers/local/chapters/ch-100", nil)
+	// GET /library/manga/:mangaId/chapters/:chapterId
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/library/manga/test-manga-1/chapters/ch-100", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -79,8 +79,8 @@ func TestStandardizedLibraryRoutes(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// DELETE /library/manga/:mangaId/providers/:providerId/chapters/:chapterId
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/library/manga/test-manga-1/providers/local/chapters/ch-100", nil)
+	// DELETE /library/manga/:mangaId/chapters/:chapterId
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/library/manga/test-manga-1/chapters/ch-100", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 

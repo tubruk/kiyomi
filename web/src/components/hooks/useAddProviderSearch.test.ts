@@ -32,11 +32,17 @@ describe('useAddProviderSearch', () => {
     });
     vi.mocked(toastContext.useToast).mockReturnValue({ showToast } as any);
     vi.spyOn(api, 'searchManga').mockResolvedValue({
-      mangas: [{ id: 'rem-1', title: 'Solo Leveling' }],
+      mangas: [{
+        id: 'rem-1',
+        title: 'Solo Leveling',
+        metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+        user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+        bindings: { providers: [] },
+      }],
       hasNext: false,
       page: 1,
     });
-    vi.spyOn(api, 'addProvider').mockResolvedValue({
+    vi.spyOn(api, 'addBinding').mockResolvedValue({
       id: 'm-1',
       title: 'Solo Leveling',
     } as any);
@@ -236,8 +242,20 @@ describe('useAddProviderSearch', () => {
   describe('Search mutation outcomes', () => {
     it('populates searchResults and clears searchError on successful search', async () => {
       const mockResults: Manga[] = [
-        { id: 'rem-1', title: 'Solo Leveling' },
-        { id: 'rem-2', title: 'Solo Leveling: Ragnarok' },
+        {
+          id: 'rem-1',
+          title: 'Solo Leveling',
+          metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
+        },
+        {
+          id: 'rem-2',
+          title: 'Solo Leveling: Ragnarok',
+          metadata: { title: 'Solo Leveling: Ragnarok', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
+        },
       ];
       vi.mocked(api.searchManga).mockResolvedValue({
         mangas: mockResults,
@@ -321,11 +339,23 @@ describe('useAddProviderSearch', () => {
       );
 
       act(() => {
-        result.current.handleResultSelect({ id: 'rem-1', title: 'Solo Leveling' });
+        result.current.handleResultSelect({
+          id: 'rem-1',
+          title: 'Solo Leveling',
+          metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
+        });
       });
 
       expect(result.current.step).toBe('confirm');
-      expect(result.current.selectedResult).toEqual({ id: 'rem-1', title: 'Solo Leveling' });
+      expect(result.current.selectedResult).toEqual({
+        id: 'rem-1',
+        title: 'Solo Leveling',
+        metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+        user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+        bindings: { providers: [] },
+      });
     });
 
     it('resets state completely when handleOpenChange(false) is called', () => {
@@ -345,7 +375,13 @@ describe('useAddProviderSearch', () => {
       act(() => {
         result.current.setSelectedProviderId('webtoons');
         result.current.setSearchQuery('Custom Query');
-        result.current.handleResultSelect({ id: 'rem-1', title: 'Custom Title' });
+        result.current.handleResultSelect({
+          id: 'rem-1',
+          title: 'Custom Title',
+          metadata: { title: 'Custom Title', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
+        });
       });
 
       expect(result.current.step).toBe('confirm');
@@ -411,14 +447,19 @@ describe('useAddProviderSearch', () => {
     });
   });
 
-  describe('handleConfirm and addProviderMutation', () => {
-    it('executes addProviderMutation successfully with query invalidations, toast, and callbacks', async () => {
-      const onSuccess = vi.fn();
+  describe('handleConfirm and addBindingMutation', () => {
+    it('executes addBindingMutation successfully with query invalidations, toast, and callbacks', async () => {
       const onOpenChange = vi.fn();
       const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
 
-      const addedManga: Manga = { id: 'm-1', title: 'Solo Leveling' };
-      vi.mocked(api.addProvider).mockResolvedValue(addedManga);
+      const addedManga: Manga = {
+        id: 'm-1',
+        title: 'Solo Leveling',
+        metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+        user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+        bindings: { providers: [] },
+      };
+      vi.mocked(api.addBinding).mockResolvedValue(addedManga as any);
 
       const { result } = renderHook(
         () =>
@@ -428,7 +469,6 @@ describe('useAddProviderSearch', () => {
             mangaTitle: 'Solo Leveling',
             open: true,
             onOpenChange,
-            onSuccess,
           }),
         { wrapper: createWrapper() }
       );
@@ -438,6 +478,9 @@ describe('useAddProviderSearch', () => {
           id: 'rem-99',
           contentRemoteId: 'cr-99',
           title: 'Solo Leveling',
+          metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
         });
       });
 
@@ -446,14 +489,13 @@ describe('useAddProviderSearch', () => {
       });
 
       await waitFor(() => {
-        expect(api.addProvider).toHaveBeenCalledWith(
+        expect(api.addBinding).toHaveBeenCalledWith(
           'm-1',
           {
             provider_id: 'mangadex',
             provider_manga_id: 'rem-99',
             manga_title: 'Solo Leveling',
-          },
-          false
+          }
         );
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.manga.details('m-1') });
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.manga.all });
@@ -461,7 +503,6 @@ describe('useAddProviderSearch', () => {
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.chapters.list('m-1') });
         expect(showToast).toHaveBeenCalledWith('Provider "MangaDex" added', 'success');
         expect(onOpenChange).toHaveBeenCalledWith(false);
-        expect(onSuccess).toHaveBeenCalledWith(addedManga);
       });
     });
 
@@ -480,8 +521,12 @@ describe('useAddProviderSearch', () => {
 
       act(() => {
         result.current.handleResultSelect({
+          id: 'cr-only',
           contentRemoteId: 'cr-only',
           title: 'Solo Leveling',
+          metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
         } as Manga);
       });
 
@@ -490,20 +535,19 @@ describe('useAddProviderSearch', () => {
       });
 
       await waitFor(() => {
-        expect(api.addProvider).toHaveBeenCalledWith(
+        expect(api.addBinding).toHaveBeenCalledWith(
           'm-1',
           {
             provider_id: 'mangadex',
             provider_manga_id: 'cr-only',
             manga_title: 'Solo Leveling',
-          },
-          false
+          }
         );
       });
     });
 
-    it('shows error toast when addProviderMutation fails', async () => {
-      vi.mocked(api.addProvider).mockRejectedValue(new Error('Provider conflict'));
+    it('shows error toast when addBindingMutation fails', async () => {
+      vi.mocked(api.addBinding).mockRejectedValue(new Error('Provider conflict'));
 
       const { result } = renderHook(
         () =>
@@ -518,7 +562,13 @@ describe('useAddProviderSearch', () => {
       );
 
       act(() => {
-        result.current.handleResultSelect({ id: 'rem-1', title: 'Solo Leveling' });
+        result.current.handleResultSelect({
+          id: 'rem-1',
+          title: 'Solo Leveling',
+          metadata: { title: 'Solo Leveling', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
+        });
       });
 
       await act(async () => {

@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/labstack/echo/v4"
 	machineryConfig "github.com/RichardKnop/machinery/v2/config"
+	"github.com/labstack/echo/v4"
 	"github.com/tubruk/kiyomi/internal/api"
 	"github.com/tubruk/kiyomi/internal/config"
 	"github.com/tubruk/kiyomi/internal/library"
@@ -25,7 +25,8 @@ import (
 )
 
 // Build metadata — set via ldflags at build time:
-//   go build -ldflags "-X main.version=1.0.0 -X main.commit=abc1234 -X main.buildTime=2026-01-01T00:00:00Z"
+//
+//	go build -ldflags "-X main.version=1.0.0 -X main.commit=abc1234 -X main.buildTime=2026-01-01T00:00:00Z"
 var (
 	version   = "dev"
 	commit    = "unknown"
@@ -146,10 +147,11 @@ func main() {
 		pullHandlers.SetImageCache(apiHandler.ImageCache())
 		pullHandlers.SetAllowPrivateNetworks(cfg.AllowPrivateNetworks)
 		pullHandlerMap := map[string]queue.JobHandler{
-			queue.JobTypePullManga:   queue.JobHandlerFunc(pullHandlers.HandlePullManga),
-			queue.JobTypePullChapter: queue.JobHandlerFunc(pullHandlers.HandlePullChapter),
-			queue.JobTypePullPage:    queue.JobHandlerFunc(pullHandlers.HandlePullPage),
-			queue.JobTypePullCover:   queue.JobHandlerFunc(pullHandlers.HandlePullCover),
+			queue.JobTypePullManga:       queue.JobHandlerFunc(pullHandlers.HandlePullManga),
+			queue.JobTypePullChapter:     queue.JobHandlerFunc(pullHandlers.HandlePullChapter),
+			queue.JobTypePullPage:        queue.JobHandlerFunc(pullHandlers.HandlePullPage),
+			queue.JobTypePullCover:       queue.JobHandlerFunc(pullHandlers.HandlePullCover),
+			queue.JobTypeRefreshMetadata: queue.JobHandlerFunc(pullHandlers.HandleRefreshMetadata),
 		}
 		for jobType, h := range pullHandlerMap {
 			if err := worker.Register(jobType, h); err != nil {
@@ -228,4 +230,3 @@ func main() {
 		_ = closer.Close()
 	}
 }
-

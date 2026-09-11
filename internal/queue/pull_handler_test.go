@@ -278,11 +278,13 @@ func TestHandlePullManga_SkipsExistingChapters(t *testing.T) {
 	providerID := provID
 	providerMangaID := "remote-C"
 
-	if err := dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Manga C",
-		Content: &library.ContentSource{
-			ProviderID:      providerID,
-			ProviderMangaID: providerMangaID,
+	if err := dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Manga C"},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID:      providerID,
+				ProviderMangaID: providerMangaID,
+			},
 		},
 	}); err != nil {
 		t.Fatalf("seed manga: %v", err)
@@ -473,12 +475,14 @@ func TestHandlePullManga_UpdatesLastSyncedAt(t *testing.T) {
 	// Seed manga meta with an existing LastSyncedAt so we can verify the
 	// pull_manga handler overwrites it with a fresh timestamp.
 	pastSync := time.Now().Add(-24 * time.Hour)
-	if err := dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Manga Synced",
-		Content: &library.ContentSource{
-			ProviderID:      providerID,
-			ProviderMangaID: providerMangaID,
-			LastSyncedAt:    pastSync,
+	if err := dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Manga Synced"},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID:      providerID,
+				ProviderMangaID: providerMangaID,
+				LastSyncedAt:    pastSync,
+			},
 		},
 	}); err != nil {
 		t.Fatalf("seed manga: %v", err)
@@ -514,14 +518,14 @@ func TestHandlePullManga_UpdatesLastSyncedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetManga: %v", err)
 	}
-	if mangaMeta.Content == nil {
+	if mangaMeta.Bindings.Content == nil {
 		t.Fatalf("expected manga Content to remain set")
 	}
-	if mangaMeta.Content.LastSyncedAt.Equal(pastSync) {
+	if mangaMeta.Bindings.Content.LastSyncedAt.Equal(pastSync) {
 		t.Errorf("expected LastSyncedAt to be updated away from %v, got unchanged", pastSync)
 	}
-	if mangaMeta.Content.LastSyncedAt.Before(before) {
-		t.Errorf("LastSyncedAt %v is before pull start %v", mangaMeta.Content.LastSyncedAt, before)
+	if mangaMeta.Bindings.Content.LastSyncedAt.Before(before) {
+		t.Errorf("LastSyncedAt %v is before pull start %v", mangaMeta.Bindings.Content.LastSyncedAt, before)
 	}
 }
 
@@ -593,8 +597,8 @@ func TestHandlePullCover_DownloadsCoverFile(t *testing.T) {
 	mangaID := "manga-cover"
 	coverURL := pageURL + "/cover.jpg"
 
-	if err := dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Cover Manga",
+	if err := dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Cover Manga"},
 	}); err != nil {
 		t.Fatalf("seed manga: %v", err)
 	}
@@ -797,10 +801,12 @@ func TestHandlePullCover_WithProviderHeaders(t *testing.T) {
 	dh.SetAllowPrivateNetworks(true)
 
 	mangaID := "manga-cover-bound"
-	_ = dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Cover Bound",
-		Content: &library.ContentSource{
-			ProviderID: provID,
+	_ = dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Cover Bound"},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID: provID,
+			},
 		},
 	})
 	_, _ = dh.Lib().ClaimCoverEnqueue(mangaID)
@@ -850,8 +856,8 @@ func TestHandlePullManga_EnqueuesCoverWithProviderID(t *testing.T) {
 	providerMangaID := "remote-cover-enqueue"
 	coverURL := "http://example.com/cover.jpg"
 
-	if err := dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Manga Cover Enqueue",
+	if err := dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Manga Cover Enqueue"},
 	}); err != nil {
 		t.Fatalf("seed manga: %v", err)
 	}
@@ -948,10 +954,12 @@ func TestHandlePullCover_FallbackToProvidersList(t *testing.T) {
 
 	mangaID := "manga-cover-providers-list"
 	// Content is nil, but Providers list is populated
-	_ = dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Cover Providers List",
-		Providers: []library.ProviderRef{
-			{ProviderID: provID, ProviderMangaID: "rem-1"},
+	_ = dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Cover Providers List"},
+		Bindings: library.MangaBindings{
+			Providers: []library.ProviderRef{
+				{ProviderID: provID, ProviderMangaID: "rem-1"},
+			},
 		},
 	})
 	_, _ = dh.Lib().ClaimCoverEnqueue(mangaID)
@@ -1023,8 +1031,8 @@ func TestHandlePullCover_WithExplicitPayloadProviderID(t *testing.T) {
 
 	mangaID := "manga-cover-explicit"
 	// MangaMeta has no Content or Providers
-	_ = dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Cover Explicit",
+	_ = dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Cover Explicit"},
 	})
 	_, _ = dh.Lib().ClaimCoverEnqueue(mangaID)
 
@@ -1081,11 +1089,13 @@ func TestHandlePull_ParentChildPropagation(t *testing.T) {
 	providerMangaID := "remote-manga-hierarchy"
 	coverURL := pageURL + "/cover.jpg"
 
-	if err := dh.Lib().SaveManga(mangaID, &library.MangaMeta{
-		Title: "Hierarchy Manga",
-		Content: &library.ContentSource{
-			ProviderID:      provID,
-			ProviderMangaID: providerMangaID,
+	if err := dh.Lib().SaveManga(mangaID, library.Manga{
+		Metadata: library.MangaMetadata{Title: "Hierarchy Manga"},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID:      provID,
+				ProviderMangaID: providerMangaID,
+			},
 		},
 	}); err != nil {
 		t.Fatalf("save manga: %v", err)
@@ -1228,7 +1238,7 @@ func TestPullPage_CacheAwareLinking(t *testing.T) {
 
 	lib := library.NewLibrary(libRoot)
 	lib.SetAllowPrivateNetworks(true)
-	require.NoError(t, lib.SaveManga(mangaID, &library.MangaMeta{Title: "Cache Test Manga"}))
+	require.NoError(t, lib.SaveManga(mangaID, library.Manga{Metadata: library.MangaMetadata{Title: "Cache Test Manga"}}))
 	require.NoError(t, lib.SaveChapter(mangaID, provID, chID, &library.ChapterMeta{Title: "Chapter 1", Number: 1.0}))
 
 	driver := inmemory.NewDriver(16)

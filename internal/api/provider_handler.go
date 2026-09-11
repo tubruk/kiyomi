@@ -438,7 +438,7 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		}
 	}
 
-	mangaMeta := &library.MangaMeta{
+	mangaMeta := library.MangaMetadata{
 		Title:         meta.Title,
 		Aliases:       meta.Aliases,
 		Description:   meta.Synopsis,
@@ -452,12 +452,15 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		Country:       meta.Country,
 		CoverURL:      meta.CoverURL,
 		ExternalLinks: externalLinks,
-		UserStatus:    body.UserStatus,
+	}
+
+	now := time.Now()
+	mangaBindings := library.MangaBindings{
 		Content: &library.ContentSource{
 			ProviderID:      body.ProviderID,
 			ProviderMangaID: body.RemoteID,
 			ReadingMode:     string(meta.ReadingMode),
-			LastSyncedAt:    time.Now(),
+			LastSyncedAt:    now,
 		},
 		Providers: []library.ProviderRef{
 			{
@@ -468,8 +471,20 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 		},
 	}
 
-	if err := h.lib.SaveManga(localID, mangaMeta); err != nil {
-		errMsg := fmt.Sprintf("save manga: %v", err)
+	mangaUserState := library.UserState{Status: body.UserStatus}
+
+	if err := h.lib.SaveMetadata(localID, mangaMeta); err != nil {
+		errMsg := fmt.Sprintf("save metadata: %v", err)
+		c.Set("handler_error", errMsg)
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": errMsg})
+	}
+	if err := h.lib.SaveBindings(localID, mangaBindings); err != nil {
+		errMsg := fmt.Sprintf("save bindings: %v", err)
+		c.Set("handler_error", errMsg)
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": errMsg})
+	}
+	if err := h.lib.SaveUserState(localID, mangaUserState); err != nil {
+		errMsg := fmt.Sprintf("save user state: %v", err)
 		c.Set("handler_error", errMsg)
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": errMsg})
 	}
@@ -517,8 +532,10 @@ func (h *Handler) importProviderManga(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusCreated, echo.Map{
-		"id":   localID,
-		"meta": mangaMeta,
+		"id":         localID,
+		"metadata":   mangaMeta,
+		"bindings":   mangaBindings,
+		"user_state": mangaUserState,
 	})
 }
 
@@ -530,16 +547,15 @@ func (h *Handler) findLibraryBindingID(ctx context.Context, providerID, remoteID
 	if err != nil {
 		return "", err
 	}
-	for _, m := range mangas {
-		meta := m.Meta
-		if meta.Content != nil &&
-			meta.Content.ProviderID == providerID &&
-			meta.Content.ProviderMangaID == remoteID {
-			return m.ID, nil
+	for _, info := range mangas {
+		if info.Bindings.Content != nil &&
+			info.Bindings.Content.ProviderID == providerID &&
+			info.Bindings.Content.ProviderMangaID == remoteID {
+			return info.ID, nil
 		}
-		for _, p := range meta.Providers {
+		for _, p := range info.Bindings.Providers {
 			if p.ProviderID == providerID && p.ProviderMangaID == remoteID {
-				return m.ID, nil
+				return info.ID, nil
 			}
 		}
 	}

@@ -195,9 +195,9 @@ export const DetailsPage: React.FC = () => {
 
           {!isProvidersCollapsed && (
             <ProviderList
-              providers={manga.meta?.providers || []}
-              contentProviderId={manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id}
-              contentProviderMangaId={manga.contentRemoteId || manga.meta?.content?.provider_manga_id}
+              providers={manga.bindings?.providers || manga.meta?.providers || []}
+              contentProviderId={manga.bindings?.content?.provider_id || manga.contentProviderId || manga.sourceId || manga.meta?.content?.provider_id}
+              contentProviderMangaId={manga.bindings?.content?.provider_manga_id || manga.contentRemoteId || manga.meta?.content?.provider_manga_id}
               sources={sources}
               onImportMetadata={(provider) => {
                 setImportMetadataProviderId(provider.provider_id);
@@ -222,7 +222,7 @@ export const DetailsPage: React.FC = () => {
               canRemoveProvider={(provider) => {
                 const hasContentCapability = sources.find((s) => s.id === provider.provider_id)?.capabilities?.includes('content');
                 if (!hasContentCapability) return true;
-                const contentProviders = (manga.meta?.providers || []).filter((p) =>
+                const contentProviders = (manga.bindings?.providers || manga.meta?.providers || []).filter((p) =>
                   sources.find((s) => s.id === p.provider_id)?.capabilities?.includes('content')
                 );
                 return contentProviders.length > 1;
@@ -295,9 +295,9 @@ export const DetailsPage: React.FC = () => {
         <AddProviderDialog
           mangaId={manga.id}
           sources={sources}
-          existingProviders={manga.meta?.providers || []}
-          mangaTitle={manga.title}
-          mangaAliases={manga.aliases || manga.meta?.aliases || []}
+          existingProviders={manga.bindings?.providers || manga.meta?.providers || []}
+          mangaTitle={manga.metadata?.title ?? manga.title}
+          mangaAliases={manga.metadata?.aliases ?? manga.aliases ?? manga.meta?.aliases ?? []}
           open={isAddProviderOpen}
           onOpenChange={setIsAddProviderOpen}
         />

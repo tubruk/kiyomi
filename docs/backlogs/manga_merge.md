@@ -1,7 +1,8 @@
 # Backlog: Manga Merge
 
-> **Status**: Proposed / Backlog
-> **Target Components**: `web/src`, `internal/api`, `internal/library`
+> **Status**: Completed / Implemented  
+> **Target Components**: `web/src`, `internal/api`, `internal/library`  
+> **Reference Design**: [api.md](../design/api.md), [library.md](../design/library.md)
 
 ---
 

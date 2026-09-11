@@ -14,7 +14,6 @@ export interface UseAddProviderSearchOptions {
   mangaTitle?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess?: (manga: Manga) => void;
 }
 
 export function useAddProviderSearch({
@@ -24,7 +23,6 @@ export function useAddProviderSearch({
   mangaTitle,
   open,
   onOpenChange,
-  onSuccess,
 }: UseAddProviderSearchOptions) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -76,21 +74,17 @@ export function useAddProviderSearch({
     },
   });
 
-  const addProviderMutation = useMutation({
+  const addBindingMutation = useMutation({
     mutationFn: async () => {
       if (!selectedResult || !selectedProviderId) throw new Error('No selection');
       const providerMangaId = selectedResult.id || selectedResult.contentRemoteId || '';
-      return api.addProvider(
-        mangaId,
-        {
-          provider_id: selectedProviderId,
-          provider_manga_id: providerMangaId,
-          manga_title: selectedResult.title,
-        },
-        false
-      );
+      return api.addBinding(mangaId, {
+        provider_id: selectedProviderId,
+        provider_manga_id: providerMangaId,
+        manga_title: selectedResult.title,
+      });
     },
-    onSuccess: (manga) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.details(mangaId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.manga.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
@@ -98,7 +92,6 @@ export function useAddProviderSearch({
       const name = sources.find((s) => s.id === selectedProviderId)?.name;
       showToast(`Provider "${name}" added`, 'success');
       handleOpenChange(false);
-      onSuccess?.(manga);
     },
     onError: (err: any) => {
       showToast(`Failed to add provider: ${err.message}`, 'error');
@@ -127,8 +120,8 @@ export function useAddProviderSearch({
   }, []);
 
   const handleConfirm = useCallback(() => {
-    addProviderMutation.mutate();
-  }, [addProviderMutation]);
+    addBindingMutation.mutate();
+  }, [addBindingMutation]);
 
   const selectedProvider = sources.find((s) => s.id === selectedProviderId) || null;
 
@@ -144,7 +137,7 @@ export function useAddProviderSearch({
     searchError,
     selectedProvider,
     isSearching: searchMutation.isPending,
-    isAdding: addProviderMutation.isPending,
+    isAdding: addBindingMutation.isPending,
     handleResultSelect,
     handleConfirm,
     handleOpenChange,

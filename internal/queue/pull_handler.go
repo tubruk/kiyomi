@@ -29,10 +29,11 @@ import (
 
 // Job type names for the pull pipeline.
 const (
-	JobTypePullManga   = "pull_manga"
-	JobTypePullChapter = "pull_chapter"
-	JobTypePullPage    = "pull_page"
-	JobTypePullCover   = "pull_cover"
+	JobTypePullManga       = "pull_manga"
+	JobTypePullChapter     = "pull_chapter"
+	JobTypePullPage        = "pull_page"
+	JobTypePullCover       = "pull_cover"
+	JobTypeRefreshMetadata = "refresh_metadata"
 )
 
 // Concurrency group prefixes. Provider-scoped jobs share "pull:<providerID>"
@@ -47,6 +48,14 @@ type PullMangaPayload struct {
 	ProviderID      string `json:"provider_id"`
 	ProviderMangaID string `json:"provider_manga_id"`
 	CoverURL        string `json:"cover_url,omitempty"`
+}
+
+// RefreshMetadataPayload is the JSON payload for refresh_metadata jobs. It
+// fetches the latest metadata from the provider and writes metadata.json only.
+type RefreshMetadataPayload struct {
+	MangaID         string `json:"manga_id"`
+	ProviderID      string `json:"provider_id"`
+	ProviderMangaID string `json:"provider_manga_id"`
 }
 
 // PullChapterPayload is the JSON payload for pull_chapter jobs.
@@ -250,14 +259,14 @@ func (d *PullHandlers) HandlePullManga(ctx context.Context, job *Job) error {
 	// upstream chapter list was last reconciled. Only update if the manga is
 	// already bound to a content provider — pull_manga may run before the
 	// binding is set, in which case there's nothing to stamp yet.
-	mangaMeta, err := d.lib.GetManga(p.MangaID)
+	bindings, err := d.lib.GetBindings(p.MangaID)
 	if err != nil {
-		return fmt.Errorf("pull_manga: get manga meta: %w", err)
+		return fmt.Errorf("pull_manga: get bindings: %w", err)
 	}
-	if mangaMeta.Content != nil {
-		mangaMeta.Content.LastSyncedAt = now
-		if err := d.lib.SaveManga(p.MangaID, mangaMeta); err != nil {
-			return fmt.Errorf("pull_manga: save manga meta: %w", err)
+	if bindings.Content != nil {
+		bindings.Content.LastSyncedAt = now
+		if err := d.lib.SaveBindings(p.MangaID, bindings); err != nil {
+			return fmt.Errorf("pull_manga: save bindings: %w", err)
 		}
 	}
 
@@ -290,8 +299,8 @@ func (d *PullHandlers) HandlePullChapter(ctx context.Context, job *Job) error {
 	}
 
 	mangaRef := p.MangaID
-	if mangaMeta, err := d.lib.GetManga(p.MangaID); err == nil && mangaMeta.Content != nil && mangaMeta.Content.ProviderMangaID != "" {
-		mangaRef = mangaMeta.Content.ProviderMangaID
+	if bindings, err := d.lib.GetBindings(p.MangaID); err == nil && bindings.Content != nil && bindings.Content.ProviderMangaID != "" {
+		mangaRef = bindings.Content.ProviderMangaID
 	}
 
 	pages, err := content.FetchPages(ctx, mangaRef, chapterRef)
@@ -400,11 +409,11 @@ func (d *PullHandlers) HandlePullCover(ctx context.Context, job *Job) error {
 
 	providerID := p.ProviderID
 	if providerID == "" {
-		if mangaMeta, err := d.lib.GetManga(p.MangaID); err == nil && mangaMeta != nil {
-			if mangaMeta.Content != nil && mangaMeta.Content.ProviderID != "" {
-				providerID = mangaMeta.Content.ProviderID
-			} else if len(mangaMeta.Providers) > 0 && mangaMeta.Providers[0].ProviderID != "" {
-				providerID = mangaMeta.Providers[0].ProviderID
+		if bindings, err := d.lib.GetBindings(p.MangaID); err == nil {
+			if bindings.Content != nil && bindings.Content.ProviderID != "" {
+				providerID = bindings.Content.ProviderID
+			} else if len(bindings.Providers) > 0 && bindings.Providers[0].ProviderID != "" {
+				providerID = bindings.Providers[0].ProviderID
 			}
 		}
 	}
@@ -421,6 +430,91 @@ func (d *PullHandlers) HandlePullCover(ctx context.Context, job *Job) error {
 	}
 	if err := d.lib.ReleaseCoverClaim(p.MangaID); err != nil {
 		return fmt.Errorf("pull_cover: release claim: %w", err)
+	}
+	return nil
+}
+
+// getProvider looks up the metadata capability for a providerID. Returns the
+// MetadataProvider interface or a permanent error if the provider is not
+// registered.
+func (d *PullHandlers) getProvider(providerID string) (sdk.Metadata, error) {
+	if d.registry == nil {
+		return nil, fmt.Errorf("registry not configured")
+	}
+	mp, ok := d.registry.GetMetadata(providerID)
+	if !ok {
+		return nil, fmt.Errorf("provider %q not available", providerID)
+	}
+	return mp, nil
+}
+
+// HandleRefreshMetadata fetches the latest metadata from the provider's
+// MetadataProvider capability and writes only metadata.json. Does not touch
+// user_state.json or bindings.json. Triggered manually via
+// POST /library/manga/:id/metadata/refresh.
+func (d *PullHandlers) HandleRefreshMetadata(ctx context.Context, job *Job) error {
+	var p RefreshMetadataPayload
+	if err := json.Unmarshal([]byte(job.Payload), &p); err != nil {
+		return Permanent(fmt.Errorf("refresh_metadata: decode payload: %w", err))
+	}
+	if p.MangaID == "" || p.ProviderID == "" || p.ProviderMangaID == "" {
+		return Permanent(fmt.Errorf("refresh_metadata: missing required fields"))
+	}
+
+	job.ConcurrencyGroup = "refresh_metadata"
+
+	metaProvider, err := d.getProvider(p.ProviderID)
+	if err != nil {
+		return Permanent(fmt.Errorf("refresh_metadata: %w", err))
+	}
+
+	details, err := metaProvider.Details(ctx, p.ProviderMangaID)
+	if err != nil {
+		return fmt.Errorf("refresh_metadata: fetch details: %w", err)
+	}
+
+	providerName := p.ProviderID
+	if metaProvider.Name() != "" {
+		providerName = metaProvider.Name()
+	}
+
+	var externalLinks []library.ExternalLink
+	if details.URL != "" {
+		externalLinks = []library.ExternalLink{
+			{
+				Provider: p.ProviderID,
+				Label:    providerName,
+				URL:      details.URL,
+			},
+		}
+	}
+
+	merged := library.MangaMetadata{
+		Title:         details.Title,
+		Aliases:       details.Aliases,
+		Description:   details.Synopsis,
+		Authors:       details.Authors,
+		Artists:       details.Artists,
+		Tags:          details.Tags,
+		Publishers:    details.Publishers,
+		ReleaseYear:   details.ReleaseYear,
+		StartDate:     details.StartDate,
+		EndDate:       details.EndDate,
+		Country:       details.Country,
+		CoverURL:      details.CoverURL,
+		ExternalLinks: externalLinks,
+	}
+
+	// Preserve CoverURL when the provider returns nothing — the user may have
+	// set a cover URL manually via PATCH that we don't want clobbered.
+	if merged.CoverURL == "" {
+		if existing, err := d.lib.GetMetadata(p.MangaID); err == nil {
+			merged.CoverURL = existing.CoverURL
+		}
+	}
+
+	if err := d.lib.SaveMetadata(p.MangaID, merged); err != nil {
+		return fmt.Errorf("refresh_metadata: save metadata: %w", err)
 	}
 	return nil
 }

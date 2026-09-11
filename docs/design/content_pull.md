@@ -76,7 +76,7 @@ Reconciles the chapter list and cover art for a manga from the designated conten
   3. Compares provider chapters against local chapters in `<library_root>/<manga_id>/<provider_id>/`.
   4. For each missing chapter, creates chapter metadata (`meta.json`) and enqueues a child `pull_chapter` job.
   5. If `cover_url` is provided and the manga does not have a cover on disk, attempts to acquire the cover acquisition lock. If acquired, enqueues a child `pull_cover` job.
-  6. Updates `content.last_synced_at` on the manga manifest (`meta.json`).
+  6. Updates `content.last_synced_at` in `bindings.json` (the bindings concern file only).
 
 ### B. `pull_chapter` (Page Manifest Resolution)
 
@@ -149,7 +149,9 @@ Content is organized under a multi-provider directory layout:
 ```
 <library_root>/
 └── <manga_id>/
-    ├── meta.json                     # Manga manifest (title, provider bindings, sync state)
+    ├── metadata.json                 # Provider metadata (title, description, authors, tags, cover_url)
+    ├── user_state.json               # User reading state (status, rating, favorite, notes, last_read_chapter_id)
+    ├── bindings.json                 # Provider bindings list and active content source pointer
     ├── cover.<ext>                   # Manga cover image
     └── <provider_id>/                # Provider namespace (e.g. mangadex, local)
         └── <chapter_id>/             # Local chapter directory

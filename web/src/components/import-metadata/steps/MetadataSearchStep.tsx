@@ -140,8 +140,8 @@ export const MetadataSearchStep: React.FC<MetadataSearchStepProps> = ({
               <AliasCombobox
                 value={searchQuery}
                 onChange={onSearchQueryChange}
-                defaultValue={manga.title || manga.meta?.title || ''}
-                suggestions={manga.aliases || manga.meta?.aliases || []}
+                defaultValue={manga.title || manga.metadata?.title || ''}
+                suggestions={manga.aliases || manga.metadata?.aliases || []}
                 placeholder={`Search title or alias on ${selectedProvider?.name || 'provider'}...`}
                 autoFocus
               />

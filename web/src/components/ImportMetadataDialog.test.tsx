@@ -51,6 +51,31 @@ const mockManga: Manga = {
       },
     ],
   },
+  metadata: {
+    title: 'Frieren at the Funeral',
+    aliases: ['Sousou no Frieren'],
+    description: 'A story of an elf mage after the hero defeated the demon king.',
+    authors: ['Kanehito Yamada'],
+    artists: ['Tsukasa Abe'],
+    tags: ['Fantasy', 'Adventure', 'Drama'],
+    collections: [],
+    publishers: ['Shogakukan'],
+    releaseYear: 2020,
+    startDate: '2020-04-28',
+    endDate: '',
+    country: 'JP',
+    content_rating: 'safe',
+  },
+  user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+  bindings: {
+    providers: [
+      {
+        provider_id: 'mangadex',
+        provider_manga_id: 'md-frieren-123',
+        manga_title: 'Frieren at the Funeral',
+      },
+    ],
+  },
 };
 
 const mockRemoteManga: Manga = {
@@ -70,6 +95,23 @@ const mockRemoteManga: Manga = {
   contentRating: 'suggestive',
   country: 'JP',
   readingMode: 'rtl',
+  metadata: {
+    title: 'Frieren: Beyond Journey\'s End',
+    aliases: ['Frieren the Slayer'],
+    description: 'The adventure is over but life goes on for an elf mage.',
+    authors: ['Kanehito Yamada', 'Author 2'],
+    artists: ['Tsukasa Abe'],
+    tags: ['Fantasy', 'Magic', 'Adventure'],
+    collections: [],
+    publishers: ['VIZ Media', 'Shogakukan'],
+    releaseYear: 2021,
+    startDate: '2020-04-28',
+    endDate: '2024-05-15',
+    country: 'JP',
+    content_rating: 'suggestive',
+  },
+  user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+  bindings: { providers: [] },
 };
 
 const renderDialog = (
@@ -445,8 +487,8 @@ describe('ImportMetadataDialog', () => {
   });
 
   it('submits patch and adds provider binding on confirmation serializing finalized aliases and tags', async () => {
-    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
-    const addProviderSpy = vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    const patchSpy = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
+    const addProviderSpy = vi.spyOn(api, 'addBinding').mockResolvedValue({} as any);
     vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue(mockRemoteManga);
 
     const onOpenChange = vi.fn();
@@ -548,8 +590,8 @@ describe('ImportMetadataDialog', () => {
   });
 
   it('auto-populates external tracking link in patchLibraryManga when remote manga has URL', async () => {
-    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
-    vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    const patchSpy = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
+    vi.spyOn(api, 'addBinding').mockResolvedValue({} as any);
     vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
       ...mockRemoteManga,
       url: 'https://mangadex.org/title/remote-1',
@@ -576,7 +618,7 @@ describe('ImportMetadataDialog', () => {
       expect(patchSpy).toHaveBeenCalledWith(
         'local-manga-1',
         expect.objectContaining({
-          externalLinks: [
+          external_links: [
             { provider: 'anilist', label: 'AniList', url: 'https://anilist.co/manga/123' },
             { provider: 'mangadex', label: 'MangaDex', url: 'https://mangadex.org/title/remote-1' },
           ],
@@ -586,8 +628,8 @@ describe('ImportMetadataDialog', () => {
   });
 
   it('does not duplicate external link if provider URL already exists in manga.externalLinks', async () => {
-    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
-    vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    const patchSpy = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
+    vi.spyOn(api, 'addBinding').mockResolvedValue({} as any);
     vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
       ...mockRemoteManga,
       url: 'https://mangadex.org/title/remote-1',
@@ -629,6 +671,9 @@ describe('ImportMetadataDialog', () => {
           author: 'Author A',
           tags: [],
           genres: [],
+          metadata: { title: 'No Tags Manga', aliases: [], description: '', authors: [], artists: [], tags: [], collections: [], publishers: [] },
+          user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+          bindings: { providers: [] },
         },
       ],
       hasNext: false,
@@ -649,8 +694,8 @@ describe('ImportMetadataDialog', () => {
   });
 
   it('renders external links comparison section and supports switching between Current, Incoming, and Merged modes', async () => {
-    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
-    vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    const patchSpy = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
+    vi.spyOn(api, 'addBinding').mockResolvedValue({} as any);
     vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
       ...mockRemoteManga,
       url: 'https://mangadex.org/title/remote-1',
@@ -686,9 +731,6 @@ describe('ImportMetadataDialog', () => {
         'local-manga-1',
         expect.objectContaining({
           external_links: [
-            { provider: 'mangadex', label: 'MangaDex', url: 'https://mangadex.org/title/remote-1' },
-          ],
-          externalLinks: [
             { provider: 'mangadex', label: 'MangaDex', url: 'https://mangadex.org/title/remote-1' },
           ],
         })
@@ -730,8 +772,8 @@ describe('ImportMetadataDialog', () => {
   });
 
   it('supports multi-choice selection for publishers (Current, Incoming, Merged) and serializes correctly on confirmation', async () => {
-    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
-    vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    const patchSpy = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
+    vi.spyOn(api, 'addBinding').mockResolvedValue({} as any);
     vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
       ...mockRemoteManga,
       publishers: ['VIZ Media', 'Kodansha'],
@@ -762,7 +804,6 @@ describe('ImportMetadataDialog', () => {
         'local-manga-1',
         expect.objectContaining({
           publishers: expect.arrayContaining(['Shogakukan', 'VIZ Media', 'Kodansha']),
-          publisher: 'VIZ Media',
         })
       );
     });
@@ -770,7 +811,7 @@ describe('ImportMetadataDialog', () => {
     unmount();
 
     // 2. Test Incoming mode
-    const patchSpy2 = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
+    const patchSpy2 = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
     const { unmount: unmount2 } = renderDialog({
       initialProviderId: 'mangadex',
       initialRemoteId: 'md-123',
@@ -794,7 +835,6 @@ describe('ImportMetadataDialog', () => {
         'local-manga-1',
         expect.objectContaining({
           publishers: ['VIZ Media', 'Kodansha'],
-          publisher: 'VIZ Media',
         })
       );
     });
@@ -802,7 +842,7 @@ describe('ImportMetadataDialog', () => {
     unmount2();
 
     // 3. Test Current mode
-    const patchSpy3 = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
+    const patchSpy3 = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
     renderDialog({
       initialProviderId: 'mangadex',
       initialRemoteId: 'md-123',
@@ -884,8 +924,8 @@ describe('ImportMetadataDialog', () => {
   });
 
   it('submits confirmation mutation with selected publishers, start_date, end_date, release_year, and country in patch payload', async () => {
-    const patchSpy = vi.spyOn(api, 'patchLibraryManga').mockResolvedValue({} as any);
-    vi.spyOn(api, 'addProvider').mockResolvedValue({} as any);
+    const patchSpy = vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
+    vi.spyOn(api, 'addBinding').mockResolvedValue({} as any);
     vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue({
       ...mockRemoteManga,
       publishers: ['VIZ Media', 'Shueisha'],
@@ -918,16 +958,148 @@ describe('ImportMetadataDialog', () => {
         'local-manga-1',
         expect.objectContaining({
           publishers: expect.arrayContaining(['Shogakukan', 'VIZ Media', 'Shueisha']),
-          publisher: 'VIZ Media',
           start_date: '2020-04-28',
-          startDate: '2020-04-28',
           end_date: '2024-05-15',
-          endDate: '2024-05-15',
           release_year: 2021,
-          releaseYear: 2021,
           country: 'KR',
         })
       );
+    });
+  });
+
+  describe('merge mode', () => {
+    const mergeIncomingManga: Manga = {
+      ...mockRemoteManga,
+      bindings: {
+        providers: [
+          {
+            provider_id: 'anilist',
+            provider_manga_id: 'al-frieren-99',
+            manga_title: 'Frieren: Beyond Journey\'s End',
+          },
+        ],
+      },
+    };
+
+    // Helper: footer submit button has the Download icon next to the text,
+    // while the in-page "Merge" quick-action button does not.
+    const clickMergeSubmit = () => {
+      const buttons = screen.getAllByRole('button', { name: /^merge$/i });
+      // Footer submit button is the one that contains an SVG (the Download icon).
+      const submit = buttons.find((btn) => btn.querySelector('svg')) ?? buttons[buttons.length - 1];
+      fireEvent.click(submit);
+    };
+
+    it('skips search step and renders compare step directly when mode="merge"', async () => {
+      const mergeSpy = vi.spyOn(api, 'mergeLibraryManga').mockResolvedValue({} as any);
+      vi.spyOn(api, 'patchLibraryMangaMetadata').mockResolvedValue({} as any);
+      vi.spyOn(api, 'addBinding').mockResolvedValue({} as any);
+
+      renderDialog({
+        mode: 'merge',
+        incomingManga: mergeIncomingManga,
+        sourceMangaIds: [mergeIncomingManga.id],
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Merge Metadata')).toBeInTheDocument();
+      });
+
+      // No search step rendered
+      expect(screen.queryByText('Import Metadata')).not.toBeInTheDocument();
+      expect(screen.queryByText('Keyword Search')).not.toBeInTheDocument();
+
+      // Footer shows cancel + merge submit, no "Back" button
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: /^merge$/i }).length).toBeGreaterThan(0);
+
+      // Providers field is rendered, locked to merged
+      expect(screen.getByText('Provider Bindings')).toBeInTheDocument();
+      expect(screen.getByText(/provider bindings are always merged/i)).toBeInTheDocument();
+
+      // Submit calls api.mergeLibraryManga, not patchLibraryMangaMetadata + addBinding
+      clickMergeSubmit();
+
+      await waitFor(() => {
+        expect(mergeSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(api.patchLibraryMangaMetadata).not.toHaveBeenCalled();
+      expect(api.addBinding).not.toHaveBeenCalled();
+    });
+
+    it('merge payload contains required fields including providers: "merge"', async () => {
+      const mergeSpy = vi.spyOn(api, 'mergeLibraryManga').mockResolvedValue({} as any);
+
+      renderDialog({
+        mode: 'merge',
+        incomingManga: mergeIncomingManga,
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Merge Metadata')).toBeInTheDocument();
+      });
+
+      clickMergeSubmit();
+
+      await waitFor(() => {
+        expect(mergeSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            keep_manga_id: 'local-manga-1',
+            source_manga_ids: ['remote-1'],
+            metadata: expect.objectContaining({
+              title: expect.stringMatching(/^(keep|source:remote-1)$/),
+              description: expect.stringMatching(/^(keep|source:remote-1)$/),
+              aliases: 'merge',
+              tags: 'merge',
+              authors: 'merge',
+              artists: 'merge',
+              publishers: 'merge',
+              release_year: expect.stringMatching(/^(keep|source:remote-1)$/),
+              cover_url: expect.stringMatching(/^(keep|source:remote-1)$/),
+              providers: 'merge',
+            }),
+          })
+        );
+      });
+    });
+
+    it('uses provided sourceMangaIds list instead of [incomingManga.id]', async () => {
+      const mergeSpy = vi.spyOn(api, 'mergeLibraryManga').mockResolvedValue({} as any);
+
+      renderDialog({
+        mode: 'merge',
+        incomingManga: mergeIncomingManga,
+        sourceMangaIds: ['other-1', 'other-2'],
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Merge Metadata')).toBeInTheDocument();
+      });
+
+      clickMergeSubmit();
+
+      await waitFor(() => {
+        expect(mergeSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            source_manga_ids: ['other-1', 'other-2'],
+          })
+        );
+      });
+    });
+
+    it('hides provider bindings section in import mode', async () => {
+      vi.spyOn(api, 'getProviderMangaDetails').mockResolvedValue(mockRemoteManga);
+
+      renderDialog({
+        initialProviderId: 'mangadex',
+        initialRemoteId: 'md-123',
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Compare & Import Metadata')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('Provider Bindings')).not.toBeInTheDocument();
     });
   });
 });

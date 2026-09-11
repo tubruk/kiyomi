@@ -26,6 +26,26 @@ const mockManga: Manga = {
   externalLinks: [
     { provider: 'anilist', label: 'AniList', url: 'https://anilist.co/manga/105778' },
   ],
+  metadata: {
+    title: 'Chainsaw Man',
+    aliases: ['CSM', 'Denji the Chainsaw'],
+    description: 'A boy merges with a chainsaw devil.',
+    authors: ['Tatsuki Fujimoto'],
+    artists: ['Tatsuki Fujimoto'],
+    tags: ['Action', 'Horror', 'Supernatural'],
+    collections: ['Shonen Jump', 'Top Rated'],
+    publishers: ['Shueisha', 'VIZ Media'],
+    releaseYear: 2018,
+    startDate: '2018-12-03',
+    endDate: '2020-12-14',
+    country: 'JP',
+    content_rating: 'mature',
+    externalLinks: [
+      { provider: 'anilist', label: 'AniList', url: 'https://anilist.co/manga/105778' },
+    ],
+  },
+  user_state: { status: 'reading', rating: 0, favorite: false, notes: '' },
+  bindings: { providers: [] },
 };
 
 const renderDialog = (

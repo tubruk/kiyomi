@@ -39,7 +39,8 @@ export const ReaderPage: React.FC = () => {
   const { showToast } = useToast();
 
   const mangaId = params.mangaId || searchParams.mangaId;
-  const providerId = params.providerId;
+  const rawProviderId = params.providerId;
+  const providerId = rawProviderId && rawProviderId !== 'chapters' ? rawProviderId : undefined;
   const remoteId = params.remoteId;
 
   const [showOverlays, setShowOverlays] = useState(true);
@@ -74,18 +75,17 @@ export const ReaderPage: React.FC = () => {
     enabled: Boolean(!effectiveMangaId && providerId && remoteId),
   });
   const manga = effectiveMangaId ? localManga : remoteManga;
-  const chapterProviderId =
+  const rawChapterProviderId =
     manga?.contentProviderId || manga?.meta?.content?.provider_id || providerId || '';
+  const chapterProviderId = rawChapterProviderId !== 'chapters' ? rawChapterProviderId : '';
 
   // Fetch chapter pages
   const {
     data: pagesData,
     isLoading: isPagesLoading,
     isError: isPagesError,
-  } = useChapterPages(chapterId, {
-    mangaId: effectiveMangaId || remoteId || undefined,
-    providerId: chapterProviderId || undefined,
-    enabled: Boolean(chapterId),
+  } = useChapterPages(effectiveMangaId || '', chapterId, {
+    enabled: Boolean(chapterId && effectiveMangaId),
   });
 
   const pages = pagesData?.pages || [];
@@ -177,8 +177,8 @@ export const ReaderPage: React.FC = () => {
       updateProgressMutation.mutate({
         mangaId: params.mangaId,
         chapterId: params.chapterId,
-        providerId: params.providerId || chapterProviderId || '',
-        progress: params.progress,
+        isRead: params.progress?.is_read,
+        lastReadPage: params.progress?.last_read_page,
       });
     },
   });
@@ -389,21 +389,21 @@ export const ReaderPage: React.FC = () => {
     if (nextIdx < pages.length) {
       const nextImg = new Image();
       const p = pages[nextIdx];
-      nextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
+      nextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, undefined, manga?.url);
     }
     const nextNextIdx = currentPage + 1;
     if (nextNextIdx < pages.length) {
       const nextNextImg = new Image();
       const p = pages[nextNextIdx];
-      nextNextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
+      nextNextImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, undefined, manga?.url);
     }
     const prevIdx = currentPage - 2;
     if (prevIdx >= 0) {
       const prevImg = new Image();
       const p = pages[prevIdx];
-      prevImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, chapterProviderId, manga?.url);
+      prevImg.src = getPageImageUrl(p, effectiveMangaId, chapterId, undefined, manga?.url);
     }
-  }, [currentPage, isPaged, pages, effectiveMangaId, chapterId, chapterProviderId, manga?.url]);
+  }, [currentPage, isPaged, pages, effectiveMangaId, chapterId, manga?.url]);
 
   const handlePageChange = (targetPage: number) => {
     if (targetPage !== currentPage) {
@@ -521,7 +521,6 @@ export const ReaderPage: React.FC = () => {
             pages={pages}
             effectiveMangaId={effectiveMangaId}
             chapterId={chapterId}
-            chapterProviderId={chapterProviderId}
             mangaUrl={manga?.url}
             fitMode={fitMode}
             hasPrevChapter={hasPrevChapter}
@@ -546,7 +545,6 @@ export const ReaderPage: React.FC = () => {
             pages={pages}
             effectiveMangaId={effectiveMangaId}
             chapterId={chapterId}
-            chapterProviderId={chapterProviderId}
             mangaUrl={manga?.url}
             fitMode={fitMode}
             pageRefs={pageRefs}

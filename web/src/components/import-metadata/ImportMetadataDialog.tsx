@@ -19,11 +19,14 @@ export const ImportMetadataDialog: React.FC<ImportMetadataDialogProps> = ({
   initialProviderId,
   initialRemoteId,
   onSuccess,
+  mode = 'import',
+  incomingManga,
+  sourceMangaIds,
 }) => {
-  const [step, setStep] = useState<DialogStep>('search');
+  const [step, setStep] = useState<DialogStep>(mode === 'merge' ? 'compare' : 'search');
 
   const handleClose = () => {
-    setStep('search');
+    setStep(mode === 'merge' ? 'compare' : 'search');
     searchState.resetSearchState();
     comparisonState.resetComparisonState();
     onOpenChange(false);
@@ -40,7 +43,7 @@ export const ImportMetadataDialog: React.FC<ImportMetadataDialogProps> = ({
   const searchState = useMetadataSearch({
     manga,
     sources,
-    open,
+    open: mode === 'merge' ? false : open,
     initialProviderId,
     initialRemoteId,
     onSelectRemoteManga: (remote) => {
@@ -58,15 +61,94 @@ export const ImportMetadataDialog: React.FC<ImportMetadataDialogProps> = ({
     selectedProviderId: searchState.selectedProviderId,
     onSuccess,
     onClose: handleClose,
+    mode,
+    incomingManga,
+    sourceMangaIds,
   });
 
   useEffect(() => {
     if (open) {
-      if (!initialProviderId || !initialRemoteId) {
+      if (mode === 'merge') {
+        setStep('compare');
+      } else if (!initialProviderId || !initialRemoteId) {
         setStep('search');
       }
     }
-  }, [open, initialProviderId, initialRemoteId]);
+  }, [open, initialProviderId, initialRemoteId, mode]);
+
+  // In merge mode we render only the comparison step (no search step, no back action).
+  if (mode === 'merge') {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          className={cn(
+            'sm:max-w-4xl md:max-w-4xl lg:max-w-5xl w-[95vw] max-h-[90vh] h-[85vh] p-0 overflow-hidden flex flex-col'
+          )}
+        >
+          <MetadataCompareStep
+            manga={manga}
+            selectedRemoteManga={comparisonState.selectedRemoteManga}
+            selectedProvider={searchState.selectedProvider}
+            diffOnly={comparisonState.diffOnly}
+            onSetDiffOnly={comparisonState.setDiffOnly}
+            onKeepCurrent={comparisonState.handleKeepCurrent}
+            onAcceptIncoming={comparisonState.handleAcceptIncoming}
+            onBack={handleClose}
+            onImport={() => comparisonState.importMutation.mutate()}
+            isImporting={comparisonState.importMutation.isPending}
+            currentValues={comparisonState.currentValues}
+            incomingValues={comparisonState.incomingValues}
+            diffs={comparisonState.diffs}
+            mergedExternalLinks={comparisonState.mergedExternalLinks}
+            selectedTitle={comparisonState.selectedTitle}
+            onSelectTitle={comparisonState.setSelectedTitle}
+            selectedCover={comparisonState.selectedCover}
+            onSelectCover={comparisonState.setSelectedCover}
+            selectedDescription={comparisonState.selectedDescription}
+            onSelectDescription={comparisonState.setSelectedDescription}
+            selectedAuthorsMode={comparisonState.selectedAuthorsMode}
+            onSelectAuthorsMode={comparisonState.setSelectedAuthorsMode}
+            selectedArtistsMode={comparisonState.selectedArtistsMode}
+            onSelectArtistsMode={comparisonState.setSelectedArtistsMode}
+            selectedPublishersMode={comparisonState.selectedPublishersMode}
+            onSelectPublishersMode={comparisonState.setSelectedPublishersMode}
+            selectedExternalLinksMode={comparisonState.selectedExternalLinksMode}
+            onSelectExternalLinksMode={comparisonState.setSelectedExternalLinksMode}
+            selectedProvidersMode={comparisonState.selectedProvidersMode}
+            onSelectProvidersMode={comparisonState.setSelectedProvidersMode}
+            selectedTags={comparisonState.selectedTags}
+            unselectedTags={comparisonState.unselectedTags}
+            tagInput={comparisonState.tagInput}
+            onTagInputChange={comparisonState.handleTagInputChange}
+            onTagInputKeyDown={comparisonState.handleTagInputKeyDown}
+            onAddTag={comparisonState.addTag}
+            onRemoveTag={comparisonState.removeTag}
+            onSetSelectedTags={comparisonState.setSelectedTags}
+            selectedAliases={comparisonState.selectedAliases}
+            unselectedAliases={comparisonState.unselectedAliases}
+            aliasInput={comparisonState.aliasInput}
+            onAliasInputChange={comparisonState.handleAliasInputChange}
+            onAliasInputKeyDown={comparisonState.handleAliasInputKeyDown}
+            onAddAlias={comparisonState.addAlias}
+            onRemoveAlias={comparisonState.removeAlias}
+            selectedReleaseYear={comparisonState.selectedReleaseYear}
+            onSelectReleaseYear={comparisonState.setSelectedReleaseYear}
+            selectedStartDate={comparisonState.selectedStartDate}
+            onSelectStartDate={comparisonState.setSelectedStartDate}
+            selectedEndDate={comparisonState.selectedEndDate}
+            onSelectEndDate={comparisonState.setSelectedEndDate}
+            selectedContentRating={comparisonState.selectedContentRating}
+            onSelectContentRating={comparisonState.setSelectedContentRating}
+            selectedCountry={comparisonState.selectedCountry}
+            onSelectCountry={comparisonState.setSelectedCountry}
+            selectedReadingMode={comparisonState.selectedReadingMode}
+            onSelectReadingMode={comparisonState.setSelectedReadingMode}
+            mode={mode}
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -139,6 +221,8 @@ export const ImportMetadataDialog: React.FC<ImportMetadataDialogProps> = ({
             onSelectPublishersMode={comparisonState.setSelectedPublishersMode}
             selectedExternalLinksMode={comparisonState.selectedExternalLinksMode}
             onSelectExternalLinksMode={comparisonState.setSelectedExternalLinksMode}
+            selectedProvidersMode={comparisonState.selectedProvidersMode}
+            onSelectProvidersMode={comparisonState.setSelectedProvidersMode}
             selectedTags={comparisonState.selectedTags}
             unselectedTags={comparisonState.unselectedTags}
             tagInput={comparisonState.tagInput}
@@ -166,6 +250,7 @@ export const ImportMetadataDialog: React.FC<ImportMetadataDialogProps> = ({
             onSelectCountry={comparisonState.setSelectedCountry}
             selectedReadingMode={comparisonState.selectedReadingMode}
             onSelectReadingMode={comparisonState.setSelectedReadingMode}
+            mode={mode}
           />
         )}
       </DialogContent>

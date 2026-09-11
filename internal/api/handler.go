@@ -191,39 +191,46 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	v1.GET("/library/manga/:mangaId", h.getLibraryManga)
 	v1.POST("/library/manga", h.createLibraryManga)
 	v1.POST("/library/manga/import", h.importProviderManga)
-	v1.POST("/library/manga/:mangaId/refresh", h.refreshLibraryManga)
+	v1.POST("/library/manga/merge", h.mergeLibraryManga)
 	v1.POST("/library/manga/:mangaId/pull", h.pullManga)
-	v1.PUT("/library/manga/:mangaId", h.updateLibraryManga)
 	v1.PATCH("/library/manga/:mangaId", h.patchLibraryManga)
 	v1.DELETE("/library/manga/:mangaId", h.deleteLibraryManga)
 
+	// Per-concern endpoints
+	v1.GET("/library/manga/:mangaId/metadata", h.getLibraryMetadata)
+	v1.PATCH("/library/manga/:mangaId/metadata", h.patchLibraryMetadata)
+	v1.GET("/library/manga/:mangaId/user_state", h.getLibraryUserState)
+	v1.PATCH("/library/manga/:mangaId/user_state", h.patchLibraryUserState)
+	v1.GET("/library/manga/:mangaId/bindings", h.getLibraryBindings)
+	v1.POST("/library/manga/:mangaId/metadata/refresh", h.refreshMetadata)
+
 	// Provider Bindings
-	v1.GET("/library/manga/:mangaId/providers", h.listProviders)
-	v1.POST("/library/manga/:mangaId/providers", h.addProvider)
-	v1.DELETE("/library/manga/:mangaId/providers/:providerId/:providerMangaId", h.removeProvider)
-	v1.PATCH("/library/manga/:mangaId/content", h.switchContentProvider)
+	v1.POST("/library/manga/:mangaId/bindings", h.addProvider)
+	v1.DELETE("/library/manga/:mangaId/bindings/:providerId/:providerMangaId", h.removeProvider)
+	v1.PATCH("/library/manga/:mangaId/bindings/content", h.switchContentProvider)
 
 	// Chapters & Pages
 	v1.GET("/library/manga/:mangaId/chapters", h.listChapters)
-	v1.GET("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId", h.getChapter)
-	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId", h.saveChapter)
-	v1.PATCH("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId/progress", h.patchChapterProgress)
-	v1.DELETE("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId", h.deleteChapter)
-	v1.DELETE("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId/files", h.deleteChapterFiles)
-	v1.GET("/chapters/:chapterId/pages", h.getChapterPages)
-	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/:chapterId/pull", h.pullChapter)
+	v1.POST("/library/manga/:mangaId/chapters", h.saveChapter)
+	v1.POST("/library/manga/:mangaId/chapters/:chapterId", h.saveChapter)
+	v1.GET("/library/manga/:mangaId/chapters/:chapterId", h.getChapter)
+	v1.DELETE("/library/manga/:mangaId/chapters/:chapterId", h.deleteChapter)
+	v1.PATCH("/library/manga/:mangaId/chapters/:chapterId/progress", h.patchChapterProgress)
+	v1.POST("/library/manga/:mangaId/chapters/:chapterId/pull", h.pullChapter)
+	v1.POST("/library/manga/:mangaId/chapters/:chapterId/refresh", h.refreshChapter)
+	v1.GET("/library/manga/:mangaId/chapters/:chapterId/files", h.getChapterFiles)
+	v1.DELETE("/library/manga/:mangaId/chapters/:chapterId/files", h.deleteChapterFiles)
+	v1.GET("/library/manga/:mangaId/chapters/:chapterId/pages", h.getChapterPages)
+	v1.GET("/library/manga/:mangaId/chapters/:chapterId/pages/:pageIndex", h.proxyPageImage)
 
-	// Batch Chapters Operations
-	v1.PATCH("/library/manga/:mangaId/providers/:providerId/chapters/progress", h.patchChaptersProgressBatch)
-	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/pull", h.pullChaptersBatch)
-	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/refresh", h.refreshChaptersBatch)
-	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/files/delete", h.deleteChapterFilesBatch)
-	v1.DELETE("/library/manga/:mangaId/providers/:providerId/chapters/files", h.deleteChapterFilesBatch)
-	v1.POST("/library/manga/:mangaId/providers/:providerId/chapters/delete", h.deleteChaptersBatch)
-	v1.DELETE("/library/manga/:mangaId/providers/:providerId/chapters", h.deleteChaptersBatch)
+	// Batch Chapter Operations (Zero-collision isolated namespace)
+	v1.POST("/library/manga/:mangaId/batch/chapters/progress", h.patchChaptersProgressBatch)
+	v1.POST("/library/manga/:mangaId/batch/chapters/pull", h.pullChaptersBatch)
+	v1.POST("/library/manga/:mangaId/batch/chapters/refresh", h.refreshChaptersBatch)
+	v1.POST("/library/manga/:mangaId/batch/chapters/delete", h.deleteChaptersBatch)
+	v1.POST("/library/manga/:mangaId/batch/chapter-files/delete", h.deleteChapterFilesBatch)
 
 	// Fingerprinted Page Image Reverse Proxy
-	v1.GET("/library/manga/:mangaId/chapters/:chapterId/pages/:pageIndex", h.proxyPageImage)
 	v1.GET("/proxy/image", h.proxyImageDirect)
 
 	// Background Jobs

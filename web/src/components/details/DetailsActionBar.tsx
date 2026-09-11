@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   Download,
   Edit3,
   Trash2,
+  GitMerge,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
@@ -17,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { MergeMangaDialog } from '@/components/merge-manga/MergeMangaDialog';
 import { Manga } from '../../types/api';
 
 export interface DetailsActionBarProps {
@@ -54,6 +56,9 @@ export const DetailsActionBar: React.FC<DetailsActionBarProps> = ({
   onOpenEditMetadata,
   onRemoveFromLibrary,
 }) => {
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const keepMangaId = targetMangaId || manga?.id || '';
+
   return (
     <div className="flex items-center justify-between gap-4">
       {/* Back link */}
@@ -141,6 +146,16 @@ export const DetailsActionBar: React.FC<DetailsActionBarProps> = ({
                       Edit Metadata
                     </DropdownMenuItem>
                   )}
+                  {!isRemoteRoute && keepMangaId && (
+                    <DropdownMenuItem
+                      onClick={() => setIsMergeOpen(true)}
+                      disabled={isAddingToLibrary}
+                      className="text-xs cursor-pointer gap-2"
+                    >
+                      <GitMerge className="size-4" />
+                      Merge with...
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     onClick={onRemoveFromLibrary}
                     className="text-destructive focus:text-destructive focus:bg-destructive/10 text-xs cursor-pointer gap-2"
@@ -154,6 +169,12 @@ export const DetailsActionBar: React.FC<DetailsActionBarProps> = ({
           </>
         )}
       </div>
+
+      <MergeMangaDialog
+        open={isMergeOpen}
+        onOpenChange={setIsMergeOpen}
+        keepMangaId={keepMangaId}
+      />
     </div>
   );
 };

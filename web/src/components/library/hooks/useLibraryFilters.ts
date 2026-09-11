@@ -72,7 +72,9 @@ export function useLibraryFilters({
       new Set(libraryManga.flatMap((m) => m.shelves || []))
     ).filter(Boolean);
     const tags = Array.from(
-      new Set(libraryManga.flatMap((m) => m.tags || m.genres || m.meta?.tags || []))
+      new Set(
+        libraryManga.flatMap((m) => m.metadata?.tags ?? m.tags ?? m.genres ?? [])
+      )
     ).sort();
     return { customShelves: shelves, allTags: tags };
   }, [libraryManga]);
@@ -98,11 +100,11 @@ export function useLibraryFilters({
       unread: 0,
     };
     for (const m of libraryManga) {
-      const st = m.userStatus || m.user_status || m.meta?.user_status || 'unread';
+      const st = m.user_state?.status ?? m.userStatus ?? m.user_status ?? m.meta?.user_status ?? 'unread';
       if (res[st] !== undefined) {
         res[st]++;
       }
-      if (m.userFavorite || m.user_favorite || m.meta?.user_favorite) {
+      if (m.user_state?.favorite ?? m.userFavorite ?? m.user_favorite ?? m.meta?.user_favorite) {
         res.favorites++;
       }
       if (m.shelves) {
@@ -118,8 +120,10 @@ export function useLibraryFilters({
   // Filtered and Sorted Manga List
   const filteredManga = useMemo(() => {
     const filtered = libraryManga.filter((manga) => {
-      const uStatus = manga.userStatus || manga.user_status || manga.meta?.user_status || 'unread';
-      const isFav = manga.userFavorite || manga.user_favorite || manga.meta?.user_favorite;
+      const uStatus =
+        manga.user_state?.status ?? manga.userStatus ?? manga.user_status ?? manga.meta?.user_status ?? 'unread';
+      const isFav =
+        manga.user_state?.favorite ?? manga.userFavorite ?? manga.user_favorite ?? manga.meta?.user_favorite;
 
       if (activeShelf === 'reading' && uStatus !== 'reading') return false;
       if (activeShelf === 'favorites' && !isFav) return false;
@@ -134,15 +138,17 @@ export function useLibraryFilters({
       }
 
       if (selectedTag) {
-        const mangaTags = manga.tags || manga.genres || manga.meta?.tags || [];
+        const mangaTags = manga.metadata?.tags ?? manga.tags ?? manga.genres ?? [];
         if (!mangaTags.includes(selectedTag)) return false;
       }
 
       if (deferredFilterSearch.trim()) {
         const q = deferredFilterSearch.toLowerCase();
-        const titleMatch = (manga.title || '').toLowerCase().includes(q);
+        const titleMatch = (manga.metadata?.title ?? manga.title ?? '').toLowerCase().includes(q);
         const authorList =
-          manga.authors || (manga.author ? [manga.author] : []) || manga.meta?.authors || [];
+          manga.metadata?.authors ??
+          manga.authors ??
+          (manga.author ? [manga.author] : []);
         const authorMatch = authorList.some((a) => a.toLowerCase().includes(q));
         if (!titleMatch && !authorMatch) return false;
       }
@@ -151,32 +157,50 @@ export function useLibraryFilters({
     });
 
     return [...filtered].sort((a, b) => {
+      const aTitle = a.metadata?.title ?? a.title ?? '';
+      const bTitle = b.metadata?.title ?? b.title ?? '';
       if (sortBy === 'title_asc') {
-        return (a.title || '').localeCompare(b.title || '');
+        return aTitle.localeCompare(bTitle);
       }
       if (sortBy === 'title_desc') {
-        return (b.title || '').localeCompare(a.title || '');
+        return bTitle.localeCompare(aTitle);
       }
       if (sortBy === 'rating_desc') {
-        const rA = a.userRating || a.user_rating || a.meta?.user_rating || 0;
-        const rB = b.userRating || b.user_rating || b.meta?.user_rating || 0;
+        const rA = a.user_state?.rating ?? a.userRating ?? a.user_rating ?? a.meta?.user_rating ?? 0;
+        const rB = b.user_state?.rating ?? b.userRating ?? b.user_rating ?? b.meta?.user_rating ?? 0;
         if (rB !== rA) return rB - rA;
-        return (a.title || '').localeCompare(b.title || '');
+        return aTitle.localeCompare(bTitle);
       }
       if (sortBy === 'rating_asc') {
-        const rA = a.userRating || a.user_rating || a.meta?.user_rating || 0;
-        const rB = b.userRating || b.user_rating || b.meta?.user_rating || 0;
+        const rA = a.user_state?.rating ?? a.userRating ?? a.user_rating ?? a.meta?.user_rating ?? 0;
+        const rB = b.user_state?.rating ?? b.userRating ?? b.user_rating ?? b.meta?.user_rating ?? 0;
         if (rA !== rB) return rA - rB;
-        return (a.title || '').localeCompare(b.title || '');
+        return aTitle.localeCompare(bTitle);
       }
       if (sortBy === 'added_desc') {
-        const tA = a.meta?.added_at ? new Date(a.meta.added_at).getTime() : 0;
-        const tB = b.meta?.added_at ? new Date(b.meta.added_at).getTime() : 0;
+        const tA = a.user_state?.added_at
+          ? new Date(a.user_state.added_at).getTime()
+          : a.meta?.added_at
+          ? new Date(a.meta.added_at).getTime()
+          : 0;
+        const tB = b.user_state?.added_at
+          ? new Date(b.user_state.added_at).getTime()
+          : b.meta?.added_at
+          ? new Date(b.meta.added_at).getTime()
+          : 0;
         return tB - tA;
       }
       if (sortBy === 'updated_desc') {
-        const tA = a.meta?.updated_at ? new Date(a.meta.updated_at).getTime() : 0;
-        const tB = b.meta?.updated_at ? new Date(b.meta.updated_at).getTime() : 0;
+        const tA = a.user_state?.updated_at
+          ? new Date(a.user_state.updated_at).getTime()
+          : a.meta?.updated_at
+          ? new Date(a.meta.updated_at).getTime()
+          : 0;
+        const tB = b.user_state?.updated_at
+          ? new Date(b.user_state.updated_at).getTime()
+          : b.meta?.updated_at
+          ? new Date(b.meta.updated_at).getTime()
+          : 0;
         return tB - tA;
       }
       return 0;

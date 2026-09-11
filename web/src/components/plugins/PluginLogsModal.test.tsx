@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PluginLogsModal } from './DiagnosticLogsModal';
 import { api } from '../../api/client';
@@ -67,6 +67,10 @@ describe('PluginLogsModal', () => {
         writeText: vi.fn().mockResolvedValue(undefined),
       },
     });
+  });
+
+  afterEach(() => {
+    queryClient.clear();
   });
 
   const renderModal = (

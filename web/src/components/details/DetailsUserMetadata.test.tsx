@@ -10,6 +10,23 @@ const mockManga: Manga = {
   userRating: 8,
   userFavorite: true,
   userNotes: 'Great arc!',
+  metadata: {
+    title: 'Chainsaw Man',
+    aliases: [],
+    description: '',
+    authors: [],
+    artists: [],
+    tags: [],
+    collections: [],
+    publishers: [],
+  },
+  user_state: {
+    status: 'reading',
+    rating: 8,
+    favorite: true,
+    notes: 'Great arc!',
+  },
+  bindings: { providers: [] },
 };
 
 describe('DetailsUserMetadata', () => {

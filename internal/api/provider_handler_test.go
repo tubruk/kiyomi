@@ -482,35 +482,36 @@ func TestImportProviderManga_PreservesChapterMeta(t *testing.T) {
 	}
 
 	var importResp struct {
-		ID   string            `json:"id"`
-		Meta library.MangaMeta `json:"meta"`
+		ID       string                `json:"id"`
+		Metadata library.MangaMetadata `json:"metadata"`
+		Bindings library.MangaBindings `json:"bindings"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &importResp); err != nil {
 		t.Fatalf("failed to decode import response: %v", err)
 	}
-	if len(importResp.Meta.Authors) != 1 || importResp.Meta.Authors[0] != "Mock Author" {
-		t.Errorf("expected import response Authors ['Mock Author'], got %v", importResp.Meta.Authors)
+	if len(importResp.Metadata.Authors) != 1 || importResp.Metadata.Authors[0] != "Mock Author" {
+		t.Errorf("expected import response Authors ['Mock Author'], got %v", importResp.Metadata.Authors)
 	}
-	if len(importResp.Meta.Artists) != 1 || importResp.Meta.Artists[0] != "Mock Artist" {
-		t.Errorf("expected import response Artists ['Mock Artist'], got %v", importResp.Meta.Artists)
+	if len(importResp.Metadata.Artists) != 1 || importResp.Metadata.Artists[0] != "Mock Artist" {
+		t.Errorf("expected import response Artists ['Mock Artist'], got %v", importResp.Metadata.Artists)
 	}
-	if len(importResp.Meta.Tags) != 2 || importResp.Meta.Tags[0] != "Action" || importResp.Meta.Tags[1] != "Fantasy" {
-		t.Errorf("expected import response Tags ['Action', 'Fantasy'], got %v", importResp.Meta.Tags)
+	if len(importResp.Metadata.Tags) != 2 || importResp.Metadata.Tags[0] != "Action" || importResp.Metadata.Tags[1] != "Fantasy" {
+		t.Errorf("expected import response Tags ['Action', 'Fantasy'], got %v", importResp.Metadata.Tags)
 	}
-	if len(importResp.Meta.Publishers) != 1 || importResp.Meta.Publishers[0] != "Mock Publisher" {
-		t.Errorf("expected import response Publishers ['Mock Publisher'], got %v", importResp.Meta.Publishers)
+	if len(importResp.Metadata.Publishers) != 1 || importResp.Metadata.Publishers[0] != "Mock Publisher" {
+		t.Errorf("expected import response Publishers ['Mock Publisher'], got %v", importResp.Metadata.Publishers)
 	}
-	if importResp.Meta.ReleaseYear != 2022 || importResp.Meta.StartDate != "2022-01-01" || importResp.Meta.EndDate != "2023-01-01" || importResp.Meta.Country != "JP" {
-		t.Errorf("unexpected import response date/country: %+v", importResp.Meta)
+	if importResp.Metadata.ReleaseYear != 2022 || importResp.Metadata.StartDate != "2022-01-01" || importResp.Metadata.EndDate != "2023-01-01" || importResp.Metadata.Country != "JP" {
+		t.Errorf("unexpected import response date/country: %+v", importResp.Metadata)
 	}
-	if importResp.Meta.Content == nil || importResp.Meta.Content.ReadingMode != "longstrip" {
-		t.Errorf("expected import response Content.ReadingMode 'longstrip', got %+v", importResp.Meta.Content)
+	if importResp.Bindings.Content == nil || importResp.Bindings.Content.ReadingMode != "longstrip" {
+		t.Errorf("expected import response Content.ReadingMode 'longstrip', got %+v", importResp.Bindings.Content)
 	}
-	if len(importResp.Meta.ExternalLinks) != 1 {
-		t.Fatalf("expected 1 external link in import response, got %d", len(importResp.Meta.ExternalLinks))
+	if len(importResp.Metadata.ExternalLinks) != 1 {
+		t.Fatalf("expected 1 external link in import response, got %d", len(importResp.Metadata.ExternalLinks))
 	}
-	if importResp.Meta.ExternalLinks[0].Provider != "testprov" || importResp.Meta.ExternalLinks[0].Label != "Test Provider" || importResp.Meta.ExternalLinks[0].URL != "https://example.com/manga/mock-1" {
-		t.Errorf("unexpected external link in import response: %+v", importResp.Meta.ExternalLinks[0])
+	if importResp.Metadata.ExternalLinks[0].Provider != "testprov" || importResp.Metadata.ExternalLinks[0].Label != "Test Provider" || importResp.Metadata.ExternalLinks[0].URL != "https://example.com/manga/mock-1" {
+		t.Errorf("unexpected external link in import response: %+v", importResp.Metadata.ExternalLinks[0])
 	}
 
 	// Verify manga endpoint returns reading_mode
@@ -533,13 +534,13 @@ func TestImportProviderManga_PreservesChapterMeta(t *testing.T) {
 	if !ok || len(topExtLinksCamel) != 1 {
 		t.Fatalf("expected 1 top-level externalLinks in getMangaResp, got %v", getMangaResp["externalLinks"])
 	}
-	metaMap, ok := getMangaResp["meta"].(map[string]interface{})
+	metaMap, ok := getMangaResp["metadata"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("expected meta map in getMangaResp, got %v", getMangaResp)
+		t.Fatalf("expected metadata map in getMangaResp, got %v", getMangaResp)
 	}
 	extLinks, ok := metaMap["external_links"].([]interface{})
 	if !ok || len(extLinks) != 1 {
-		t.Fatalf("expected 1 external_link in meta, got %v", metaMap["external_links"])
+		t.Fatalf("expected 1 external_link in metadata, got %v", metaMap["external_links"])
 	}
 	extLinkMap := extLinks[0].(map[string]interface{})
 	if extLinkMap["provider"] != "testprov" || extLinkMap["label"] != "Test Provider" || extLinkMap["url"] != "https://example.com/manga/mock-1" {
@@ -612,32 +613,32 @@ func TestImportProviderManga_PersistsExpandedMetadata(t *testing.T) {
 		t.Fatalf("failed to retrieve stored manga from library: %v", err)
 	}
 
-	if len(storedMeta.Publishers) != 1 || storedMeta.Publishers[0] != "Mock Publisher" {
-		t.Errorf("expected stored Publishers ['Mock Publisher'], got %v", storedMeta.Publishers)
+	if len(storedMeta.Metadata.Publishers) != 1 || storedMeta.Metadata.Publishers[0] != "Mock Publisher" {
+		t.Errorf("expected stored Publishers ['Mock Publisher'], got %v", storedMeta.Metadata.Publishers)
 	}
-	if storedMeta.StartDate != "2022-01-01" {
-		t.Errorf("expected stored StartDate '2022-01-01', got %q", storedMeta.StartDate)
+	if storedMeta.Metadata.StartDate != "2022-01-01" {
+		t.Errorf("expected stored StartDate '2022-01-01', got %q", storedMeta.Metadata.StartDate)
 	}
-	if storedMeta.EndDate != "2023-01-01" {
-		t.Errorf("expected stored EndDate '2023-01-01', got %q", storedMeta.EndDate)
+	if storedMeta.Metadata.EndDate != "2023-01-01" {
+		t.Errorf("expected stored EndDate '2023-01-01', got %q", storedMeta.Metadata.EndDate)
 	}
-	if storedMeta.Country != "JP" {
-		t.Errorf("expected stored Country 'JP', got %q", storedMeta.Country)
+	if storedMeta.Metadata.Country != "JP" {
+		t.Errorf("expected stored Country 'JP', got %q", storedMeta.Metadata.Country)
 	}
-	if storedMeta.ReleaseYear != 2022 {
-		t.Errorf("expected stored ReleaseYear 2022, got %d", storedMeta.ReleaseYear)
+	if storedMeta.Metadata.ReleaseYear != 2022 {
+		t.Errorf("expected stored ReleaseYear 2022, got %d", storedMeta.Metadata.ReleaseYear)
 	}
-	if len(storedMeta.Authors) != 1 || storedMeta.Authors[0] != "Mock Author" {
-		t.Errorf("expected stored Authors ['Mock Author'], got %v", storedMeta.Authors)
+	if len(storedMeta.Metadata.Authors) != 1 || storedMeta.Metadata.Authors[0] != "Mock Author" {
+		t.Errorf("expected stored Authors ['Mock Author'], got %v", storedMeta.Metadata.Authors)
 	}
-	if len(storedMeta.Artists) != 1 || storedMeta.Artists[0] != "Mock Artist" {
-		t.Errorf("expected stored Artists ['Mock Artist'], got %v", storedMeta.Artists)
+	if len(storedMeta.Metadata.Artists) != 1 || storedMeta.Metadata.Artists[0] != "Mock Artist" {
+		t.Errorf("expected stored Artists ['Mock Artist'], got %v", storedMeta.Metadata.Artists)
 	}
-	if len(storedMeta.Tags) != 2 || storedMeta.Tags[0] != "Action" || storedMeta.Tags[1] != "Fantasy" {
-		t.Errorf("expected stored Tags ['Action', 'Fantasy'], got %v", storedMeta.Tags)
+	if len(storedMeta.Metadata.Tags) != 2 || storedMeta.Metadata.Tags[0] != "Action" || storedMeta.Metadata.Tags[1] != "Fantasy" {
+		t.Errorf("expected stored Tags ['Action', 'Fantasy'], got %v", storedMeta.Metadata.Tags)
 	}
-	if len(storedMeta.Aliases) != 1 || storedMeta.Aliases[0] != "Mock Manga Details Alt" {
-		t.Errorf("expected stored Aliases ['Mock Manga Details Alt'], got %v", storedMeta.Aliases)
+	if len(storedMeta.Metadata.Aliases) != 1 || storedMeta.Metadata.Aliases[0] != "Mock Manga Details Alt" {
+		t.Errorf("expected stored Aliases ['Mock Manga Details Alt'], got %v", storedMeta.Metadata.Aliases)
 	}
 }
 
@@ -860,17 +861,17 @@ func TestImportProviderManga_ExternalLinks(t *testing.T) {
 		}
 
 		var importResp struct {
-			ID   string            `json:"id"`
-			Meta library.MangaMeta `json:"meta"`
+			ID       string                `json:"id"`
+			Metadata library.MangaMetadata `json:"metadata"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &importResp); err != nil {
 			t.Fatalf("failed to decode import response: %v", err)
 		}
 
-		if len(importResp.Meta.ExternalLinks) != 1 {
-			t.Fatalf("expected 1 external link, got %d", len(importResp.Meta.ExternalLinks))
+		if len(importResp.Metadata.ExternalLinks) != 1 {
+			t.Fatalf("expected 1 external link, got %d", len(importResp.Metadata.ExternalLinks))
 		}
-		link := importResp.Meta.ExternalLinks[0]
+		link := importResp.Metadata.ExternalLinks[0]
 		if link.Provider != "testprov" || link.Label != "Test Provider" || link.URL != "https://example.com/manga/mock-with-url" {
 			t.Errorf("unexpected external link: %+v", link)
 		}
@@ -879,11 +880,11 @@ func TestImportProviderManga_ExternalLinks(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetManga failed: %v", err)
 		}
-		if len(stored.ExternalLinks) != 1 {
-			t.Fatalf("expected 1 stored external link, got %d", len(stored.ExternalLinks))
+		if len(stored.Metadata.ExternalLinks) != 1 {
+			t.Fatalf("expected 1 stored external link, got %d", len(stored.Metadata.ExternalLinks))
 		}
-		if stored.ExternalLinks[0].Provider != "testprov" || stored.ExternalLinks[0].Label != "Test Provider" || stored.ExternalLinks[0].URL != "https://example.com/manga/mock-with-url" {
-			t.Errorf("unexpected stored external link: %+v", stored.ExternalLinks[0])
+		if stored.Metadata.ExternalLinks[0].Provider != "testprov" || stored.Metadata.ExternalLinks[0].Label != "Test Provider" || stored.Metadata.ExternalLinks[0].URL != "https://example.com/manga/mock-with-url" {
+			t.Errorf("unexpected stored external link: %+v", stored.Metadata.ExternalLinks[0])
 		}
 	})
 
@@ -903,23 +904,23 @@ func TestImportProviderManga_ExternalLinks(t *testing.T) {
 		}
 
 		var importResp struct {
-			ID   string            `json:"id"`
-			Meta library.MangaMeta `json:"meta"`
+			ID       string                `json:"id"`
+			Metadata library.MangaMetadata `json:"metadata"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &importResp); err != nil {
 			t.Fatalf("failed to decode import response: %v", err)
 		}
 
-		if len(importResp.Meta.ExternalLinks) != 0 {
-			t.Errorf("expected 0 external links, got %d", len(importResp.Meta.ExternalLinks))
+		if len(importResp.Metadata.ExternalLinks) != 0 {
+			t.Errorf("expected 0 external links, got %d", len(importResp.Metadata.ExternalLinks))
 		}
 
 		stored, err := h.lib.GetManga("mock-without-url")
 		if err != nil {
 			t.Fatalf("GetManga failed: %v", err)
 		}
-		if len(stored.ExternalLinks) != 0 {
-			t.Errorf("expected 0 stored external links, got %d", len(stored.ExternalLinks))
+		if len(stored.Metadata.ExternalLinks) != 0 {
+			t.Errorf("expected 0 stored external links, got %d", len(stored.Metadata.ExternalLinks))
 		}
 	})
 }
@@ -1035,28 +1036,36 @@ func TestProviderMangaDetails_LibraryBindingID(t *testing.T) {
 	h.registry.Register(mockDex)
 
 	// Cross-provider: primary mangafox/frieren (distinct from one-piece), Providers[] has mangadex/md-frieren
-	crossMeta := &library.MangaMeta{
-		Title:       "Frieren",
-		Aliases:     []string{},
-		Description: " mage human.",
-		Content: &library.ContentSource{
-			ProviderID:      "mangafox",
-			ProviderMangaID: "frieren",
+	crossMeta := library.Manga{
+		Metadata: library.MangaMetadata{
+			Title:       "Frieren",
+			Aliases:     []string{},
+			Description: " mage human.",
 		},
-		Providers: []library.ProviderRef{
-			{ProviderID: "mangadex", ProviderMangaID: "md-frieren", MangaTitle: "Frieren"},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID:      "mangafox",
+				ProviderMangaID: "frieren",
+			},
+			Providers: []library.ProviderRef{
+				{ProviderID: "mangadex", ProviderMangaID: "md-frieren", MangaTitle: "Frieren"},
+			},
 		},
 	}
 	_ = h.lib.SaveManga("frieren-lib-id", crossMeta)
 
 	// Primary-only: mangafox/one-piece
-	primaryMeta := &library.MangaMeta{
-		Title:       "One Piece",
-		Aliases:     []string{},
-		Description: "Pirate king.",
-		Content: &library.ContentSource{
-			ProviderID:      "mangafox",
-			ProviderMangaID: "one-piece",
+	primaryMeta := library.Manga{
+		Metadata: library.MangaMetadata{
+			Title:       "One Piece",
+			Aliases:     []string{},
+			Description: "Pirate king.",
+		},
+		Bindings: library.MangaBindings{
+			Content: &library.ContentSource{
+				ProviderID:      "mangafox",
+				ProviderMangaID: "one-piece",
+			},
 		},
 	}
 	_ = h.lib.SaveManga("onepiece-lib-id", primaryMeta)

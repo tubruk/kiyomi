@@ -31,9 +31,7 @@ Given('the manga has {string} chapters', async function (countStr: string) {
   if (chapters.length > count) {
     const toDelete = chapters.slice(count);
     for (const ch of toDelete) {
-      const providerId = ch.provider_id ?? ch.meta?.provider_id ?? manga.meta?.content?.provider_id;
-      if (!providerId) throw new Error(`chapter ${ch.id} has no provider_id; cannot delete`);
-      await axios.delete(`${base}/api/v1/library/manga/${mangaId}/providers/${providerId}/chapters/${ch.id}`);
+      await axios.delete(`${base}/api/v1/library/manga/${mangaId}/chapters/${ch.id}`);
     }
   }
 

@@ -26,6 +26,25 @@ const mockManga: Manga = {
   tags: ['Action', 'Supernatural'],
   shelves: ['Shonen'],
   externalLinks: [{ provider: 'anilist', label: 'AniList', url: 'https://anilist.co' }],
+  metadata: {
+    title: 'Bleach',
+    aliases: ['Kurosaki'],
+    description: 'Soul reaper story',
+    authors: ['Tite Kubo'],
+    artists: ['Tite Kubo'],
+    tags: ['Action', 'Supernatural'],
+    collections: ['Shonen'],
+    publishers: ['Shueisha', 'VIZ Media'],
+  },
+  user_state: {
+    status: 'reading',
+    rating: 0,
+    favorite: false,
+    notes: '',
+  },
+  bindings: {
+    providers: [],
+  },
 };
 
 describe('useEditMetadataForm', () => {
@@ -79,6 +98,25 @@ describe('useEditMetadataForm', () => {
       end_date: '2024-01-01',
       release_year: 1997,
       country: 'JP',
+      metadata: {
+        title: 'One Piece',
+        aliases: [],
+        description: '',
+        authors: [],
+        artists: [],
+        tags: [],
+        collections: [],
+        publishers: [],
+      },
+      user_state: {
+        status: 'reading',
+        rating: 0,
+        favorite: false,
+        notes: '',
+      },
+      bindings: {
+        providers: [],
+      },
     };
 
     const { result } = renderHook(() =>
@@ -103,19 +141,34 @@ describe('useEditMetadataForm', () => {
     const metaManga: Manga = {
       id: 'm-meta',
       title: 'Meta Manga',
-      meta: {
+      readingDirection: 'vertical',
+      metadata: {
+        title: 'Meta Manga',
         aliases: ['Meta Title Alternate'],
+        description: '',
         authors: ['Meta Author'],
         artists: ['Meta Artist'],
         publishers: ['Meta Publisher 1', 'Meta Publisher 2'],
         tags: ['Cyberpunk', 'Sci-Fi'],
         collections: ['Reading List'],
         start_date: '2022-03-01',
+        startDate: '2022-03-01',
         end_date: '2023-04-01',
+        endDate: '2023-04-01',
         release_year: 2022,
+        releaseYear: 2022,
         content_rating: 'mature',
+        contentRating: 'mature',
         country: 'KR',
-        reading_direction: 'vertical',
+      },
+      user_state: {
+        status: 'reading',
+        rating: 0,
+        favorite: false,
+        notes: '',
+      },
+      bindings: {
+        providers: [],
       },
     };
 
@@ -145,8 +198,28 @@ describe('useEditMetadataForm', () => {
     const metaSinglePublisherManga: Manga = {
       id: 'm-single-pub',
       title: 'Solo Manga',
+      publisher: 'Square Enix',
+      metadata: {
+        title: 'Solo Manga',
+        aliases: [],
+        description: '',
+        authors: [],
+        artists: [],
+        tags: [],
+        collections: [],
+        publishers: [],
+      },
       meta: {
         publisher: 'Square Enix',
+      },
+      user_state: {
+        status: 'reading',
+        rating: 0,
+        favorite: false,
+        notes: '',
+      },
+      bindings: {
+        providers: [],
       },
     };
 
