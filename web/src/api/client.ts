@@ -207,6 +207,16 @@ export const api = {
     return fetchAPI<ChapterListResponse>(`/providers/${providerId}/manga/${encodeURIComponent(remoteId)}/chapters`);
   },
 
+  getProviderChapterPages: (
+    providerId: string,
+    remoteId: string,
+    chapterId: string
+  ): Promise<PageListResponse> => {
+    return fetchAPI<PageListResponse>(
+      `/providers/${encodeURIComponent(providerId)}/manga/${encodeURIComponent(remoteId)}/chapters/${encodeURIComponent(chapterId)}/pages`
+    );
+  },
+
   // Central Local Library Manga
   getLibraryMangas: async (): Promise<Manga[]> => {
     const res = await fetchAPI<any>('/library/manga');

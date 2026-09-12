@@ -1242,6 +1242,7 @@ func (h *Handler) addProvider(c echo.Context) error {
 		ProviderMangaID string `json:"provider_manga_id"`
 		MangaTitle      string `json:"manga_title"`
 		SetAsContent    bool   `json:"set_as_content"`
+		ReadingMode     string `json:"reading_mode,omitempty"`
 	}
 	if err := c.Bind(&body); err != nil {
 		c.Set("handler_error", err.Error())
@@ -1275,7 +1276,7 @@ func (h *Handler) addProvider(c echo.Context) error {
 		if title == "" {
 			title = info.Metadata.Title
 		}
-		if err := h.lib.SwitchContentProvider(mangaID, body.ProviderID, body.ProviderMangaID, title); err != nil {
+		if err := h.lib.SwitchContentProvider(mangaID, body.ProviderID, body.ProviderMangaID, title, ""); err != nil {
 			c.Set("handler_error", err.Error())
 			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 		}
@@ -1336,6 +1337,7 @@ func (h *Handler) switchContentProvider(c echo.Context) error {
 	var body struct {
 		ProviderID      string `json:"provider_id"`
 		ProviderMangaID string `json:"provider_manga_id"`
+		ReadingMode     string `json:"reading_mode,omitempty"`
 	}
 	if err := c.Bind(&body); err != nil {
 		c.Set("handler_error", err.Error())
@@ -1350,7 +1352,7 @@ func (h *Handler) switchContentProvider(c echo.Context) error {
 	}
 
 	// Verify provider exists in providers list or let it be added
-	if err := h.lib.SwitchContentProvider(mangaID, body.ProviderID, body.ProviderMangaID, info.Metadata.Title); err != nil {
+	if err := h.lib.SwitchContentProvider(mangaID, body.ProviderID, body.ProviderMangaID, info.Metadata.Title, body.ReadingMode); err != nil {
 		c.Set("handler_error", err.Error())
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}

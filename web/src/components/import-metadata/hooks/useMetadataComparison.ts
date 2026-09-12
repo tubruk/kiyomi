@@ -561,6 +561,20 @@ export const useMetadataComparison = ({
         provider_manga_id: providerMangaId,
         manga_title: selectedRemoteManga!.title || incomingValues.title,
       };
+
+      // 3. Update reading_mode on content binding (per-concern endpoint)
+      if (
+        selectedReadingMode === 'incoming' &&
+        incomingValues.readingMode &&
+        incomingValues.readingMode.toLowerCase() !== currentValues.readingMode.toLowerCase()
+      ) {
+        await api.setActiveContentSource(manga.id, {
+          provider_id: selectedProviderId!,
+          provider_manga_id: providerMangaId,
+          reading_mode: incomingValues.readingMode,
+        });
+      }
+
       return api.addBinding(manga.id, ref);
     },
     onSuccess: (result) => {

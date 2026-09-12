@@ -203,6 +203,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	v1.PATCH("/library/manga/:mangaId/user_state", h.patchLibraryUserState)
 	v1.GET("/library/manga/:mangaId/bindings", h.getLibraryBindings)
 	v1.POST("/library/manga/:mangaId/metadata/refresh", h.refreshMetadata)
+	v1.POST("/library/manga/:mangaId/refresh", h.refreshLibraryManga)
 
 	// Provider Bindings
 	v1.POST("/library/manga/:mangaId/bindings", h.addProvider)

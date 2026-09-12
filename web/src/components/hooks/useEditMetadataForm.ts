@@ -177,41 +177,43 @@ export function useEditMetadataForm({
     (e: React.FormEvent) => {
       e.preventDefault();
 
-      const payload: Partial<Manga> = {
-        ...manga,
-        title,
-        aliases,
-        description,
-        authors,
-        artists,
-        publishers,
-        publisher: publishers.length > 0 ? publishers[0] : '',
-        content: {
-          ...(manga.bindings?.content || manga.content),
-          provider_id:
-            manga.bindings?.content?.provider_id ||
-            manga.content?.provider_id ||
-            manga.contentProviderId ||
-            manga.sourceId ||
-            '',
-          reading_mode: readingMode,
+      const payload: Record<string, any> = {
+        metadata: {
+          title,
+          aliases,
+          description,
+          authors,
+          artists,
+          publishers,
+          publisher: publishers.length > 0 ? publishers[0] : '',
+          contentRating,
+          content_rating: contentRating,
+          releaseYear: Number(releaseYear) || 0,
+          release_year: Number(releaseYear) || 0,
+          startDate,
+          start_date: startDate,
+          endDate,
+          end_date: endDate,
+          country,
+          tags,
+          shelves,
+          collections: shelves,
+          externalLinks: externalLinks.filter((l) => l.url.trim() !== ''),
+          external_links: externalLinks.filter((l) => l.url.trim() !== ''),
         },
-        readingMode,
-        reading_mode: readingMode,
-        readingDirection: readingMode,
-        contentRating,
-        content_rating: contentRating,
-        releaseYear: Number(releaseYear) || 0,
-        release_year: Number(releaseYear) || 0,
-        startDate,
-        start_date: startDate,
-        endDate,
-        end_date: endDate,
-        country,
-        tags,
-        shelves,
-        collections: shelves,
-        externalLinks: externalLinks.filter((l) => l.url.trim() !== ''),
+        bindings: {
+          ...(manga.bindings || {}),
+          content: {
+            ...(manga.bindings?.content || manga.content || {}),
+            provider_id:
+              manga.bindings?.content?.provider_id ||
+              manga.content?.provider_id ||
+              manga.contentProviderId ||
+              manga.sourceId ||
+              '',
+            reading_mode: readingMode,
+          },
+        },
       };
 
       updateMutation.mutate(

@@ -60,15 +60,15 @@ Then('the chapter list updates', async function () {
 
 Then('new chapters are added to the list', async function () {
   const { page } = getWorld();
-  const chapters = await page.locator('[class*="rounded-lg"][class*="border-border"][class*="bg-card"]:has(a)').count();
-  expect(chapters).toBe(5);
+  // Wait for React Query refetch to populate the new chapters after refresh completes.
+  const chapters = page.locator('[class*="rounded-lg"][class*="border-border"][class*="bg-card"]:has(a)');
+  await expect(chapters).toHaveCount(5, { timeout: 10000 });
 });
 
 Then('I am notified about the new chapters', async function () {
   const { page } = getWorld();
-  const toast = page.locator('[role="status"], [class*="toast"], :has-text("Refresh complete")').first();
-  await expect(toast).toBeVisible({ timeout: 5000 });
-  await expect(toast).toContainText('Refresh complete');
+  await expect(page.getByText('Refresh complete', { exact: false }).first())
+    .toBeVisible({ timeout: 5000 });
 });
 
 Given('the manga is up to date with the provider', async function () {
@@ -77,15 +77,13 @@ Given('the manga is up to date with the provider', async function () {
 
 Then('I see a message {string}', async function (msg: string) {
   const { page } = getWorld();
-  const toast = page.locator(`[role="status"], [class*="toast"], :has-text("${msg}")`).first();
-  await expect(toast).toBeVisible({ timeout: 5000 });
-  await expect(toast).toContainText(msg);
+  await expect(page.getByText(msg, { exact: true }).first()).toBeVisible({ timeout: 5000 });
 });
 
 Then('the chapter list is unchanged', async function () {
   const { page } = getWorld();
-  const chapters = await page.locator('[class*="rounded-lg"][class*="border-border"][class*="bg-card"]:has(a)').count();
-  expect(chapters).toBe(5);
+  const chapters = page.locator('[class*="rounded-lg"][class*="border-border"][class*="bg-card"]:has(a)');
+  await expect(chapters).toHaveCount(5, { timeout: 10000 });
 });
 
 Given('the provider has removed some chapters', async function () {

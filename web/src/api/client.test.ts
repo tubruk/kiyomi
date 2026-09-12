@@ -268,4 +268,27 @@ describe('API Client - Zero-Collision Endpoints', () => {
       expect(result).toEqual(providers);
     });
   });
+
+  describe('Provider chapter endpoints', () => {
+    it('getProviderChapterPages calls GET /providers/:providerId/manga/:remoteId/chapters/:chapterId/pages', async () => {
+      const providerId = 'mock-provider';
+      const remoteId = 'remote-123';
+      const chapterId = 'ch-456';
+      const pagesData = {
+        pages: [
+          { index: 1, url: 'https://example.com/p1.jpg' },
+          { index: 2, url: 'https://example.com/p2.jpg' },
+        ],
+      };
+      mockJsonResponse(pagesData);
+
+      const result = await api.getProviderChapterPages(providerId, remoteId, chapterId);
+
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      const [url, init] = vi.mocked(global.fetch).mock.calls[0];
+      expect(url).toBe(`/api/v1/providers/${providerId}/manga/${remoteId}/chapters/${chapterId}/pages`);
+      expect(init?.method ?? 'GET').toBe('GET');
+      expect(result).toEqual(pagesData);
+    });
+  });
 });

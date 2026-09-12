@@ -38,6 +38,8 @@ export const queryKeys = {
       [...queryKeys.chapters.all, mangaId, 'provider', providerId] as const,
     remoteList: (providerId: string, remoteId: string) =>
       [...queryKeys.chapters.all, 'remote', providerId, remoteId] as const,
+    remotePages: (providerId: string, remoteId: string, chapterId: string) =>
+      [...queryKeys.chapters.all, 'remote', providerId, remoteId, 'chapter', chapterId, 'pages'] as const,
     pages: (chapterId: string, mangaId?: string, providerId?: string) =>
       [...queryKeys.chapters.all, 'pages', chapterId, ...(mangaId ? [mangaId] : []), ...(providerId ? [providerId] : [])] as const,
   },

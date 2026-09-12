@@ -1061,7 +1061,7 @@ func TestSwitchContentProvider(t *testing.T) {
 	}
 
 	// Switch to mangafox (already in providers)
-	if err := lib.SwitchContentProvider(mangaID, "mangafox", "mf-456", ""); err != nil {
+	if err := lib.SwitchContentProvider(mangaID, "mangafox", "mf-456", "", ""); err != nil {
 		t.Fatalf("failed to switch content provider: %v", err)
 	}
 
@@ -1075,7 +1075,7 @@ func TestSwitchContentProvider(t *testing.T) {
 	}
 
 	// Switch to mangadex (existing provider in list)
-	if err := lib.SwitchContentProvider(mangaID, "mangadex", "md-123", ""); err != nil {
+	if err := lib.SwitchContentProvider(mangaID, "mangadex", "md-123", "", ""); err != nil {
 		t.Fatalf("failed to switch back to existing provider: %v", err)
 	}
 

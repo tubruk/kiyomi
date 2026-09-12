@@ -6,6 +6,7 @@ import {
   useMergeLibraryMangaMutation,
   useUpdateChapterProgressMutation,
   useChapterPages,
+  useProviderChapterPages,
   useBatchUpdateChapterProgressMutation,
   useBatchPullChaptersMutation,
   useBatchRefreshChaptersMutation,
@@ -250,6 +251,43 @@ describe('useChapterPages', () => {
 
     expect(api.getChapterPages).toHaveBeenCalledTimes(1);
     expect(api.getChapterPages).toHaveBeenCalledWith('m1', 'c1');
+    expect(result.current.data?.pages).toHaveLength(2);
+  });
+});
+
+describe('useProviderChapterPages', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+    vi.spyOn(api, 'getProviderChapterPages').mockResolvedValue({
+      pages: [
+        { index: 1, url: 'https://example.com/p1.jpg' },
+        { index: 2, url: 'https://example.com/p2.jpg' },
+      ],
+    });
+  });
+
+  const createWrapper = () => ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children);
+
+  it('fetches remote chapter pages using providerId, remoteId, chapterId', async () => {
+    const { result } = renderHook(
+      () => useProviderChapterPages('mock-provider', 'remote-1', 'c1', { enabled: true }),
+      { wrapper: createWrapper() }
+    );
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(api.getProviderChapterPages).toHaveBeenCalledTimes(1);
+    expect(api.getProviderChapterPages).toHaveBeenCalledWith('mock-provider', 'remote-1', 'c1');
     expect(result.current.data?.pages).toHaveLength(2);
   });
 });

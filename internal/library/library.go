@@ -1349,7 +1349,7 @@ func (l *Library) RemoveProvider(mangaID string, providerID, providerMangaID str
 
 // SwitchContentProvider sets content provider on bindings.json and re-correlates chapters.
 // If provider not in providers[], add it first.
-func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMangaID string, mangaTitle string) error {
+func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMangaID string, mangaTitle string, readingMode string) error {
 	mangaID = sanitizeID(mangaID)
 
 	// Snapshot title from metadata before acquiring the lock to avoid
@@ -1390,6 +1390,9 @@ func (l *Library) SwitchContentProvider(mangaID string, providerID, providerMang
 	}
 	bindings.Content.ProviderID = providerID
 	bindings.Content.ProviderMangaID = providerMangaID
+	if readingMode != "" {
+		bindings.Content.ReadingMode = readingMode
+	}
 
 	return l.saveBindingsLocked(mangaID, bindings)
 }

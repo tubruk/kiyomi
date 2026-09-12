@@ -151,6 +151,19 @@ export const useProviderChapterList = (
   });
 };
 
+export const useProviderChapterPages = (
+  providerId: string,
+  remoteId: string,
+  chapterId: string,
+  options?: { enabled?: boolean }
+) => {
+  return useQuery({
+    queryKey: queryKeys.chapters.remotePages(providerId, remoteId, chapterId),
+    queryFn: () => api.getProviderChapterPages(providerId, remoteId, chapterId),
+    enabled: options?.enabled ?? Boolean(providerId && remoteId && chapterId),
+  });
+};
+
 export function useChapterPages(
   mangaIdOrChapterId: string,
   chapterIdOrOptions?: string | { mangaId?: string; providerId?: string; enabled?: boolean },
