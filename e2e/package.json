@@ -4,7 +4,7 @@
   "devDependencies": {
     "@cucumber/cucumber": "^11",
     "@cucumber/html-formatter": "^21",
-    "@playwright/test": "^1.49",
+    "@playwright/test": "^1.63.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "axios": "^1.19.0",

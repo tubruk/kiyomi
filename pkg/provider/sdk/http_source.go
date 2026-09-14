@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/chickenzord/go-brisk"
 	"github.com/tubruk/kiyomi/pkg/dnsresolver"
 	"github.com/tubruk/kiyomi/pkg/fingerprint"
 )
@@ -103,9 +104,12 @@ func NewHttpSource(cfg ProviderConfig) (*HttpSource, error) {
 		}
 	}
 
-	client := &http.Client{
-		Jar:     jar,
-		Timeout: cfg.HTTPTimeout,
+	client, err := brisk.NewBuilder().
+		WithCookieJar(jar).
+		WithTimeout(cfg.HTTPTimeout).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build http client: %w", err)
 	}
 
 	source := &HttpSource{
@@ -161,58 +165,35 @@ func NewRetryTransport(base http.RoundTripper) *RetryTransport {
 }
 
 func (r *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if ctxErr := req.Context().Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
 	maxAttempts := r.MaxAttempts
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
-
-	var lastResp *http.Response
-	var lastErr error
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if ctxErr := req.Context().Err(); ctxErr != nil {
-			if lastResp != nil && lastResp.Body != nil {
-				_ = lastResp.Body.Close()
-			}
-			return nil, ctxErr
-		}
-
-		if attempt > 1 && req.GetBody != nil {
-			body, err := req.GetBody()
-			if err != nil {
-				if lastResp != nil && lastResp.Body != nil {
-					_ = lastResp.Body.Close()
-				}
-				return nil, err
-			}
-			req.Body = body
-		}
-
-		resp, err := r.Base.RoundTrip(req)
-		if !IsTransientError(err, resp) {
-			return resp, err
-		}
-
-		lastResp = resp
-		lastErr = err
-
-		if attempt == maxAttempts {
-			break
-		}
-
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-
-		delay := time.Duration(100*(1<<(attempt-1))) * time.Millisecond
-		select {
-		case <-req.Context().Done():
-			return nil, req.Context().Err()
-		case <-time.After(delay):
-		}
+	base := r.Base
+	if base == nil {
+		base = http.DefaultTransport
 	}
 
-	return lastResp, lastErr
+	cfg := brisk.RetryConfig{
+		MaxRetries:        maxAttempts - 1,
+		InitialBackoff:    100 * time.Millisecond,
+		MaxBackoff:        10 * time.Second,
+		BackoffFactor:     2.0,
+		Jitter:            false,
+		RespectRetryAfter: true,
+		MaxDrainBytes:     4096,
+		RetryCondition: func(resp *http.Response, err error) bool {
+			if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+				return false
+			}
+			return IsTransientError(err, resp)
+		},
+	}
+	return brisk.NewRetryRoundTripper(base, cfg).RoundTrip(req)
 }
 
 // SetTransport replaces the HttpSource's outbound transport. Pass

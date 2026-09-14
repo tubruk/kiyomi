@@ -25,6 +25,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+
+	"github.com/chickenzord/go-brisk"
 )
 
 // TLSProfile selects which browser's TLS Client Hello to emulate for
@@ -49,15 +51,38 @@ const (
 	// Useful as a fallback when Cloudflare has flagged the Chrome
 	// fingerprint for a given source.
 	TLSProfileFirefox TLSProfile = "firefox"
+
+	// TLSProfileSafari emulates a modern Safari Client Hello (Safari 16).
+	TLSProfileSafari TLSProfile = "safari"
+
+	// TLSProfileEdge emulates a modern Edge Client Hello (Edge 106).
+	TLSProfileEdge TLSProfile = "edge"
 )
 
 // Valid reports whether p is one of the recognised TLS profile names.
 func (p TLSProfile) Valid() bool {
 	switch p {
-	case TLSProfileDefault, TLSProfileChrome, TLSProfileFirefox:
+	case TLSProfileDefault, TLSProfileChrome, TLSProfileFirefox, TLSProfileSafari, TLSProfileEdge:
 		return true
 	}
 	return false
+}
+
+// ToBriskProfile maps a TLSProfile to the corresponding brisk.TLSProfile.
+// Returns false for TLSProfileDefault or unrecognized profiles.
+func (p TLSProfile) ToBriskProfile() (brisk.TLSProfile, bool) {
+	switch p {
+	case TLSProfileChrome:
+		return brisk.TLSProfileChrome120, true
+	case TLSProfileFirefox:
+		return brisk.TLSProfileFirefox120, true
+	case TLSProfileSafari:
+		return brisk.TLSProfileSafari16, true
+	case TLSProfileEdge:
+		return brisk.TLSProfileEdge106, true
+	default:
+		return brisk.TLSProfile{}, false
+	}
 }
 
 // ErrUnknownSource is returned by Store.Get / Store.Set when the

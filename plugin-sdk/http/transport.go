@@ -1,14 +1,10 @@
 package http
 
 import (
-	"context"
-	"fmt"
-	"net"
 	"net/http"
-	"net/url"
-	"strings"
-	"time"
+	"unsafe"
 
+	"github.com/chickenzord/go-brisk"
 	utls "github.com/refraction-networking/utls"
 	"github.com/tubruk/kiyomi/plugin-sdk/internal/dnsresolver"
 )
@@ -23,12 +19,16 @@ const (
 	TLSProfileChrome TLSProfile = "chrome"
 	// TLSProfileFirefox emulates a modern Firefox Client Hello via utls.
 	TLSProfileFirefox TLSProfile = "firefox"
+	// TLSProfileSafari emulates a modern Safari Client Hello via utls.
+	TLSProfileSafari TLSProfile = "safari"
+	// TLSProfileEdge emulates a modern Edge Client Hello via utls.
+	TLSProfileEdge TLSProfile = "edge"
 )
 
 // Valid reports whether p is one of the recognized TLS profile names.
 func (p TLSProfile) Valid() bool {
 	switch p {
-	case TLSProfileDefault, TLSProfileChrome, TLSProfileFirefox:
+	case TLSProfileDefault, TLSProfileChrome, TLSProfileFirefox, TLSProfileSafari, TLSProfileEdge:
 		return true
 	}
 	return false
@@ -54,182 +54,102 @@ func DefaultClientHints() ClientHints {
 // DefaultUserAgent is the standard browser User-Agent fallback.
 const DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-type dialer interface {
-	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
-}
-
-type dialerFunc func(ctx context.Context, network, addr string) (net.Conn, error)
-
-func (f dialerFunc) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	return f(ctx, network, addr)
-}
-
 func helloIDForProfile(p TLSProfile) (utls.ClientHelloID, bool) {
 	switch p {
 	case TLSProfileChrome:
 		return utls.HelloChrome_120, true
 	case TLSProfileFirefox:
 		return utls.HelloFirefox_120, true
+	case TLSProfileSafari:
+		return utls.HelloSafari_16_0, true
+	case TLSProfileEdge:
+		return utls.HelloEdge_106, true
 	default:
 		return utls.ClientHelloID{}, false
 	}
 }
 
-func dialWithProfile(ctx context.Context, d dialer, network, addr string, helloID utls.ClientHelloID) (net.Conn, error) {
-	rawConn, err := d.DialContext(ctx, network, addr)
-	if err != nil {
-		return nil, err
+// briskProfileForProfile maps an SDK TLSProfile enum to the corresponding brisk.TLSProfile.
+func briskProfileForProfile(p TLSProfile) brisk.TLSProfile {
+	switch p {
+	case TLSProfileChrome:
+		return brisk.TLSProfileChrome120
+	case TLSProfileFirefox:
+		return brisk.TLSProfileFirefox120
+	case TLSProfileSafari:
+		return brisk.TLSProfileSafari16
+	case TLSProfileEdge:
+		return brisk.TLSProfileEdge106
+	default:
+		return brisk.DefaultTLSProfile
 	}
-
-	host, _, splitErr := net.SplitHostPort(addr)
-	if splitErr != nil {
-		host = addr
-	}
-
-	tlsConfig := &utls.Config{
-		ServerName: host,
-	}
-	uConn := utls.UClient(rawConn, tlsConfig, helloID)
-	if hsErr := uConn.HandshakeContext(ctx); hsErr != nil {
-		_ = rawConn.Close()
-		return nil, fmt.Errorf("utls handshake failed: %w", hsErr)
-	}
-	return uConn, nil
 }
 
-// buildBaseTransport constructs the core *http.Transport with proxy, connection pooling, and TLS settings.
+// toBriskProfile converts a utls.ClientHelloID to a brisk.TLSProfile.
+func toBriskProfile(id utls.ClientHelloID) brisk.TLSProfile {
+	switch id.Client {
+	case utls.HelloChrome_120.Client:
+		return brisk.TLSProfileChrome120
+	case utls.HelloChrome_102.Client:
+		return brisk.TLSProfileChrome102
+	case utls.HelloFirefox_120.Client:
+		return brisk.TLSProfileFirefox120
+	case utls.HelloFirefox_105.Client:
+		return brisk.TLSProfileFirefox105
+	case utls.HelloSafari_16_0.Client:
+		return brisk.TLSProfileSafari16
+	case utls.HelloEdge_106.Client:
+		return brisk.TLSProfileEdge106
+	default:
+		return *(*brisk.TLSProfile)(unsafe.Pointer(&id))
+	}
+}
+
+// buildBaseTransport constructs the core transport powered by brisk.
 func buildBaseTransport(cfg *clientConfig) http.RoundTripper {
-	d := &net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}
-
-	t := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		ForceAttemptHTTP2:     true,
-		DialContext:           d.DialContext,
-	}
-
+	b := brisk.NewBuilder()
 	if cfg.proxyURL != "" {
-		if u, err := url.Parse(cfg.proxyURL); err == nil {
-			t.Proxy = http.ProxyURL(u)
-		}
+		b.WithProxy(cfg.proxyURL)
 	}
 
-	// Apply DNS override if a resolver list or custom dialer is configured.
 	if cfg.customDialContext != nil {
-		t.DialContext = cfg.customDialContext
+		b.WithDialContext(cfg.customDialContext)
 	} else if len(cfg.dnsResolvers) > 0 {
 		dialFn, err := dnsresolver.DialFuncFromURLs(cfg.dnsResolvers)
-		if err != nil || dialFn == nil {
-			// Already logged elsewhere; fall through to system resolver.
-		} else {
-			t.DialContext = dialFn
+		if err == nil && dialFn != nil {
+			b.WithDialContext(dialFn)
 		}
 	}
 
-	helloID := cfg.utlsHelloID
-	hasCustom := cfg.hasCustomHelloID
-	if !hasCustom && cfg.tlsProfile != "" && cfg.tlsProfile != TLSProfileDefault {
-		if id, ok := helloIDForProfile(cfg.tlsProfile); ok {
-			helloID = id
-			hasCustom = true
-		}
+	if cfg.hasCustomHelloID {
+		b.WithTLSProfile(toBriskProfile(cfg.utlsHelloID))
+	} else if cfg.randomTLSProfile {
+		b.WithRandomTLSProfile()
+	} else if cfg.tlsProfile != "" && cfg.tlsProfile != TLSProfileDefault {
+		b.WithTLSProfile(briskProfileForProfile(cfg.tlsProfile))
 	}
 
-	if hasCustom {
-		t.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			dialerToUse := dialer(d)
-			if t.DialContext != nil {
-				dialerToUse = dialerFunc(t.DialContext)
-			}
-			return dialWithProfile(ctx, dialerToUse, network, addr, helloID)
-		}
+	tr, err := b.BuildTransport()
+	if err != nil {
+		return http.DefaultTransport
 	}
-
-	return t
+	return tr
 }
 
-// headerTransport applies default headers, User-Agent, Sec-Ch-Ua client hints, and custom cookies to outgoing requests.
+// headerTransport applies default headers, User-Agent, and Sec-Ch-Ua client hints to outgoing requests.
 type headerTransport struct {
-	base   http.RoundTripper
-	config *clientConfig
+	base    http.RoundTripper
+	headers map[string]string
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.config == nil {
-		return t.base.RoundTrip(req)
-	}
-
-	// Apply User-Agent
-	ua := t.config.userAgent
-	if ua == "" {
-		ua = DefaultUserAgent
-	}
-	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", ua)
-	}
-
-	// Apply Client Hints if set
-	if t.config.clientHints != nil {
-		hints := t.config.clientHints
-		if hints.UA != "" && req.Header.Get("Sec-Ch-Ua") == "" {
-			req.Header.Set("Sec-Ch-Ua", hints.UA)
-		}
-		if hints.Platform != "" && req.Header.Get("Sec-Ch-Ua-Platform") == "" {
-			req.Header.Set("Sec-Ch-Ua-Platform", hints.Platform)
-		}
-		if hints.Mobile != "" && req.Header.Get("Sec-Ch-Ua-Mobile") == "" {
-			req.Header.Set("Sec-Ch-Ua-Mobile", hints.Mobile)
+	clonedReq := req.Clone(req.Context())
+	for k, v := range t.headers {
+		if clonedReq.Header.Get(k) == "" {
+			clonedReq.Header.Set(k, v)
 		}
 	}
-
-	// Apply custom headers
-	for k, v := range t.config.defaultHeaders {
-		if req.Header.Get(k) == "" {
-			req.Header.Set(k, v)
-		}
-	}
-
-	// Apply cookies if domain match
-	if len(t.config.cookies) > 0 && req.URL != nil && t.config.jar != nil {
-		for domainURL, rawHeader := range t.config.cookies {
-			u, err := url.Parse(domainURL)
-			if err != nil || u.Host == "" {
-				continue
-			}
-			parts := strings.Split(rawHeader, ";")
-			var jarCookies []*http.Cookie
-			for _, part := range parts {
-				part = strings.TrimSpace(part)
-				if part == "" {
-					continue
-				}
-				kv := strings.SplitN(part, "=", 2)
-				if len(kv) == 2 {
-					jarCookies = append(jarCookies, &http.Cookie{
-						Name:  strings.TrimSpace(kv[0]),
-						Value: strings.TrimSpace(kv[1]),
-						Path:  "/",
-					})
-				}
-			}
-			if len(jarCookies) > 0 {
-				t.config.jar.SetCookies(u, jarCookies)
-			}
-		}
-		for _, c := range t.config.jar.Cookies(req.URL) {
-			if !hasCookie(req, c.Name) {
-				req.AddCookie(c)
-			}
-		}
-	}
-
-	return t.base.RoundTrip(req)
+	return t.base.RoundTrip(clonedReq)
 }
 
 func hasCookie(req *http.Request, name string) bool {

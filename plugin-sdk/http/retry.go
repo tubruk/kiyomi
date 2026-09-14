@@ -3,12 +3,12 @@ package http
 import (
 	"errors"
 	"io"
-	"math/rand"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/chickenzord/go-brisk"
 )
 
 // RetryTransport wraps an http.RoundTripper and retries requests when transient errors occur.
@@ -57,10 +57,10 @@ func IsTransientError(err error, resp *http.Response) bool {
 	if resp != nil {
 		switch resp.StatusCode {
 		case http.StatusTooManyRequests, // 429
-			http.StatusBadGateway,          // 502
-			http.StatusServiceUnavailable,   // 503
-			http.StatusGatewayTimeout,       // 504
-			520, 521, 522, 523, 524:        // Cloudflare transient edge errors
+			http.StatusBadGateway,        // 502
+			http.StatusServiceUnavailable, // 503
+			http.StatusGatewayTimeout,     // 504
+			520, 521, 522, 523, 524:      // Cloudflare transient edge errors
 			return true
 		}
 	}
@@ -69,112 +69,55 @@ func IsTransientError(err error, resp *http.Response) bool {
 }
 
 func parseRetryAfter(header string) (time.Duration, bool) {
-	header = strings.TrimSpace(header)
-	if header == "" {
-		return 0, false
-	}
-
-	// Try seconds as integer
-	if seconds, err := strconv.Atoi(header); err == nil && seconds >= 0 {
-		return time.Duration(seconds) * time.Second, true
-	}
-
-	// Try HTTP date formats (RFC1123, RFC850, ANSIC)
-	if targetTime, err := http.ParseTime(header); err == nil {
-		d := time.Until(targetTime)
-		if d > 0 {
-			return d, true
-		}
-		return 0, true
-	}
-
-	return 0, false
+	return brisk.ParseRetryAfter(header)
 }
 
 func calculateBackoff(attempt int, minBackoff, maxBackoff time.Duration, resp *http.Response) time.Duration {
-	if resp != nil {
-		if retryAfterStr := resp.Header.Get("Retry-After"); retryAfterStr != "" {
-			if d, ok := parseRetryAfter(retryAfterStr); ok && d > 0 {
-				if maxBackoff > 0 && d > maxBackoff {
-					return maxBackoff
-				}
-				return d
-			}
-		}
+	cfg := brisk.RetryConfig{
+		InitialBackoff:    minBackoff,
+		MaxBackoff:        maxBackoff,
+		BackoffFactor:     2.0,
+		Jitter:            true,
+		RespectRetryAfter: true,
 	}
-
-	if minBackoff <= 0 {
-		minBackoff = 100 * time.Millisecond
-	}
-	if maxBackoff <= 0 {
-		maxBackoff = 5 * time.Second
-	}
-
-	// Exponential backoff: minBackoff * 2^(attempt-1)
-	multiplier := 1 << (attempt - 1)
-	backoff := minBackoff * time.Duration(multiplier)
-
-	// Add jitter (up to 25%)
-	jitter := time.Duration(rand.Int63n(int64(backoff/4 + 1)))
-	backoff += jitter
-
-	if backoff > maxBackoff {
-		backoff = maxBackoff
-	}
-	return backoff
+	return cfg.CalculateBackoff(attempt, resp)
 }
 
 func (r *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := r.Base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+
 	maxAttempts := r.MaxAttempts
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
-
-	var lastResp *http.Response
-	var lastErr error
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if ctxErr := req.Context().Err(); ctxErr != nil {
-			if lastResp != nil && lastResp.Body != nil {
-				_ = lastResp.Body.Close()
-			}
-			return nil, ctxErr
-		}
-
-		if attempt > 1 && req.GetBody != nil {
-			body, err := req.GetBody()
-			if err != nil {
-				if lastResp != nil && lastResp.Body != nil {
-					_ = lastResp.Body.Close()
-				}
-				return nil, err
-			}
-			req.Body = body
-		}
-
-		resp, err := r.Base.RoundTrip(req)
-		if !IsTransientError(err, resp) {
-			return resp, err
-		}
-
-		lastResp = resp
-		lastErr = err
-
-		if attempt == maxAttempts {
-			break
-		}
-
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-
-		delay := calculateBackoff(attempt, r.MinBackoff, r.MaxBackoff, resp)
-		select {
-		case <-req.Context().Done():
-			return nil, req.Context().Err()
-		case <-time.After(delay):
-		}
+	maxRetries := maxAttempts - 1
+	if maxRetries < 0 {
+		maxRetries = 0
 	}
 
-	return lastResp, lastErr
+	minBackoff := r.MinBackoff
+	if minBackoff <= 0 {
+		minBackoff = 100 * time.Millisecond
+	}
+	maxBackoff := r.MaxBackoff
+	if maxBackoff <= 0 {
+		maxBackoff = 5 * time.Second
+	}
+
+	rb := brisk.NewRetryBuilder().
+		MaxRetries(maxRetries).
+		InitialBackoff(minBackoff).
+		MaxBackoff(maxBackoff).
+		BackoffFactor(2.0).
+		Jitter(true).
+		RespectRetryAfter(true).
+		When(func(resp *http.Response, err error) bool {
+			return IsTransientError(err, resp)
+		})
+
+	rt := brisk.NewRetryRoundTripper(base, rb.Config())
+	return rt.RoundTrip(req)
 }
