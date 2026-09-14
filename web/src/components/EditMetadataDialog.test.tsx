@@ -222,21 +222,23 @@ describe('EditMetadataDialog', () => {
       expect(patchSpy).toHaveBeenCalledWith(
         'manga-edit-1',
         expect.objectContaining({
-          title: 'Chainsaw Man Part 2',
-          publishers: ['Shueisha', 'Shogakukan'],
-          publisher: 'Shueisha',
-          startDate: '2022-07-13',
-          start_date: '2022-07-13',
-          endDate: '2025-01-01',
-          end_date: '2025-01-01',
-          releaseYear: 2022,
-          release_year: 2022,
-          country: 'US',
-          authors: ['Tatsuki Fujimoto'],
-          artists: ['Tatsuki Fujimoto'],
-          tags: ['Action', 'Horror', 'Supernatural'],
-          shelves: ['Shonen Jump', 'Top Rated'],
-          collections: ['Shonen Jump', 'Top Rated'],
+          metadata: expect.objectContaining({
+            title: 'Chainsaw Man Part 2',
+            publishers: ['Shueisha', 'Shogakukan'],
+            publisher: 'Shueisha',
+            startDate: '2022-07-13',
+            start_date: '2022-07-13',
+            endDate: '2025-01-01',
+            end_date: '2025-01-01',
+            releaseYear: 2022,
+            release_year: 2022,
+            country: 'US',
+            authors: ['Tatsuki Fujimoto'],
+            artists: ['Tatsuki Fujimoto'],
+            tags: ['Action', 'Horror', 'Supernatural'],
+            shelves: ['Shonen Jump', 'Top Rated'],
+            collections: ['Shonen Jump', 'Top Rated'],
+          }),
         })
       );
       expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -266,10 +268,12 @@ describe('EditMetadataDialog', () => {
       expect(patchSpy).toHaveBeenCalledWith(
         'manga-edit-1',
         expect.objectContaining({
-          externalLinks: [
-            { provider: 'anilist', label: 'AniList', url: 'https://anilist.co/manga/105778' },
-            { provider: 'custom', label: 'Custom Link', url: 'https://myanimelist.net/manga/116778' },
-          ],
+          metadata: expect.objectContaining({
+            externalLinks: [
+              { provider: 'anilist', label: 'AniList', url: 'https://anilist.co/manga/105778' },
+              { provider: 'custom', label: 'Custom Link', url: 'https://myanimelist.net/manga/116778' },
+            ],
+          }),
         })
       );
     });

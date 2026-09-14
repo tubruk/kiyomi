@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/chickenzord/go-brisk"
 	utls "github.com/refraction-networking/utls"
 	sdk "github.com/tubruk/kiyomi/plugin-sdk"
 	"github.com/tubruk/kiyomi/plugin-sdk/internal/dnsresolver"
@@ -21,25 +22,31 @@ import (
 
 // clientConfig holds the internal options for assembling the HTTP client.
 type clientConfig struct {
-	timeout          time.Duration
-	userAgent        string
-	proxyURL         string
-	tlsProfile       TLSProfile
-	utlsHelloID      utls.ClientHelloID
-	hasCustomHelloID bool
-	rps              float64
-	burst            int
-	maxConcurrent    int
-	maxRetries       int
-	minBackoff       time.Duration
-	maxBackoff       time.Duration
-	jar              http.CookieJar
-	cookies          map[string]string
-	defaultHeaders   map[string]string
-	clientHints      *ClientHints
-	customTransport  http.RoundTripper
-	dnsResolvers     []string
-	customDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	timeout            time.Duration
+	userAgent          string
+	proxyURL           string
+	tlsProfile         TLSProfile
+	utlsHelloID        utls.ClientHelloID
+	hasCustomHelloID   bool
+	rps                float64
+	burst              int
+	maxConcurrent      int
+	maxRetries         int
+	minBackoff         time.Duration
+	maxBackoff         time.Duration
+	jar                http.CookieJar
+	cookies            map[string]string
+	defaultHeaders     map[string]string
+	clientHints        *ClientHints
+	customTransport    http.RoundTripper
+	dnsResolvers       []string
+	customDialContext  func(ctx context.Context, network, addr string) (net.Conn, error)
+	delayMin           time.Duration
+	delayMax           time.Duration
+	hostRateLimitRPS   float64
+	hostRateLimitBurst int
+	singleflight       bool
+	randomTLSProfile   bool
 }
 
 // Option configures a Client during creation.
@@ -197,8 +204,6 @@ func WithTransport(rt http.RoundTripper) Option {
 }
 
 // WithDNSResolvers sets the URL list used by the SDK's default DNS loader.
-// Highest priority among auto-loaded sources. Empty disables the SDK default
-// and falls through to GlobalHttpConfig or env.
 func WithDNSResolvers(urls []string) Option {
 	return func(c *clientConfig) {
 		c.dnsResolvers = urls
@@ -251,10 +256,288 @@ func WithSDKGlobalHttpConfig(cfg sdk.GlobalHttpConfig) Option {
 	}
 }
 
+// WithDelayJitter introduces an artificial randomized sleep between requests within [min, max] duration.
+func WithDelayJitter(min, max time.Duration) Option {
+	return func(c *clientConfig) {
+		c.delayMin = min
+		c.delayMax = max
+	}
+}
+
+// WithHostRateLimit throttles requests on a per-destination-host basis.
+func WithHostRateLimit(rps float64, burst int) Option {
+	return func(c *clientConfig) {
+		c.hostRateLimitRPS = rps
+		c.hostRateLimitBurst = burst
+	}
+}
+
+// WithSingleflight deduplicates concurrent in-flight requests for identical GET/HEAD requests.
+func WithSingleflight() Option {
+	return func(c *clientConfig) {
+		c.singleflight = true
+	}
+}
+
+// WithRandomTLSProfile enables randomized ClientHello rotation among standard browser profiles.
+func WithRandomTLSProfile() Option {
+	return func(c *clientConfig) {
+		c.randomTLSProfile = true
+	}
+}
+
 // Client wraps http.Client with fingerprinting, rate limiting, and convenience methods.
 type Client struct {
 	httpClient *http.Client
 	config     clientConfig
+}
+
+// buildHTTPClient constructs a standard library *http.Client configured via go-brisk.
+func buildHTTPClient(cfg *clientConfig) *http.Client {
+	if cfg.customTransport != nil {
+		var rt http.RoundTripper = cfg.customTransport
+
+		// 1. Headers & Client Hints
+		headers := make(map[string]string, len(cfg.defaultHeaders)+4)
+		ua := cfg.userAgent
+		if ua == "" {
+			ua = DefaultUserAgent
+		}
+		headers["User-Agent"] = ua
+		for k, v := range cfg.defaultHeaders {
+			headers[k] = v
+		}
+		if cfg.clientHints != nil {
+			if cfg.clientHints.UA != "" {
+				headers["Sec-Ch-Ua"] = cfg.clientHints.UA
+			}
+			if cfg.clientHints.Platform != "" {
+				headers["Sec-Ch-Ua-Platform"] = cfg.clientHints.Platform
+			}
+			if cfg.clientHints.Mobile != "" {
+				headers["Sec-Ch-Ua-Mobile"] = cfg.clientHints.Mobile
+			}
+		}
+		rt = &headerTransport{
+			base:    rt,
+			headers: headers,
+		}
+
+		// 2. Rate limiting
+		if cfg.rps > 0 {
+			burst := cfg.burst
+			if burst <= 0 {
+				burst = int(cfg.rps)
+				if burst < 1 {
+					burst = 1
+				}
+			}
+			limiter := brisk.NewTokenBucket(cfg.rps, burst)
+			rt = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				if err := limiter.Wait(req.Context()); err != nil {
+					return nil, err
+				}
+				return rt.RoundTrip(req)
+			})
+		}
+		if cfg.hostRateLimitRPS > 0 {
+			burst := cfg.hostRateLimitBurst
+			if burst <= 0 {
+				burst = int(cfg.hostRateLimitRPS)
+				if burst < 1 {
+					burst = 1
+				}
+			}
+			hostLimiter := brisk.NewHostRateLimiter(cfg.hostRateLimitRPS, burst)
+			rt = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				if err := hostLimiter.WaitRequest(req); err != nil {
+					return nil, err
+				}
+				return rt.RoundTrip(req)
+			})
+		}
+		if cfg.delayMin > 0 || cfg.delayMax > 0 {
+			jitter := brisk.NewDelayJitter(cfg.delayMin, cfg.delayMax)
+			rt = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				if err := jitter.Wait(req.Context()); err != nil {
+					return nil, err
+				}
+				return rt.RoundTrip(req)
+			})
+		}
+
+		// 3. Singleflight
+		if cfg.singleflight {
+			rt = brisk.NewSingleflightRoundTripper(rt, brisk.SingleflightConfig{})
+		}
+
+		// 4. Retry
+		if cfg.maxRetries > 0 {
+			maxRetries := cfg.maxRetries - 1
+			if maxRetries < 0 {
+				maxRetries = 0
+			}
+			minBackoff := cfg.minBackoff
+			if minBackoff <= 0 {
+				minBackoff = 100 * time.Millisecond
+			}
+			maxBackoff := cfg.maxBackoff
+			if maxBackoff <= 0 {
+				maxBackoff = 5 * time.Second
+			}
+			rb := brisk.NewRetryBuilder().
+				MaxRetries(maxRetries).
+				InitialBackoff(minBackoff).
+				MaxBackoff(maxBackoff).
+				BackoffFactor(2.0).
+				Jitter(true).
+				RespectRetryAfter(true).
+				When(func(resp *http.Response, err error) bool {
+					return IsTransientError(err, resp)
+				})
+			rt = brisk.NewRetryRoundTripper(rt, rb.Config())
+		}
+
+		// 5. Cookies
+		if len(cfg.cookies) > 0 && cfg.jar != nil {
+			cookieMW := cookieMiddleware(cfg.jar, cfg.cookies)
+			rt = cookieMW(rt)
+		}
+
+		// 6. Concurrency semaphore
+		if cfg.maxConcurrent > 0 {
+			mw := concurrencyMiddleware(cfg.maxConcurrent)
+			rt = mw(rt)
+		}
+
+		return &http.Client{
+			Transport: rt,
+			Jar:       cfg.jar,
+			Timeout:   cfg.timeout,
+		}
+	}
+
+	builder := brisk.NewBuilder()
+	builder.WithTimeout(cfg.timeout)
+	builder.WithCookieJar(cfg.jar)
+
+	if cfg.proxyURL != "" {
+		builder.WithProxy(cfg.proxyURL)
+	}
+
+	ua := cfg.userAgent
+	if ua == "" {
+		ua = DefaultUserAgent
+	}
+	builder.WithUserAgent(ua)
+
+	if len(cfg.defaultHeaders) > 0 {
+		builder.WithHeaders(cfg.defaultHeaders)
+	}
+
+	if cfg.clientHints != nil {
+		if cfg.clientHints.UA != "" {
+			builder.WithHeader("Sec-Ch-Ua", cfg.clientHints.UA)
+		}
+		if cfg.clientHints.Platform != "" {
+			builder.WithHeader("Sec-Ch-Ua-Platform", cfg.clientHints.Platform)
+		}
+		if cfg.clientHints.Mobile != "" {
+			builder.WithHeader("Sec-Ch-Ua-Mobile", cfg.clientHints.Mobile)
+		}
+	}
+
+	// TLS fingerprinting
+	if cfg.hasCustomHelloID {
+		builder.WithTLSProfile(toBriskProfile(cfg.utlsHelloID))
+	} else if cfg.randomTLSProfile {
+		builder.WithRandomTLSProfile()
+	} else if cfg.tlsProfile != "" {
+		builder.WithTLSProfile(briskProfileForProfile(cfg.tlsProfile))
+	}
+
+	// DNS Resolver / DialContext
+	if cfg.customDialContext != nil {
+		builder.WithDialContext(cfg.customDialContext)
+	} else if len(cfg.dnsResolvers) > 0 {
+		dialFn, err := dnsresolver.DialFuncFromURLs(cfg.dnsResolvers)
+		if err == nil && dialFn != nil {
+			builder.WithDialContext(dialFn)
+		}
+	}
+
+	// Rate limiting
+	if cfg.rps > 0 {
+		burst := cfg.burst
+		if burst <= 0 {
+			burst = int(cfg.rps)
+			if burst < 1 {
+				burst = 1
+			}
+		}
+		builder.WithRateLimit(cfg.rps, burst)
+	}
+	if cfg.hostRateLimitRPS > 0 {
+		burst := cfg.hostRateLimitBurst
+		if burst <= 0 {
+			burst = int(cfg.hostRateLimitRPS)
+			if burst < 1 {
+				burst = 1
+			}
+		}
+		builder.WithHostRateLimit(cfg.hostRateLimitRPS, burst)
+	}
+	if cfg.delayMin > 0 || cfg.delayMax > 0 {
+		builder.WithRequestDelay(cfg.delayMin, cfg.delayMax)
+	}
+
+	// Singleflight
+	if cfg.singleflight {
+		builder.WithSingleflight()
+	}
+
+	// Concurrency semaphore via brisk.WithMiddleware
+	if cfg.maxConcurrent > 0 {
+		builder.WithMiddleware(concurrencyMiddleware(cfg.maxConcurrent))
+	}
+
+	// Cookies middleware
+	if len(cfg.cookies) > 0 && cfg.jar != nil {
+		builder.WithMiddleware(cookieMiddleware(cfg.jar, cfg.cookies))
+	}
+
+	// Retry via brisk.RetryBuilder
+	if cfg.maxRetries > 0 {
+		maxRetries := cfg.maxRetries - 1
+		if maxRetries < 0 {
+			maxRetries = 0
+		}
+		minBackoff := cfg.minBackoff
+		if minBackoff <= 0 {
+			minBackoff = 100 * time.Millisecond
+		}
+		maxBackoff := cfg.maxBackoff
+		if maxBackoff <= 0 {
+			maxBackoff = 5 * time.Second
+		}
+		rb := brisk.NewRetryBuilder().
+			MaxRetries(maxRetries).
+			InitialBackoff(minBackoff).
+			MaxBackoff(maxBackoff).
+			BackoffFactor(2.0).
+			Jitter(true).
+			RespectRetryAfter(true).
+			When(func(resp *http.Response, err error) bool {
+				return IsTransientError(err, resp)
+			})
+		builder.WithRetryConfig(rb.Config())
+	}
+
+	client, err := builder.Build()
+	if err != nil {
+		return http.DefaultClient
+	}
+	return client
 }
 
 // NewClient creates a new HTTP client with the provided options.
@@ -287,35 +570,7 @@ func NewClient(opts ...Option) *Client {
 		cfg.jar = jar
 	}
 
-	var baseTransport http.RoundTripper
-	if cfg.customTransport != nil {
-		baseTransport = cfg.customTransport
-	} else {
-		baseTransport = buildBaseTransport(&cfg)
-	}
-
-	// Layer 1: Header and Client Hints injection
-	trWithHeaders := &headerTransport{
-		base:   baseTransport,
-		config: &cfg,
-	}
-
-	// Layer 2: Rate limiter and concurrency semaphore
-	trWithRateLimit := newRateLimitTransport(trWithHeaders, cfg.rps, cfg.burst, cfg.maxConcurrent)
-
-	// Layer 3: Retry transport
-	retryTr := &RetryTransport{
-		Base:        trWithRateLimit,
-		MaxAttempts: cfg.maxRetries,
-		MinBackoff:  cfg.minBackoff,
-		MaxBackoff:  cfg.maxBackoff,
-	}
-
-	httpClient := &http.Client{
-		Transport: retryTr,
-		Jar:       cfg.jar,
-		Timeout:   cfg.timeout,
-	}
+	httpClient := buildHTTPClient(&cfg)
 
 	return &Client{
 		httpClient: httpClient,
@@ -458,31 +713,10 @@ func (c *Client) Clone(opts ...Option) *Client {
 		}
 	}
 
-	var baseTransport http.RoundTripper
-	if newCfg.customTransport != nil {
-		baseTransport = newCfg.customTransport
-	} else {
-		baseTransport = buildBaseTransport(&newCfg)
-	}
-
-	trWithHeaders := &headerTransport{
-		base:   baseTransport,
-		config: &newCfg,
-	}
-	trWithRateLimit := newRateLimitTransport(trWithHeaders, newCfg.rps, newCfg.burst, newCfg.maxConcurrent)
-	retryTr := &RetryTransport{
-		Base:        trWithRateLimit,
-		MaxAttempts: newCfg.maxRetries,
-		MinBackoff:  newCfg.minBackoff,
-		MaxBackoff:  newCfg.maxBackoff,
-	}
+	httpClient := buildHTTPClient(&newCfg)
 
 	return &Client{
-		httpClient: &http.Client{
-			Transport: retryTr,
-			Jar:       newCfg.jar,
-			Timeout:   newCfg.timeout,
-		},
-		config: newCfg,
+		httpClient: httpClient,
+		config:     newCfg,
 	}
 }

@@ -338,27 +338,31 @@ describe('useEditMetadataForm', () => {
       expect.objectContaining({
         mangaId: 'm-1',
         fields: expect.objectContaining({
-          title: 'Bleach Thousand-Year Blood War',
-          aliases: ['TYBW', 'Bleach Final'],
-          authors: ['Tite Kubo'],
-          artists: ['Tite Kubo', 'Assistant'],
-          publishers: ['Shueisha', 'VIZ Media', 'Glénat'],
-          publisher: 'Shueisha',
-          tags: ['Action', 'Supernatural', 'Shonen'],
-          shelves: ['Completed', 'Masterpieces'],
-          collections: ['Completed', 'Masterpieces'],
-          startDate: '2001-08-07',
-          start_date: '2001-08-07',
-          endDate: '2016-08-22',
-          end_date: '2016-08-22',
-          releaseYear: 2001,
-          release_year: 2001,
-          country: 'JP',
-          contentRating: 'suggestive',
-          content_rating: 'suggestive',
-          readingMode: 'rtl',
-          reading_mode: 'rtl',
-          readingDirection: 'rtl',
+          metadata: expect.objectContaining({
+            title: 'Bleach Thousand-Year Blood War',
+            aliases: ['TYBW', 'Bleach Final'],
+            authors: ['Tite Kubo'],
+            artists: ['Tite Kubo', 'Assistant'],
+            publishers: ['Shueisha', 'VIZ Media', 'Glénat'],
+            publisher: 'Shueisha',
+            tags: ['Action', 'Supernatural', 'Shonen'],
+            shelves: ['Completed', 'Masterpieces'],
+            collections: ['Completed', 'Masterpieces'],
+            startDate: '2001-08-07',
+            start_date: '2001-08-07',
+            endDate: '2016-08-22',
+            end_date: '2016-08-22',
+            releaseYear: 2001,
+            release_year: 2001,
+            country: 'JP',
+            contentRating: 'suggestive',
+            content_rating: 'suggestive',
+          }),
+          bindings: expect.objectContaining({
+            content: expect.objectContaining({
+              reading_mode: 'rtl',
+            }),
+          }),
         }),
       }),
       expect.objectContaining({
@@ -396,8 +400,10 @@ describe('useEditMetadataForm', () => {
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         fields: expect.objectContaining({
-          publishers: [],
-          publisher: '',
+          metadata: expect.objectContaining({
+            publishers: [],
+            publisher: '',
+          }),
         }),
       }),
       expect.any(Object)

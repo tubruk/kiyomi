@@ -8,12 +8,12 @@ import (
 )
 
 func TestTLSProfileValid(t *testing.T) {
-	for _, p := range []TLSProfile{TLSProfileDefault, TLSProfileChrome, TLSProfileFirefox} {
+	for _, p := range []TLSProfile{TLSProfileDefault, TLSProfileChrome, TLSProfileFirefox, TLSProfileSafari, TLSProfileEdge} {
 		if !p.Valid() {
 			t.Errorf("expected %q to be valid", p)
 		}
 	}
-	for _, p := range []TLSProfile{"", "edge", "safari", "CHROME"} {
+	for _, p := range []TLSProfile{"", "opera", "brave", "CHROME"} {
 		if p.Valid() {
 			t.Errorf("expected %q to be invalid", p)
 		}
@@ -26,6 +26,12 @@ func TestNormalizeTLSProfile(t *testing.T) {
 	}
 	if got := NormalizeTLSProfile(TLSProfileChrome); got != TLSProfileChrome {
 		t.Errorf("normalize chrome = %q, want %q", got, TLSProfileChrome)
+	}
+	if got := NormalizeTLSProfile(TLSProfileSafari); got != TLSProfileSafari {
+		t.Errorf("normalize safari = %q, want %q", got, TLSProfileSafari)
+	}
+	if got := NormalizeTLSProfile(TLSProfileEdge); got != TLSProfileEdge {
+		t.Errorf("normalize edge = %q, want %q", got, TLSProfileEdge)
 	}
 }
 
@@ -48,8 +54,14 @@ func TestProfileValidate(t *testing.T) {
 	if err := (Profile{}).Validate(); err != nil {
 		t.Errorf("empty profile should validate: %v", err)
 	}
-	if err := (Profile{TLSProfile: "safari"}).Validate(); err == nil {
+	if err := (Profile{TLSProfile: "unknown"}).Validate(); err == nil {
 		t.Error("unknown TLS profile must fail validation")
+	}
+	if err := (Profile{TLSProfile: TLSProfileSafari}).Validate(); err != nil {
+		t.Errorf("safari profile should validate: %v", err)
+	}
+	if err := (Profile{TLSProfile: TLSProfileEdge}).Validate(); err != nil {
+		t.Errorf("edge profile should validate: %v", err)
 	}
 	if err := (Profile{Cookies: map[string]string{"not-a-url": "x=1"}}).Validate(); err == nil {
 		t.Error("invalid cookie domain must fail validation")
@@ -132,7 +144,7 @@ func TestMemoryStoreValidationRejectsBadInput(t *testing.T) {
 	if err := s.Set("", Profile{UserAgent: "x"}); err == nil {
 		t.Error("empty source id should be rejected")
 	}
-	if err := s.Set("src", Profile{TLSProfile: "edge"}); err == nil {
+	if err := s.Set("src", Profile{TLSProfile: "unknown"}); err == nil {
 		t.Error("unknown TLS profile should be rejected")
 	}
 }
@@ -255,3 +267,34 @@ func TestMemoryStoreValidationAcceptsClientHints(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestToBriskProfile(t *testing.T) {
+	tests := []struct {
+		profile         TLSProfile
+		wantOK          bool
+		expectedClient  string
+		expectedVersion string
+	}{
+		{TLSProfileChrome, true, "Chrome", "120"},
+		{TLSProfileFirefox, true, "Firefox", "120"},
+		{TLSProfileSafari, true, "Safari", "16.0"},
+		{TLSProfileEdge, true, "Edge", "106"},
+		{TLSProfileDefault, false, "", ""},
+		{TLSProfile("unknown"), false, "", ""},
+	}
+	for _, tc := range tests {
+		bp, ok := tc.profile.ToBriskProfile()
+		if ok != tc.wantOK {
+			t.Errorf("ToBriskProfile(%q) ok = %v, want %v", tc.profile, ok, tc.wantOK)
+		}
+		if ok {
+			if bp.ClientHelloID().Client != tc.expectedClient {
+				t.Errorf("ToBriskProfile(%q) Client = %q, want %q", tc.profile, bp.ClientHelloID().Client, tc.expectedClient)
+			}
+			if bp.ClientHelloID().Version != tc.expectedVersion {
+				t.Errorf("ToBriskProfile(%q) Version = %q, want %q", tc.profile, bp.ClientHelloID().Version, tc.expectedVersion)
+			}
+		}
+	}
+}
+

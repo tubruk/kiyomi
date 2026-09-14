@@ -3,95 +3,100 @@ package http
 import (
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 
-	"golang.org/x/time/rate"
+	"github.com/chickenzord/go-brisk"
 )
 
-// rateLimitTransport wraps an http.RoundTripper with token-bucket rate limiting and concurrency throttling.
-type rateLimitTransport struct {
-	base    http.RoundTripper
-	limiter *rate.Limiter
-	sem     chan struct{}
+// roundTripperFunc provides an adapter to allow the use of ordinary functions as http.RoundTrippers.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
-// newRateLimitTransport constructs a rate limiting and concurrency wrapper for the base RoundTripper.
-func newRateLimitTransport(base http.RoundTripper, rps float64, burst int, maxConcurrent int) http.RoundTripper {
-	if base == nil {
-		base = http.DefaultTransport
+// concurrencyMiddleware wraps an http.RoundTripper with concurrency throttling and body-close release semantics.
+func concurrencyMiddleware(maxConcurrent int) brisk.Middleware {
+	if maxConcurrent <= 0 {
+		return nil
 	}
+	sem := make(chan struct{}, maxConcurrent)
+	return func(next http.RoundTripper) http.RoundTripper {
+		return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			ctx := req.Context()
 
-	var limiter *rate.Limiter
-	if rps > 0 {
-		if burst <= 0 {
-			burst = int(rps)
-			if burst < 1 {
-				burst = 1
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
-		}
-		limiter = rate.NewLimiter(rate.Limit(rps), burst)
-	}
 
-	var sem chan struct{}
-	if maxConcurrent > 0 {
-		sem = make(chan struct{}, maxConcurrent)
-	}
-
-	if limiter == nil && sem == nil {
-		return base
-	}
-
-	return &rateLimitTransport{
-		base:    base,
-		limiter: limiter,
-		sem:     sem,
-	}
-}
-
-func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	ctx := req.Context()
-
-	// Acquire concurrency slot if semaphore is configured
-	if t.sem != nil {
-		select {
-		case t.sem <- struct{}{}:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	// Wait for rate limiter quota if configured
-	if t.limiter != nil {
-		if err := t.limiter.Wait(ctx); err != nil {
-			if t.sem != nil {
-				<-t.sem
+			resp, err := next.RoundTrip(req)
+			if err != nil {
+				<-sem
+				return nil, err
 			}
-			return nil, err
-		}
-	}
 
-	resp, err := t.base.RoundTrip(req)
-	if err != nil {
-		if t.sem != nil {
-			<-t.sem
-		}
-		return nil, err
-	}
+			if resp == nil || resp.Body == nil {
+				<-sem
+				return resp, nil
+			}
 
-	if t.sem != nil {
-		if resp == nil || resp.Body == nil {
-			<-t.sem
-		} else {
 			resp.Body = &bodyWithRelease{
 				ReadCloser: resp.Body,
 				release: func() {
-					<-t.sem
+					<-sem
 				},
 			}
-		}
+			return resp, nil
+		})
 	}
+}
 
-	return resp, nil
+// cookieMiddleware ensures configured cookies are mapped to the jar and present on outgoing requests.
+func cookieMiddleware(jar http.CookieJar, cookies map[string]string) brisk.Middleware {
+	if len(cookies) == 0 || jar == nil {
+		return nil
+	}
+	return func(next http.RoundTripper) http.RoundTripper {
+		return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL != nil {
+				for domainURL, rawHeader := range cookies {
+					u, err := url.Parse(domainURL)
+					if err != nil || u.Host == "" {
+						continue
+					}
+					parts := strings.Split(rawHeader, ";")
+					var jarCookies []*http.Cookie
+					for _, part := range parts {
+						part = strings.TrimSpace(part)
+						if part == "" {
+							continue
+						}
+						kv := strings.SplitN(part, "=", 2)
+						if len(kv) == 2 {
+							jarCookies = append(jarCookies, &http.Cookie{
+								Name:  strings.TrimSpace(kv[0]),
+								Value: strings.TrimSpace(kv[1]),
+								Path:  "/",
+							})
+						}
+					}
+					if len(jarCookies) > 0 {
+						jar.SetCookies(u, jarCookies)
+					}
+				}
+				for _, c := range jar.Cookies(req.URL) {
+					if !hasCookie(req, c.Name) {
+						req.AddCookie(c)
+					}
+				}
+			}
+			return next.RoundTrip(req)
+		})
+	}
 }
 
 // bodyWithRelease wraps an io.ReadCloser and executes a release function exactly once when closed.
@@ -108,4 +113,36 @@ func (b *bodyWithRelease) Close() error {
 	}
 	b.once.Do(b.release)
 	return err
+}
+
+// newRateLimitTransport constructs a rate limiting and concurrency wrapper for the base RoundTripper.
+// Retained for backward compatibility with existing callers.
+func newRateLimitTransport(base http.RoundTripper, rps float64, burst int, maxConcurrent int) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+
+	rt := base
+	if rps > 0 {
+		if burst <= 0 {
+			burst = int(rps)
+			if burst < 1 {
+				burst = 1
+			}
+		}
+		tb := brisk.NewTokenBucket(rps, burst)
+		rt = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			if err := tb.Wait(req.Context()); err != nil {
+				return nil, err
+			}
+			return rt.RoundTrip(req)
+		})
+	}
+
+	if maxConcurrent > 0 {
+		mw := concurrencyMiddleware(maxConcurrent)
+		rt = mw(rt)
+	}
+
+	return rt
 }

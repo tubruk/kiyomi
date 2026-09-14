@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chickenzord/go-brisk"
 	"github.com/labstack/echo/v4"
 	"github.com/tubruk/kiyomi/internal/cache"
 	"github.com/tubruk/kiyomi/internal/config"
@@ -41,15 +42,23 @@ type Handler struct {
 func NewHandler(cfg *config.Config, lib *library.Library, jobStore queue.JobStore, enqueuer queue.Enqueuer) *Handler {
 	fpStore := fingerprint.NewMemoryStore()
 
-	// Create an HTTP client configured with TLS fingerprinting transport and transient retry
-	transport := fingerprint.NewTransport(func() (fingerprint.TLSProfile, bool) {
-		return fingerprint.TLSProfileDefault, false
-	})
+	jar, _ := cookiejar.New(nil)
 
-	// Apply DNS override if configured. Preserves the fingerprint chain.
+	builder := brisk.NewBuilder().
+		WithCookieJar(jar).
+		WithTimeout(15 * time.Second).
+		WithRetryBuilder(func(rb *brisk.RetryBuilder) {
+			rb.MaxRetries(2).
+				InitialBackoff(100 * time.Millisecond).
+				BackoffFactor(2.0).
+				When(func(resp *http.Response, err error) bool {
+					return sdk.IsTransientError(err, resp)
+				})
+		})
+
 	if cfg != nil && len(cfg.DNSResolvers) > 0 {
 		if specs, _, err := dnsresolver.ParseList(strings.Join(cfg.DNSResolvers, ",")); err == nil {
-			transport.DialContext = dnsresolver.DialFunc(specs)
+			builder.WithDialContext(dnsresolver.DialFunc(specs))
 		} else {
 			slog.Warn("api: invalid dns resolver urls, falling back to system resolver",
 				slog.String("error", err.Error()),
@@ -57,12 +66,13 @@ func NewHandler(cfg *config.Config, lib *library.Library, jobStore queue.JobStor
 		}
 	}
 
-	jar, _ := cookiejar.New(nil)
-
-	client := &http.Client{
-		Transport: sdk.NewRetryTransport(transport),
-		Timeout:   15 * time.Second,
-		Jar:       jar,
+	client, err := builder.Build()
+	if err != nil {
+		slog.Error("api: failed to initialize brisk http client", slog.String("error", err.Error()))
+		client = &http.Client{
+			Timeout: 15 * time.Second,
+			Jar:     jar,
+		}
 	}
 
 	reg := provider.NewRegistry()

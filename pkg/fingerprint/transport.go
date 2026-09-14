@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chickenzord/go-brisk"
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/net/proxy"
 )
@@ -432,9 +433,13 @@ func tlsProfileFromResolver(resolve ProfileResolver) (TLSProfile, bool) {
 func helloIDFor(p TLSProfile) (utls.ClientHelloID, error) {
 	switch p {
 	case TLSProfileChrome:
-		return utls.HelloChrome_120, nil
+		return brisk.TLSProfileChrome120.ClientHelloID(), nil
 	case TLSProfileFirefox:
-		return utls.HelloFirefox_120, nil
+		return brisk.TLSProfileFirefox120.ClientHelloID(), nil
+	case TLSProfileSafari:
+		return brisk.TLSProfileSafari16.ClientHelloID(), nil
+	case TLSProfileEdge:
+		return brisk.TLSProfileEdge106.ClientHelloID(), nil
 	case TLSProfileDefault:
 		return utls.ClientHelloID{}, errors.New("fingerprint: default profile reached utls path; caller bug")
 	default:

@@ -420,3 +420,134 @@ func TestNewClient_DNSResolvers_Precedence(t *testing.T) {
 	assert.True(t, clientWithDial.config.customDialContext != nil,
 		"WithDNSResolver should win over WithDNSResolvers")
 }
+
+func TestWithTLSProfile_ExtendedProfiles(t *testing.T) {
+	assert.True(t, TLSProfileSafari.Valid())
+	assert.True(t, TLSProfileEdge.Valid())
+
+	cSafari := NewClient(WithTLSProfile(TLSProfileSafari))
+	assert.Equal(t, TLSProfileSafari, cSafari.config.tlsProfile)
+
+	cEdge := NewClient(WithTLSProfile(TLSProfileEdge))
+	assert.Equal(t, TLSProfileEdge, cEdge.config.tlsProfile)
+
+	// Verify brisk mapping
+	assert.Equal(t, "Safari", briskProfileForProfile(TLSProfileSafari).String())
+	assert.Equal(t, "Edge", briskProfileForProfile(TLSProfileEdge).String())
+	assert.Equal(t, "Chrome", briskProfileForProfile(TLSProfileChrome).String())
+	assert.Equal(t, "Firefox", briskProfileForProfile(TLSProfileFirefox).String())
+
+	// Test custom utls.ClientHelloID mapping
+	customID := utls.ClientHelloID{Client: "CustomClient", Version: "1.0"}
+	p := toBriskProfile(customID)
+	assert.Equal(t, "CustomClient", p.String())
+	assert.Equal(t, customID, p.ClientHelloID())
+}
+
+func TestNewBriskOptions_ConfigFields(t *testing.T) {
+	client := NewClient(
+		WithDelayJitter(10*time.Millisecond, 50*time.Millisecond),
+		WithHostRateLimit(20, 5),
+		WithSingleflight(),
+		WithRandomTLSProfile(),
+	)
+
+	assert.Equal(t, 10*time.Millisecond, client.config.delayMin)
+	assert.Equal(t, 50*time.Millisecond, client.config.delayMax)
+	assert.Equal(t, float64(20), client.config.hostRateLimitRPS)
+	assert.Equal(t, 5, client.config.hostRateLimitBurst)
+	assert.True(t, client.config.singleflight)
+	assert.True(t, client.config.randomTLSProfile)
+}
+
+func TestSingleflight_Deduplication(t *testing.T) {
+	var handlerHits int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&handlerHits, 1)
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("singleflight response"))
+	}))
+	defer ts.Close()
+
+	client := NewClient(WithSingleflight())
+
+	var wg sync.WaitGroup
+	results := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		idx := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := client.Get(context.Background(), ts.URL+"/dedup")
+			if assert.NoError(t, err) {
+				body, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				results[idx] = string(body)
+			}
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&handlerHits), "concurrent requests for identical URL should be deduplicated")
+	for _, res := range results {
+		assert.Equal(t, "singleflight response", res)
+	}
+}
+
+func TestWithTransport_CustomRoundTripper(t *testing.T) {
+	var executed bool
+	customRT := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		executed = true
+		rec := httptest.NewRecorder()
+		rec.WriteHeader(http.StatusOK)
+		_, _ = rec.WriteString("from custom transport")
+		return rec.Result(), nil
+	})
+
+	client := NewClient(
+		WithTransport(customRT),
+		WithHeader("X-Custom-Test", "active"),
+	)
+
+	resp, err := client.Get(context.Background(), "http://example.internal/test")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.True(t, executed)
+	assert.Equal(t, "from custom transport", string(body))
+}
+
+func TestRetryTransport_DirectRoundTrip(t *testing.T) {
+	var calls int32
+	mockRT := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		call := atomic.AddInt32(&calls, 1)
+		if call < 2 {
+			rec := httptest.NewRecorder()
+			rec.WriteHeader(http.StatusBadGateway) // 502
+			return rec.Result(), nil
+		}
+		rec := httptest.NewRecorder()
+		rec.WriteHeader(http.StatusOK)
+		_, _ = rec.WriteString("retry success")
+		return rec.Result(), nil
+	})
+
+	rt := NewRetryTransport(mockRT)
+	rt.MinBackoff = 5 * time.Millisecond
+	rt.MaxBackoff = 20 * time.Millisecond
+
+	req, err := http.NewRequest(http.MethodGet, "http://mock.internal/retry", nil)
+	require.NoError(t, err)
+
+	resp, err := rt.RoundTrip(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	assert.Equal(t, "retry success", string(body))
+	assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
+}
+

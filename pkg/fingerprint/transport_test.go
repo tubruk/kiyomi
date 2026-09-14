@@ -184,6 +184,32 @@ func TestDialDefaultProfileBypassesUtls(t *testing.T) {
 	}
 }
 
+func TestDialSafari16WritesClientHello(t *testing.T) {
+	hello := runDial(t, TLSProfileSafari)
+	if len(hello) < 9 {
+		t.Fatalf("Client Hello too short: %d bytes", len(hello))
+	}
+	if hello[0] != 0x16 || hello[5] != 0x01 {
+		t.Errorf("not a ClientHello: %x %x", hello[0], hello[5])
+	}
+	if len(hello) < 200 {
+		t.Errorf("Safari Client Hello too small: %d bytes", len(hello))
+	}
+}
+
+func TestDialEdge106WritesClientHello(t *testing.T) {
+	hello := runDial(t, TLSProfileEdge)
+	if len(hello) < 9 {
+		t.Fatalf("Client Hello too short: %d bytes", len(hello))
+	}
+	if hello[0] != 0x16 || hello[5] != 0x01 {
+		t.Errorf("not a ClientHello: %x %x", hello[0], hello[5])
+	}
+	if len(hello) < 200 {
+		t.Errorf("Edge Client Hello too small: %d bytes", len(hello))
+	}
+}
+
 func TestDialUnknownProfileClosesConnAndErrors(t *testing.T) {
 	conn := newRecordingConn()
 	conn.readBuf.Write(minimalServerHello)
@@ -191,7 +217,7 @@ func TestDialUnknownProfileClosesConnAndErrors(t *testing.T) {
 		return conn, nil
 	}}
 
-	resolve := func() (TLSProfile, bool) { return TLSProfile("safari"), true }
+	resolve := func() (TLSProfile, bool) { return TLSProfile("unknown"), true }
 	dialCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -208,7 +234,7 @@ func TestDialUnknownProfileClosesConnAndErrors(t *testing.T) {
 }
 
 func TestHelloIDForKnownProfiles(t *testing.T) {
-	for _, p := range []TLSProfile{TLSProfileChrome, TLSProfileFirefox} {
+	for _, p := range []TLSProfile{TLSProfileChrome, TLSProfileFirefox, TLSProfileSafari, TLSProfileEdge} {
 		if _, err := helloIDFor(p); err != nil {
 			t.Errorf("helloIDFor(%q) error: %v", p, err)
 		}
@@ -216,7 +242,7 @@ func TestHelloIDForKnownProfiles(t *testing.T) {
 }
 
 func TestHelloIDForUnknownErrors(t *testing.T) {
-	if _, err := helloIDFor(TLSProfile("safari")); err == nil {
+	if _, err := helloIDFor(TLSProfile("unknown")); err == nil {
 		t.Error("expected error for unknown profile")
 	}
 	if _, err := helloIDFor(TLSProfileDefault); err == nil {
